@@ -1,10 +1,12 @@
-//! Fullscreen egui annotate overlay (Milestone 4 + settings gear).
+//! Floating annotate window (left Liquid Glass tool strip + image canvas).
 //!
-//! Quiet desktop chrome: neutral surfaces, small radius, no glow / pills / emoji.
-//! Design dials: ENERGY 1 / RHYTHM 1 / MOTION 1 (tool overlay, not marketing UI).
+//! Layout matches KM sketch: vertical pill glass bar LEFT of the capture; not fullscreen.
+//! Glass is functional-layer only (HIG materials / liquid-glass). Esc cancels/discards;
+//! Save and Copy dismiss after a successful write.
 //!
-//! Design reasons (R-31): charcoal chrome so the capture stays focal; one red accent
-//! for markup strokes only; pixelate preview uses muted fill (privacy, not decoration).
+//! Stay-on-top: `ViewportBuilder::with_always_on_top` via winit. On Wayland many
+//! compositors ignore or gate always-on-top (layer-shell / xdg-activation); X11 is
+//! more reliable. Documented in README / user-guide.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -15,13 +17,18 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
 use crate::settings::{show_settings_window, EmbeddedSettings};
-use crate::ui::{self, ACTION_FILL, MUTED};
+use crate::ui::{
+    self, glass_toolbar_frame, ACTION_FILL, ANNOTATE_BG, GLASS_IDLE, GLASS_PRIMARY, GLASS_SELECTED,
+    MUTED, TOOLBAR_GUTTER, TOOLBAR_WIDTH, WINDOW_PAD,
+};
 
 /// Result of the annotate session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotateOutcome {
-    /// User confirmed; annotated PNG was written to the path.
+    /// User confirmed Save; annotated PNG was written.
     Saved,
+    /// User confirmed Copy; annotated PNG was written — caller should copy to clipboard.
+    Copied,
     /// User cancelled (Escape); path left unchanged.
     Cancelled,
 }
@@ -44,9 +51,13 @@ enum Shape {
 /// Block size for privacy pixelation (image pixels per mosaic cell).
 const PIXELATE_BLOCK: u32 = 12;
 
-/// Open a fullscreen annotate overlay on an existing PNG.
+/// Max displayed image size inside the floating window (px). Larger captures scale down.
+const MAX_DISPLAY_W: f32 = 1100.0;
+const MAX_DISPLAY_H: f32 = 800.0;
+
+/// Open a floating annotate window on an existing PNG.
 ///
-/// On Save / Enter: composites annotations onto the image and overwrites `path`.
+/// On Save / Enter / Copy: composites annotations onto the image and overwrites `path`.
 /// On Escape: clears an in-progress drag first; with no draft, returns
 /// [`AnnotateOutcome::Cancelled`] without modifying the file.
 ///
@@ -63,6 +74,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
         bail!("PNG has empty dimensions: {}", path.display());
     }
 
+    let (win_w, win_h) = floating_window_size(w, h);
     let rgba_bytes = rgba.as_raw().clone();
     let path_buf = path.to_path_buf();
     let outcome = Arc::new(Mutex::new(AnnotateOutcome::Cancelled));
@@ -70,9 +82,16 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_title("lightsnip annotate")
-            .with_fullscreen(true)
-            .with_decorations(false),
+            .with_title("Annotate")
+            .with_inner_size([win_w, win_h])
+            .with_min_inner_size([
+                TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
+                200.0,
+            ])
+            .with_decorations(true)
+            .with_resizable(true)
+            // Best-effort; Wayland compositors often ignore or restrict this.
+            .with_always_on_top(),
         ..Default::default()
     };
 
@@ -83,7 +102,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
             "lightsnip annotate",
             options,
             Box::new(move |cc| {
-                ui::apply_quiet_visuals(&cc.egui_ctx);
+                ui::apply_annotate_visuals(&cc.egui_ctx);
                 Ok(Box::new(AnnotateApp::new(
                     &cc.egui_ctx,
                     rgba_bytes,
@@ -99,11 +118,11 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     match run_result {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
-            bail!("annotate overlay failed (need a display?): {e}");
+            bail!("annotate window failed (need a display?): {e}");
         }
         Err(_) => {
             bail!(
-                "annotate overlay panicked (missing display libs such as libxkbcommon?)"
+                "annotate window panicked (missing display libs such as libxkbcommon?)"
             );
         }
     }
@@ -112,6 +131,18 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     Ok(result)
+}
+
+fn floating_window_size(img_w: u32, img_h: u32) -> (f32, f32) {
+    let scale = (MAX_DISPLAY_W / img_w as f32)
+        .min(MAX_DISPLAY_H / img_h as f32)
+        .min(1.0);
+    let disp_w = img_w as f32 * scale;
+    let disp_h = img_h as f32 * scale;
+    (
+        TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_w + WINDOW_PAD * 2.0,
+        disp_h + WINDOW_PAD * 2.0,
+    )
 }
 
 fn ensure_display_available() -> Result<()> {
@@ -137,7 +168,7 @@ struct AnnotateApp {
     texture: egui::TextureHandle,
     width: u32,
     height: u32,
-    /// Original pixels (RGBA8). Unchanged until Save.
+    /// Original pixels (RGBA8). Unchanged until Save/Copy.
     pixels: Vec<u8>,
     shapes: Vec<Shape>,
     tool: Tool,
@@ -170,7 +201,6 @@ impl AnnotateApp {
             height,
             pixels,
             shapes: Vec::new(),
-            // Default: arrow for callouts; pick Pixelate when redacting.
             tool: Tool::Arrow,
             drag_start: None,
             draft: None,
@@ -210,7 +240,7 @@ impl AnnotateApp {
         self.drag_start = None;
     }
 
-    fn save_and_close(&mut self) -> Result<()> {
+    fn write_annotated_png(&mut self) -> Result<()> {
         let mut img = RgbaImage::from_raw(self.width, self.height, self.pixels.clone())
             .ok_or_else(|| anyhow::anyhow!("rebuild RGBA image for export"))?;
         for shape in &self.shapes {
@@ -218,7 +248,18 @@ impl AnnotateApp {
         }
         img.save(&self.path)
             .with_context(|| format!("write annotated PNG {}", self.path.display()))?;
+        Ok(())
+    }
+
+    fn save_and_close(&mut self) -> Result<()> {
+        self.write_annotated_png()?;
         self.set_outcome(AnnotateOutcome::Saved);
+        Ok(())
+    }
+
+    fn copy_and_close(&mut self) -> Result<()> {
+        self.write_annotated_png()?;
+        self.set_outcome(AnnotateOutcome::Copied);
         Ok(())
     }
 
@@ -232,6 +273,85 @@ impl AnnotateApp {
             Tool::Pixelate => Shape::Pixelate { a: start, b: end },
         }
     }
+
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+
+            glass_tool_button(ui, "Arrow", self.tool == Tool::Arrow, || {
+                self.tool = Tool::Arrow;
+            });
+            glass_tool_button(ui, "Box", self.tool == Tool::Rect, || {
+                self.tool = Tool::Rect;
+            });
+            glass_tool_button(ui, "Pixel", self.tool == Tool::Pixelate, || {
+                self.tool = Tool::Pixelate;
+            });
+
+            ui.add_space(4.0);
+            if ui
+                .add(egui::Button::new("Undo").fill(GLASS_IDLE).min_size(egui::vec2(44.0, 28.0)))
+                .on_hover_text("Undo (Ctrl+Z)")
+                .clicked()
+            {
+                self.undo();
+            }
+            if ui
+                .add(egui::Button::new("Clear").fill(GLASS_IDLE).min_size(egui::vec2(44.0, 28.0)))
+                .on_hover_text("Clear all marks")
+                .clicked()
+            {
+                self.clear_all();
+            }
+
+            ui.add_space(4.0);
+            if ui
+                .add(
+                    egui::Button::new("Settings")
+                        .fill(GLASS_IDLE)
+                        .min_size(egui::vec2(44.0, 28.0)),
+                )
+                .clicked()
+            {
+                self.show_settings = true;
+            }
+
+            ui.add_space(8.0);
+            if ui
+                .add(
+                    egui::Button::new("Save")
+                        .fill(GLASS_PRIMARY)
+                        .min_size(egui::vec2(44.0, 30.0)),
+                )
+                .on_hover_text("Save and close (Enter)")
+                .clicked()
+            {
+                if let Err(err) = self.save_and_close() {
+                    eprintln!("annotate save failed: {err:#}");
+                }
+            }
+            if ui
+                .add(
+                    egui::Button::new("Copy")
+                        .fill(ACTION_FILL)
+                        .min_size(egui::vec2(44.0, 30.0)),
+                )
+                .on_hover_text("Save, copy to clipboard, and close")
+                .clicked()
+            {
+                if let Err(err) = self.copy_and_close() {
+                    eprintln!("annotate copy failed: {err:#}");
+                }
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Esc")
+                    .color(MUTED)
+                    .size(10.0),
+            );
+        });
+    }
 }
 
 impl eframe::App for AnnotateApp {
@@ -241,8 +361,8 @@ impl eframe::App for AnnotateApp {
             return;
         }
 
-        // Keyboard: Escape clears draft then cancels; Enter saves; Ctrl+Z undoes.
-        // When Settings is open, Escape closes Settings first (does not cancel annotate).
+        // Escape clears draft then cancels; Enter saves; Ctrl+Z undoes.
+        // When Settings is open, Escape closes Settings first.
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
                 if self.show_settings {
@@ -266,122 +386,87 @@ impl eframe::App for AnnotateApp {
             return;
         }
 
-        egui::TopBottomPanel::bottom("toolbar")
-            .exact_height(44.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(0x22, 0x22, 0x24))
-                    .inner_margin(8.0),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-
-                    tool_button(ui, "Arrow", self.tool == Tool::Arrow, || {
-                        self.tool = Tool::Arrow;
-                    });
-                    tool_button(ui, "Box", self.tool == Tool::Rect, || {
-                        self.tool = Tool::Rect;
-                    });
-                    tool_button(ui, "Pixelate", self.tool == Tool::Pixelate, || {
-                        self.tool = Tool::Pixelate;
-                    });
-
-                    ui.add_space(8.0);
-                    if ui.button("Undo").clicked() {
-                        self.undo();
-                    }
-                    if ui.button("Clear").clicked() {
-                        self.clear_all();
-                    }
-                    if ui.button("Settings").clicked() {
-                        self.show_settings = true;
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Cancel").clicked() {
-                            self.set_outcome(AnnotateOutcome::Cancelled);
-                        }
-                        if ui
-                            .add(egui::Button::new("Save").fill(ACTION_FILL))
-                            .clicked()
-                        {
-                            if let Err(err) = self.save_and_close() {
-                                eprintln!("annotate save failed: {err:#}");
-                            }
-                        }
-                        ui.label(
-                            egui::RichText::new("Enter save · Esc cancel")
-                                .color(MUTED)
-                                .size(12.0),
-                        );
-                    });
-                });
-            });
-
         show_settings_window(ctx, &mut self.show_settings, &mut self.settings);
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(Color32::from_rgb(0x12, 0x12, 0x14)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(ANNOTATE_BG)
+                    .inner_margin(WINDOW_PAD),
+            )
             .show(ctx, |ui| {
-                let available = ui.available_size();
-                let img_size = Vec2::new(self.width as f32, self.height as f32);
-                let scale = (available.x / img_size.x)
-                    .min(available.y / img_size.y)
-                    .min(1.0);
-                let display = img_size * scale;
-                let (response, painter) =
-                    ui.allocate_painter(available, Sense::click_and_drag());
+                ui.horizontal_top(|ui| {
+                    // Left: Liquid Glass vertical pill (functional layer).
+                    let toolbar_height = ui.available_height().max(120.0);
+                    glass_toolbar_frame()
+                        .show(ui, |ui| {
+                            ui.set_width(TOOLBAR_WIDTH - 12.0);
+                            ui.set_min_height(toolbar_height - 8.0);
+                            self.draw_toolbar(ui);
+                        });
 
-                let origin = response.rect.min
-                    + Vec2::new(
-                        (available.x - display.x) * 0.5,
-                        (available.y - display.y) * 0.5,
+                    ui.add_space(TOOLBAR_GUTTER);
+
+                    // Right: image canvas (content layer — opaque, no glass).
+                    let available = ui.available_size();
+                    let img_size = Vec2::new(self.width as f32, self.height as f32);
+                    let scale = (available.x / img_size.x)
+                        .min(available.y / img_size.y)
+                        .min(1.0);
+                    let display = img_size * scale;
+                    let (response, painter) =
+                        ui.allocate_painter(available, Sense::click_and_drag());
+
+                    let origin = response.rect.min
+                        + Vec2::new(
+                            (available.x - display.x) * 0.5,
+                            (available.y - display.y) * 0.5,
+                        );
+                    let image_rect = Rect::from_min_size(origin, display);
+
+                    painter.image(
+                        self.texture.id(),
+                        image_rect,
+                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::WHITE,
                     );
-                let image_rect = Rect::from_min_size(origin, display);
 
-                painter.image(
-                    self.texture.id(),
-                    image_rect,
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                    Color32::WHITE,
-                );
+                    let to_screen = |p: Pos2| -> Pos2 {
+                        Pos2::new(origin.x + p.x * scale, origin.y + p.y * scale)
+                    };
+                    let to_image = |p: Pos2| -> Pos2 {
+                        Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
+                    };
 
-                let to_screen = |p: Pos2| -> Pos2 {
-                    Pos2::new(origin.x + p.x * scale, origin.y + p.y * scale)
-                };
-                let to_image = |p: Pos2| -> Pos2 {
-                    Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
-                };
+                    let stroke = Stroke::new(STROKE_WIDTH, STROKE);
+                    for shape in self.shapes.iter().chain(self.draft.iter()) {
+                        paint_shape(&painter, *shape, to_screen, stroke, scale);
+                    }
 
-                let stroke = Stroke::new(STROKE_WIDTH, STROKE);
-                for shape in self.shapes.iter().chain(self.draft.iter()) {
-                    paint_shape(&painter, *shape, to_screen, stroke, scale);
-                }
-
-                if response.drag_started() {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        if image_rect.contains(pos) {
-                            self.drag_start = Some(to_image(pos));
+                    if response.drag_started() {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            if image_rect.contains(pos) {
+                                self.drag_start = Some(to_image(pos));
+                            }
                         }
                     }
-                }
-                if response.dragged() {
-                    if let (Some(start), Some(pos)) =
-                        (self.drag_start, response.interact_pointer_pos())
-                    {
-                        let end = clamp_to_image(to_image(pos), self.width, self.height);
-                        self.draft = Some(self.draft_from_drag(start, end));
-                    }
-                }
-                if response.drag_stopped() {
-                    if let Some(shape) = self.draft.take() {
-                        if shape_is_meaningful(shape) {
-                            self.shapes.push(shape);
+                    if response.dragged() {
+                        if let (Some(start), Some(pos)) =
+                            (self.drag_start, response.interact_pointer_pos())
+                        {
+                            let end = clamp_to_image(to_image(pos), self.width, self.height);
+                            self.draft = Some(self.draft_from_drag(start, end));
                         }
                     }
-                    self.drag_start = None;
-                }
+                    if response.drag_stopped() {
+                        if let Some(shape) = self.draft.take() {
+                            if shape_is_meaningful(shape) {
+                                self.shapes.push(shape);
+                            }
+                        }
+                        self.drag_start = None;
+                    }
+                });
             });
 
         if self.finished {
@@ -390,13 +475,12 @@ impl eframe::App for AnnotateApp {
     }
 }
 
-fn tool_button(ui: &mut egui::Ui, label: &str, selected: bool, on_click: impl FnOnce()) {
-    let fill = if selected {
-        Color32::from_rgb(0x44, 0x44, 0x46)
-    } else {
-        Color32::from_rgb(0x2C, 0x2C, 0x2E)
-    };
-    if ui.add(egui::Button::new(label).fill(fill)).clicked() {
+fn glass_tool_button(ui: &mut egui::Ui, label: &str, selected: bool, on_click: impl FnOnce()) {
+    let fill = if selected { GLASS_SELECTED } else { GLASS_IDLE };
+    if ui
+        .add(egui::Button::new(label).fill(fill).min_size(egui::vec2(44.0, 28.0)))
+        .clicked()
+    {
         on_click();
     }
 }
@@ -439,9 +523,7 @@ fn paint_shape(
         }
         Shape::Pixelate { a, b } => {
             let r = Rect::from_two_pos(to_screen(a), to_screen(b));
-            // Preview: muted fill + light outline (actual mosaic applied on Save).
             painter.rect_filled(r, 0.0, PIXELATE_PREVIEW_FILL);
-            // Screen-space block hint so the region reads as redaction, not a box stroke.
             let block_screen = (PIXELATE_BLOCK as f32 * scale).max(4.0);
             let mut y = r.min.y;
             while y < r.max.y {
@@ -574,9 +656,7 @@ fn average_block(img: &RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32) -> Rgba<u8
 
 fn draw_thick_line(img: &mut RgbaImage, a: Pos2, b: Pos2, color: Rgba<u8>, width: f32) {
     let radius = (width * 0.5).max(1.0) as i32;
-    // Core line
     draw_line_segment_mut(img, (a.x, a.y), (b.x, b.y), color);
-    // Approximate thickness with parallel offsets + end caps.
     let dir = b - a;
     let len = dir.length().max(1.0);
     let perp = Vec2::new(-dir.y / len, dir.x / len);
@@ -661,11 +741,9 @@ mod tests {
             Pos2::new(24.0, 24.0),
             8,
         );
-        // Within one mosaic cell, all pixels match.
         let p00 = img.get_pixel(0, 0).0;
         let p77 = img.get_pixel(7, 7).0;
         assert_eq!(p00, p77);
-        // Outside the region stays checkerboard.
         assert_ne!(
             img.get_pixel(30, 30).0[0],
             img.get_pixel(31, 30).0[0],
@@ -693,7 +771,6 @@ mod tests {
 
     #[test]
     fn escape_clears_draft_before_cancel() {
-        // Mirrors AnnotateApp::cancel_draft_or_session without needing a GPU texture.
         fn step(
             draft: &mut Option<Shape>,
             drag_start: &mut Option<Pos2>,
@@ -717,5 +794,19 @@ mod tests {
         assert!(draft.is_none());
         assert!(drag_start.is_none());
         assert!(step(&mut draft, &mut drag_start));
+    }
+
+    #[test]
+    fn floating_window_includes_toolbar_and_gutter() {
+        let (w, h) = floating_window_size(400, 300);
+        assert!(w > 400.0 + TOOLBAR_WIDTH);
+        assert!(h >= 300.0);
+    }
+
+    #[test]
+    fn floating_window_clamps_huge_captures() {
+        let (w, h) = floating_window_size(4000, 3000);
+        assert!(w <= TOOLBAR_WIDTH + TOOLBAR_GUTTER + MAX_DISPLAY_W + WINDOW_PAD * 2.0 + 1.0);
+        assert!(h <= MAX_DISPLAY_H + WINDOW_PAD * 2.0 + 1.0);
     }
 }

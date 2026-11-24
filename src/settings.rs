@@ -1,16 +1,20 @@
-//! Settings window (Milestone 5): six fields, quiet charcoal chrome, TOML persist.
+//! Settings window: Apple HIG–inspired grouped light chrome.
 //!
-//! Design dials: ENERGY 1 / RHYTHM 1 / MOTION 1. Focal point: Save button + form fields.
-//! Accent: lifted charcoal action fill only (no purple/cyan/glow).
+//! Clarity / deference / depth: grouped cards (HIG boxes), restrained materials,
+//! one primary Save. No purple / glow / marketing pills.
+//!
+//! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1.
 
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use eframe::egui::{self, Color32, ViewportBuilder};
+use eframe::egui::{self, ViewportBuilder};
 
 use crate::config::{config_path, Config};
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
-use crate::ui::{self, ACTION_FILL, MUTED};
+use crate::ui::{
+    self, settings_group_frame, SETTINGS_BG, SETTINGS_LABEL, SETTINGS_PRIMARY, SETTINGS_SECONDARY,
+};
 
 /// Open the standalone settings window. Blocks until closed.
 pub fn run_settings_window() -> Result<()> {
@@ -19,9 +23,11 @@ pub fn run_settings_window() -> Result<()> {
     let cfg = Config::load().unwrap_or_default();
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_title("lightsnip settings")
-            .with_inner_size([520.0, 560.0])
-            .with_min_inner_size([420.0, 420.0]),
+            .with_title("lightsnip Settings")
+            .with_inner_size([520.0, 620.0])
+            .with_min_inner_size([420.0, 480.0])
+            // Settings is infrequently opened; dim maximize per HIG settings.md.
+            .with_maximize_button(false),
         ..Default::default()
     };
 
@@ -30,7 +36,7 @@ pub fn run_settings_window() -> Result<()> {
             "lightsnip settings",
             options,
             Box::new(move |cc| {
-                ui::apply_quiet_visuals(&cc.egui_ctx);
+                ui::apply_settings_visuals(&cc.egui_ctx);
                 Ok(Box::new(SettingsApp::new(cfg)))
             }),
         )
@@ -102,6 +108,139 @@ impl SettingsApp {
             }
         }
     }
+
+    fn draw_form(&mut self, ui: &mut egui::Ui, compact: bool) {
+        if !compact {
+            ui.label(
+                egui::RichText::new("Settings")
+                    .color(SETTINGS_LABEL)
+                    .size(22.0)
+                    .strong(),
+            );
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("Defaults for capture, annotate, and session helpers.")
+                    .color(SETTINGS_SECONDARY)
+                    .size(12.0),
+            );
+            ui.add_space(14.0);
+        }
+
+        // Shortcuts
+        settings_group_frame().show(ui, |ui| {
+            group_title(ui, "Shortcuts");
+            ui.label(
+                egui::RichText::new(
+                    "Wayland has no portable global hotkey API. Bind this command in your compositor (Sway/Hyprland) or DE keyboard settings (GNOME/KDE).",
+                )
+                .color(SETTINGS_SECONDARY)
+                .size(12.0),
+            );
+            ui.add_space(6.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.shortcut_text)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("bind command"),
+            );
+        });
+        ui.add_space(10.0);
+
+        // Session
+        settings_group_frame().show(ui, |ui| {
+            group_title(ui, "Session");
+            ui.checkbox(&mut self.cfg.run_at_startup, "Run at startup (XDG autostart)");
+            helper(ui, "Writes ~/.config/autostart/lightsnip.desktop → tray. Off by default.");
+            ui.add_space(4.0);
+            ui.checkbox(
+                &mut self.cfg.replace_default_screenshot,
+                "Replace default screenshot tool (helper only)",
+            );
+            helper(
+                ui,
+                "Installs a user .desktop entry. Does not steal PrintScreen on GNOME/KDE; bind the key yourself. Off by default.",
+            );
+            ui.add_space(4.0);
+            ui.checkbox(
+                &mut self.cfg.stay_in_tray,
+                "Stay in taskbar / tray (StatusNotifierItem)",
+            );
+            helper(
+                ui,
+                "Needs a StatusNotifier watcher (KDE, many trays). GNOME often needs an AppIndicator extension. Off by default.",
+            );
+        });
+        ui.add_space(10.0);
+
+        // Output
+        settings_group_frame().show(ui, |ui| {
+            group_title(ui, "Output");
+            ui.label(
+                egui::RichText::new("Save directory")
+                    .color(SETTINGS_LABEL)
+                    .size(12.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.save_dir_text)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("~/Pictures/lightsnip"),
+            );
+            helper(ui, "CLI --save-dir and LIGHTSNIP_SAVE_DIR still override this.");
+            ui.add_space(4.0);
+            ui.checkbox(
+                &mut self.cfg.save_to_clipboard,
+                "Save to clipboard by default",
+            );
+            helper(
+                ui,
+                "Used when neither --clipboard nor --no-clipboard is passed. Annotate Copy always copies.",
+            );
+        });
+
+        ui.add_space(16.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add(
+                    egui::Button::new("Save")
+                        .fill(SETTINGS_PRIMARY)
+                        .min_size(egui::vec2(88.0, 28.0)),
+                )
+                .clicked()
+            {
+                self.persist();
+            }
+            if !compact
+                && ui
+                    .add(egui::Button::new("Close").min_size(egui::vec2(72.0, 28.0)))
+                    .clicked()
+            {
+                self.close_requested = true;
+            }
+        });
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(&self.status)
+                .color(SETTINGS_SECONDARY)
+                .size(12.0),
+        );
+    }
+}
+
+fn group_title(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .color(SETTINGS_LABEL)
+            .size(13.0)
+            .strong(),
+    );
+    ui.add_space(4.0);
+}
+
+fn helper(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .color(SETTINGS_SECONDARY)
+            .size(11.0),
+    );
 }
 
 impl eframe::App for SettingsApp {
@@ -120,118 +259,13 @@ impl eframe::App for SettingsApp {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x22, 0x22, 0x24))
-                    .inner_margin(16.0),
+                    .fill(SETTINGS_BG)
+                    .inner_margin(20.0),
             )
             .show(ctx, |ui| {
-                ui.heading(
-                    egui::RichText::new("lightsnip settings")
-                        .color(Color32::from_rgb(0xE8, 0xE8, 0xE8))
-                        .size(18.0),
-                );
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new("Quiet defaults. Optional install stays separate.")
-                        .color(MUTED)
-                        .size(12.0),
-                );
-                ui.add_space(12.0);
-
-                ui.label(egui::RichText::new("Shortcuts").strong());
-                ui.label(
-                    egui::RichText::new(
-                        "Wayland has no portable global hotkey API. Bind this command in your compositor (Sway/Hyprland) or DE keyboard settings (GNOME/KDE).",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.shortcut_text)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("bind command"),
-                );
-                ui.add_space(10.0);
-
-                ui.label(egui::RichText::new("Session").strong());
-                ui.checkbox(&mut self.cfg.run_at_startup, "Run at startup (XDG autostart)");
-                ui.label(
-                    egui::RichText::new(
-                        "Writes ~/.config/autostart/lightsnip.desktop → launches tray. Off by default.",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-                ui.add_space(4.0);
-                ui.checkbox(
-                    &mut self.cfg.replace_default_screenshot,
-                    "Replace default screenshot tool (helper only)",
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "Installs a user .desktop entry. Does not steal PrintScreen on GNOME/KDE; bind the key yourself. Off by default.",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-                ui.add_space(4.0);
-                ui.checkbox(
-                    &mut self.cfg.stay_in_tray,
-                    "Stay in taskbar / tray (StatusNotifierItem)",
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "Needs a working StatusNotifier watcher (KDE, many trays). GNOME often needs an AppIndicator extension. Off by default.",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-                ui.add_space(10.0);
-
-                ui.label(egui::RichText::new("Output").strong());
-                ui.label(egui::RichText::new("Save directory").size(12.0));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.save_dir_text)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("~/Pictures/lightsnip"),
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "CLI --save-dir and LIGHTSNIP_SAVE_DIR still override this.",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-                ui.add_space(4.0);
-                ui.checkbox(
-                    &mut self.cfg.save_to_clipboard,
-                    "Save to clipboard by default",
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "Used when neither --clipboard nor --no-clipboard is passed.",
-                    )
-                    .color(MUTED)
-                    .size(12.0),
-                );
-
-                ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::Button::new("Save")
-                                .fill(ACTION_FILL)
-                                .min_size(egui::vec2(72.0, 28.0)),
-                        )
-                        .clicked()
-                    {
-                        self.persist();
-                    }
-                    if ui.button("Close").clicked() {
-                        self.close_requested = true;
-                    }
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.draw_form(ui, false);
                 });
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new(&self.status).color(MUTED).size(12.0));
             });
     }
 }
@@ -241,12 +275,22 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
     if !*open {
         return;
     }
+    // Embedded sheet uses the annotate dark visuals; restyle frame locally.
     egui::Window::new("Settings")
         .open(open)
         .resizable(true)
-        .default_size([480.0, 520.0])
+        .default_size([460.0, 560.0])
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .fill(SETTINGS_BG)
+                .inner_margin(16.0),
+        )
         .show(ctx, |ui| {
-            state.ui(ui);
+            // Force light labels inside the dark annotate context.
+            ui.style_mut().visuals.override_text_color = Some(SETTINGS_LABEL);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                state.inner.draw_form(ui, true);
+            });
         });
 }
 
@@ -261,47 +305,6 @@ impl EmbeddedSettings {
         Self {
             inner: SettingsApp::new(cfg),
         }
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        // Reuse the same fields via a compact layout matching the standalone window.
-        ui.label(
-            egui::RichText::new("Wayland shortcuts are compositor binds (no portable global grab).")
-                .color(MUTED)
-                .size(12.0),
-        );
-        ui.add(
-            egui::TextEdit::singleline(&mut self.inner.shortcut_text)
-                .desired_width(f32::INFINITY),
-        );
-        ui.checkbox(&mut self.inner.cfg.run_at_startup, "Run at startup");
-        ui.checkbox(
-            &mut self.inner.cfg.replace_default_screenshot,
-            "Replace default (helper .desktop)",
-        );
-        ui.checkbox(&mut self.inner.cfg.stay_in_tray, "Stay in tray");
-        ui.label("Save directory");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.inner.save_dir_text)
-                .desired_width(f32::INFINITY),
-        );
-        ui.checkbox(
-            &mut self.inner.cfg.save_to_clipboard,
-            "Save to clipboard by default",
-        );
-        ui.horizontal(|ui| {
-            if ui
-                .add(egui::Button::new("Save").fill(ACTION_FILL))
-                .clicked()
-            {
-                self.inner.persist();
-            }
-        });
-        ui.label(
-            egui::RichText::new(&self.inner.status)
-                .color(MUTED)
-                .size(12.0),
-        );
     }
 }
 

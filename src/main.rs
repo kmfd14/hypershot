@@ -120,6 +120,10 @@ async fn main() -> Result<()> {
                 AnnotateOutcome::Saved => {
                     finish_output(&work_path, want_clipboard).await?;
                 }
+                AnnotateOutcome::Copied => {
+                    // Copy always forces clipboard, even if config/CLI preferred off.
+                    finish_output(&work_path, true).await?;
+                }
                 AnnotateOutcome::Cancelled => {
                     eprintln!("annotate cancelled");
                 }
@@ -148,21 +152,25 @@ async fn run_capture(
     let output = resolve_output_path(output, Some(dir))?;
     capture_to_png(mode, &output).await?;
 
+    let mut force_clipboard = false;
     if !no_annotate {
         match run_annotate_overlay(&output) {
             Ok(AnnotateOutcome::Saved) => {}
+            Ok(AnnotateOutcome::Copied) => {
+                force_clipboard = true;
+            }
             Ok(AnnotateOutcome::Cancelled) => {
                 let _ = tokio::fs::remove_file(&output).await;
                 eprintln!("annotate cancelled");
                 return Ok(());
             }
             Err(err) => {
-                eprintln!("annotate overlay unavailable ({err:#}); keeping raw capture");
+                eprintln!("annotate window unavailable ({err:#}); keeping raw capture");
             }
         }
     }
 
-    finish_output(&output, want_clipboard).await
+    finish_output(&output, want_clipboard || force_clipboard).await
 }
 
 async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<()> {
