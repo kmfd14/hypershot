@@ -9,9 +9,15 @@ use eframe::egui::{self, Color32, Stroke};
 pub fn apply_quiet_visuals(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
     // Creative-tool dark (R-21): charcoal ladder, attention on content not chrome.
+    // Kill egui dark defaults that still leak into Settings: cyan selection/cursor,
+    // blue hyperlink, soft window shadow, and window/menu radius 6 (pill-adjacent).
     visuals.panel_fill = Color32::from_rgb(0x22, 0x22, 0x24);
     visuals.window_fill = Color32::from_rgb(0x22, 0x22, 0x24);
     visuals.extreme_bg_color = Color32::from_rgb(0x1A, 0x1A, 0x1C);
+    visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(0x22, 0x22, 0x24);
+    visuals.widgets.noninteractive.weak_bg_fill = Color32::from_rgb(0x22, 0x22, 0x24);
+    visuals.widgets.noninteractive.bg_stroke =
+        Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x3A, 0x3C));
     visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
     visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
@@ -39,6 +45,10 @@ pub fn apply_quiet_visuals(ctx: &egui::Context) {
     visuals.widgets.hovered.corner_radius = 3.0.into();
     visuals.widgets.active.corner_radius = 3.0.into();
     visuals.widgets.open.corner_radius = 3.0.into();
+    // Settings Window / menus: match widget radius (R-11), not egui's default 6.
+    visuals.window_corner_radius = 3.0.into();
+    visuals.menu_corner_radius = 3.0.into();
+    visuals.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x3A, 0x3C));
     visuals.window_shadow = egui::Shadow::NONE;
     visuals.popup_shadow = egui::Shadow::NONE;
     ctx.set_visuals(visuals);
