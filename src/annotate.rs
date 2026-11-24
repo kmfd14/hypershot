@@ -1,8 +1,12 @@
-//! Floating annotate window (left Liquid Glass tool strip + image canvas).
+//! Floating annotate window (left pastel tool rail + image canvas).
 //!
-//! Layout matches KM sketch: vertical pill glass bar LEFT of the capture; not fullscreen.
-//! Glass is functional-layer only (HIG materials / liquid-glass). Esc cancels/discards;
-//! Save and Copy dismiss after a successful write.
+//! Layout: vertical tool strip LEFT of the capture, with even outer padding
+//! (`WINDOW_PAD`) on top / left / right / bottom so chrome is not flush to the
+//! window border. Not fullscreen. Esc cancels/discards; Save and Copy dismiss
+//! after a successful write.
+//!
+//! Chrome: flat pastel (restrained purple / gray / white). egui on Wayland cannot
+//! deliver real liquid-glass backdrop-blur, so we avoid frosted imitation.
 //!
 //! Stay-on-top: `ViewportBuilder::with_always_on_top` via winit. On Wayland many
 //! compositors ignore or gate always-on-top (layer-shell / xdg-activation); X11 is
@@ -18,7 +22,9 @@ use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
-    self, glass_toolbar_frame, ACTION_FILL, ANNOTATE_BG, GLASS_IDLE, GLASS_PRIMARY, GLASS_SELECTED,
+    self, glass_color_swatch, glass_icon_button, glass_toolbar_frame, paint_icon_arrow,
+    paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate, paint_icon_save,
+    paint_icon_settings, paint_icon_undo, ACTION_FILL, ANNOTATE_BG, DEFAULT_STROKE, PASTEL_PRIMARY,
     MUTED, TOOLBAR_GUTTER, TOOLBAR_WIDTH, WINDOW_PAD,
 };
 
@@ -43,9 +49,20 @@ enum Tool {
 
 #[derive(Debug, Clone, Copy)]
 enum Shape {
-    Arrow { from: Pos2, to: Pos2 },
-    Rect { a: Pos2, b: Pos2 },
-    Pixelate { a: Pos2, b: Pos2 },
+    Arrow {
+        from: Pos2,
+        to: Pos2,
+        color: Color32,
+    },
+    Rect {
+        a: Pos2,
+        b: Pos2,
+        color: Color32,
+    },
+    Pixelate {
+        a: Pos2,
+        b: Pos2,
+    },
 }
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
@@ -89,6 +106,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
                 200.0,
             ])
             .with_decorations(true)
+            .with_transparent(false)
             .with_resizable(true)
             // Best-effort; Wayland compositors often ignore or restrict this.
             .with_always_on_top(),
@@ -154,8 +172,6 @@ fn ensure_display_available() -> Result<()> {
     Ok(())
 }
 
-/// Markup stroke color - one deliberate accent on the image, not on chrome (R-29 / Part 3).
-const STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 const STROKE_WIDTH: f32 = 3.0;
 
 /// Privacy region outline - muted, not the markup accent (R-31: redaction ≠ callout).
@@ -172,6 +188,7 @@ struct AnnotateApp {
     pixels: Vec<u8>,
     shapes: Vec<Shape>,
     tool: Tool,
+    stroke_color: Color32,
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
     path: std::path::PathBuf,
@@ -202,6 +219,7 @@ impl AnnotateApp {
             pixels,
             shapes: Vec::new(),
             tool: Tool::Arrow,
+            stroke_color: DEFAULT_STROKE,
             drag_start: None,
             draft: None,
             path,
@@ -268,93 +286,87 @@ impl AnnotateApp {
             Tool::Arrow => Shape::Arrow {
                 from: start,
                 to: end,
+                color: self.stroke_color,
             },
-            Tool::Rect => Shape::Rect { a: start, b: end },
+            Tool::Rect => Shape::Rect {
+                a: start,
+                b: end,
+                color: self.stroke_color,
+            },
             Tool::Pixelate => Shape::Pixelate { a: start, b: end },
         }
     }
 
     fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.spacing_mut().item_spacing.y = 8.0;
 
-            glass_tool_button(ui, "Arrow", self.tool == Tool::Arrow, || {
+            if glass_icon_button(ui, self.tool == Tool::Arrow, "Arrow", None, paint_icon_arrow)
+            {
                 self.tool = Tool::Arrow;
-            });
-            glass_tool_button(ui, "Box", self.tool == Tool::Rect, || {
+            }
+            if glass_icon_button(ui, self.tool == Tool::Rect, "Box", None, paint_icon_box) {
                 self.tool = Tool::Rect;
-            });
-            glass_tool_button(ui, "Pixel", self.tool == Tool::Pixelate, || {
+            }
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Pixelate,
+                "Pixelate",
+                None,
+                paint_icon_pixelate,
+            ) {
                 self.tool = Tool::Pixelate;
-            });
+            }
+
+            ui.add_space(2.0);
+            glass_color_swatch(ui, &mut self.stroke_color);
 
             ui.add_space(4.0);
-            if ui
-                .add(egui::Button::new("Undo").fill(GLASS_IDLE).min_size(egui::vec2(44.0, 28.0)))
-                .on_hover_text("Undo (Ctrl+Z)")
-                .clicked()
-            {
+            if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, paint_icon_undo) {
                 self.undo();
             }
-            if ui
-                .add(egui::Button::new("Clear").fill(GLASS_IDLE).min_size(egui::vec2(44.0, 28.0)))
-                .on_hover_text("Clear all marks")
-                .clicked()
-            {
+            if glass_icon_button(ui, false, "Clear all marks", None, paint_icon_clear) {
                 self.clear_all();
             }
-
-            ui.add_space(4.0);
-            if ui
-                .add(
-                    egui::Button::new("Settings")
-                        .fill(GLASS_IDLE)
-                        .min_size(egui::vec2(44.0, 28.0)),
-                )
-                .clicked()
-            {
+            if glass_icon_button(ui, false, "Settings", None, paint_icon_settings) {
                 self.show_settings = true;
             }
 
             ui.add_space(8.0);
-            if ui
-                .add(
-                    egui::Button::new("Save")
-                        .fill(GLASS_PRIMARY)
-                        .min_size(egui::vec2(44.0, 30.0)),
-                )
-                .on_hover_text("Save and close (Enter)")
-                .clicked()
-            {
+            if glass_icon_button(
+                ui,
+                false,
+                "Save and close (Enter)",
+                Some(PASTEL_PRIMARY),
+                paint_icon_save,
+            ) {
                 if let Err(err) = self.save_and_close() {
                     eprintln!("annotate save failed: {err:#}");
                 }
             }
-            if ui
-                .add(
-                    egui::Button::new("Copy")
-                        .fill(ACTION_FILL)
-                        .min_size(egui::vec2(44.0, 30.0)),
-                )
-                .on_hover_text("Save, copy to clipboard, and close")
-                .clicked()
-            {
+            if glass_icon_button(
+                ui,
+                false,
+                "Save, copy to clipboard, and close",
+                Some(ACTION_FILL),
+                paint_icon_copy,
+            ) {
                 if let Err(err) = self.copy_and_close() {
                     eprintln!("annotate copy failed: {err:#}");
                 }
             }
 
             ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Esc")
-                    .color(MUTED)
-                    .size(10.0),
-            );
+            ui.label(egui::RichText::new("Esc").color(MUTED).size(10.0));
         });
     }
 }
 
 impl eframe::App for AnnotateApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::from(ANNOTATE_BG).to_array()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.finished {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -392,22 +404,22 @@ impl eframe::App for AnnotateApp {
             .frame(
                 egui::Frame::NONE
                     .fill(ANNOTATE_BG)
-                    .inner_margin(WINDOW_PAD),
+                    // Even inset on all sides so the left rail is never flush to the window.
+                    .inner_margin(egui::Margin::same(WINDOW_PAD as i8)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_top(|ui| {
-                    // Left: Liquid Glass vertical pill (functional layer).
+                    // Left: flat pastel tool rail (icons + color wheel).
                     let toolbar_height = ui.available_height().max(120.0);
-                    glass_toolbar_frame()
-                        .show(ui, |ui| {
-                            ui.set_width(TOOLBAR_WIDTH - 12.0);
-                            ui.set_min_height(toolbar_height - 8.0);
-                            self.draw_toolbar(ui);
-                        });
+                    glass_toolbar_frame().show(ui, |ui| {
+                        ui.set_width(TOOLBAR_WIDTH - 12.0);
+                        ui.set_min_height(toolbar_height - 8.0);
+                        self.draw_toolbar(ui);
+                    });
 
                     ui.add_space(TOOLBAR_GUTTER);
 
-                    // Right: image canvas (content layer — opaque, no glass).
+                    // Right: image canvas.
                     let available = ui.available_size();
                     let img_size = Vec2::new(self.width as f32, self.height as f32);
                     let scale = (available.x / img_size.x)
@@ -424,6 +436,7 @@ impl eframe::App for AnnotateApp {
                         );
                     let image_rect = Rect::from_min_size(origin, display);
 
+                    painter.rect_filled(image_rect, 6.0, Color32::from_rgb(0xE0, 0xDC, 0xE8));
                     painter.image(
                         self.texture.id(),
                         image_rect,
@@ -438,9 +451,8 @@ impl eframe::App for AnnotateApp {
                         Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
                     };
 
-                    let stroke = Stroke::new(STROKE_WIDTH, STROKE);
                     for shape in self.shapes.iter().chain(self.draft.iter()) {
-                        paint_shape(&painter, *shape, to_screen, stroke, scale);
+                        paint_shape(&painter, *shape, to_screen, scale);
                     }
 
                     if response.drag_started() {
@@ -475,16 +487,6 @@ impl eframe::App for AnnotateApp {
     }
 }
 
-fn glass_tool_button(ui: &mut egui::Ui, label: &str, selected: bool, on_click: impl FnOnce()) {
-    let fill = if selected { GLASS_SELECTED } else { GLASS_IDLE };
-    if ui
-        .add(egui::Button::new(label).fill(fill).min_size(egui::vec2(44.0, 28.0)))
-        .clicked()
-    {
-        on_click();
-    }
-}
-
 fn clamp_to_image(p: Pos2, w: u32, h: u32) -> Pos2 {
     Pos2::new(
         p.x.clamp(0.0, (w.saturating_sub(1)) as f32),
@@ -494,8 +496,8 @@ fn clamp_to_image(p: Pos2, w: u32, h: u32) -> Pos2 {
 
 fn shape_is_meaningful(shape: Shape) -> bool {
     match shape {
-        Shape::Arrow { from, to } => from.distance(to) >= 4.0,
-        Shape::Rect { a, b } | Shape::Pixelate { a, b } => {
+        Shape::Arrow { from, to, .. } => from.distance(to) >= 4.0,
+        Shape::Rect { a, b, .. } | Shape::Pixelate { a, b } => {
             (a.x - b.x).abs() >= 4.0 && (a.y - b.y).abs() >= 4.0
         }
     }
@@ -505,11 +507,11 @@ fn paint_shape(
     painter: &egui::Painter,
     shape: Shape,
     to_screen: impl Fn(Pos2) -> Pos2,
-    stroke: Stroke,
     scale: f32,
 ) {
     match shape {
-        Shape::Arrow { from, to } => {
+        Shape::Arrow { from, to, color } => {
+            let stroke = Stroke::new(STROKE_WIDTH, color);
             let a = to_screen(from);
             let b = to_screen(to);
             painter.line_segment([a, b], stroke);
@@ -517,7 +519,8 @@ fn paint_shape(
                 painter.line_segment([b, tip], stroke);
             }
         }
-        Shape::Rect { a, b } => {
+        Shape::Rect { a, b, color } => {
+            let stroke = Stroke::new(STROKE_WIDTH, color);
             let r = Rect::from_two_pos(to_screen(a), to_screen(b));
             painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Outside);
         }
@@ -566,17 +569,18 @@ fn arrow_head_points(from: Pos2, to: Pos2, size: f32) -> [Pos2; 2] {
 }
 
 fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
-    let color = Rgba([STROKE.r(), STROKE.g(), STROKE.b(), 255]);
     match shape {
-        Shape::Arrow { from, to } => {
-            draw_thick_line(img, from, to, color, STROKE_WIDTH);
+        Shape::Arrow { from, to, color } => {
+            let rgba = Rgba([color.r(), color.g(), color.b(), 255]);
+            draw_thick_line(img, from, to, rgba, STROKE_WIDTH);
             let a = from;
             let b = to;
             for tip in arrow_head_points(a, b, 14.0) {
-                draw_thick_line(img, b, tip, color, STROKE_WIDTH);
+                draw_thick_line(img, b, tip, rgba, STROKE_WIDTH);
             }
         }
-        Shape::Rect { a, b } => {
+        Shape::Rect { a, b, color } => {
+            let rgba = Rgba([color.r(), color.g(), color.b(), 255]);
             let x0 = a.x.min(b.x);
             let y0 = a.y.min(b.y);
             let x1 = a.x.max(b.x);
@@ -585,10 +589,10 @@ fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
             let tr = Pos2::new(x1, y0);
             let br = Pos2::new(x1, y1);
             let bl = Pos2::new(x0, y1);
-            draw_thick_line(img, tl, tr, color, STROKE_WIDTH);
-            draw_thick_line(img, tr, br, color, STROKE_WIDTH);
-            draw_thick_line(img, br, bl, color, STROKE_WIDTH);
-            draw_thick_line(img, bl, tl, color, STROKE_WIDTH);
+            draw_thick_line(img, tl, tr, rgba, STROKE_WIDTH);
+            draw_thick_line(img, tr, br, rgba, STROKE_WIDTH);
+            draw_thick_line(img, br, bl, rgba, STROKE_WIDTH);
+            draw_thick_line(img, bl, tl, rgba, STROKE_WIDTH);
         }
         Shape::Pixelate { a, b } => {
             pixelate_region(img, a, b, PIXELATE_BLOCK);
@@ -688,11 +692,13 @@ mod tests {
         let arrow = Shape::Arrow {
             from: Pos2::new(0.0, 0.0),
             to: Pos2::new(1.0, 0.0),
+            color: DEFAULT_STROKE,
         };
         assert!(!shape_is_meaningful(arrow));
         let rect = Shape::Rect {
             a: Pos2::new(0.0, 0.0),
             b: Pos2::new(10.0, 10.0),
+            color: DEFAULT_STROKE,
         };
         assert!(shape_is_meaningful(rect));
         let tiny_pix = Shape::Pixelate {
@@ -719,10 +725,35 @@ mod tests {
             Shape::Arrow {
                 from: Pos2::new(8.0, 32.0),
                 to: Pos2::new(56.0, 32.0),
+                color: DEFAULT_STROKE,
             },
         );
         let mid = img.get_pixel(32, 32);
         assert_ne!(mid.0[0], 0, "stroke should paint red channel");
+        assert_eq!(mid.0[0], DEFAULT_STROKE.r());
+    }
+
+    #[test]
+    fn rasterize_uses_custom_stroke_color() {
+        let blue = Color32::from_rgb(0x00, 0x7A, 0xFF);
+        let mut img = RgbaImage::from_pixel(64, 64, Rgba([0, 0, 0, 255]));
+        rasterize_shape(
+            &mut img,
+            Shape::Rect {
+                a: Pos2::new(8.0, 8.0),
+                b: Pos2::new(40.0, 40.0),
+                color: blue,
+            },
+        );
+        let edge = img.get_pixel(8, 20);
+        assert_eq!(edge.0[0], blue.r());
+        assert_eq!(edge.0[1], blue.g());
+        assert_eq!(edge.0[2], blue.b());
+    }
+
+    #[test]
+    fn default_app_stroke_is_red() {
+        assert_eq!(DEFAULT_STROKE, Color32::from_rgb(0xE2, 0x4A, 0x3B));
     }
 
     #[test]
@@ -801,6 +832,10 @@ mod tests {
         let (w, h) = floating_window_size(400, 300);
         assert!(w > 400.0 + TOOLBAR_WIDTH);
         assert!(h >= 300.0);
+        // Outer pad on every side so the left rail is not flush to the window.
+        assert!(WINDOW_PAD >= 12.0);
+        assert!(w >= 400.0 + TOOLBAR_WIDTH + TOOLBAR_GUTTER + WINDOW_PAD * 2.0);
+        assert!(h >= 300.0 + WINDOW_PAD * 2.0);
     }
 
     #[test]

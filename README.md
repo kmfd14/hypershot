@@ -12,7 +12,7 @@
 cargo run --release -- region
 ```
 
-Draw arrow, box, or pixelate a private region → **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
+Draw with icon tools (arrow, box, pixelate), pick a stroke color (default red) → **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
 
 Open settings anytime:
 
@@ -22,7 +22,7 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and **off by default**.
 
-Wayland screenshot tool with capture and annotation. Region or fullscreen capture → floating annotate window → save or copy. Built in Rust. Left liquid-glass tool strip + Apple-inspired settings.
+Wayland screenshot tool with capture and annotation. Region or fullscreen capture → floating annotate window → save or copy. Built in Rust. Left pastel tool rail + Apple-inspired settings.
 
 Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (COSMIC, GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
 
@@ -37,7 +37,7 @@ It provides:
 > [!CAUTION]
 > Linux Wayland only for v1. No Windows, macOS, or X11-first support. No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. lightsnip documents limits and writes opt-in helpers; it does not pretend PrintScreen is always stolen for you.
 >
-> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland.
+> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland. Annotate chrome is flat pastel (purple / gray / white): egui on Wayland cannot deliver real liquid-glass backdrop-blur, so we do not fake frosted glass.
 
 ## Tech stack
 
@@ -59,12 +59,12 @@ It provides:
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — floating window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Left glass strip: arrow, box, pixelate, undo, clear, settings, **Save**, **Copy**. Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels.
+2. **Annotate** — floating window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Left pastel tool rail (icons + tooltips), padded from the window edges: arrow, box, pixelate, color picker (default red), undo, clear, settings, **Save**, **Copy**. Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels.
 3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
 5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Six fields: shortcuts, run at startup, replace-default helper, stay in tray, save directory, save to clipboard.
 6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Floating UI** — annotate is a bordered window sized to the image; vertical liquid-glass tool strip on the left (sketch-matched). Settings uses light grouped cards. No purple / glow marketing chrome.
+7. **Floating UI** — annotate is a bordered window sized to the image; left pastel tool rail with even outer padding (not flush). Settings uses light grouped cards. Restrained pastel purple accent only on Save — no neon / glow.
 
 <!-- VISUAL SUGGESTION [SCREENSHOT]:
 Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`
