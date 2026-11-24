@@ -9,8 +9,58 @@ use serde::{Deserialize, Serialize};
 /// Env var override for the default save directory (beats config TOML).
 pub const SAVE_DIR_ENV: &str = "LIGHTSNIP_SAVE_DIR";
 
+/// Where the annotate tool rail sits relative to the capture preview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolbarPosition {
+    #[default]
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl ToolbarPosition {
+    pub const ALL: [Self; 4] = [Self::Left, Self::Right, Self::Top, Self::Bottom];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+            Self::Top => "Top",
+            Self::Bottom => "Bottom",
+        }
+    }
+
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, Self::Top | Self::Bottom)
+    }
+}
+
+/// Annotate / settings appearance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UiTheme {
+    Dark,
+    Light,
+    #[default]
+    System,
+}
+
+impl UiTheme {
+    pub const ALL: [Self; 3] = [Self::Dark, Self::Light, Self::System];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "Dark",
+            Self::Light => "Light",
+            Self::System => "System",
+        }
+    }
+}
+
 /// On-disk settings. Missing file → defaults.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Default PNG folder when `--save-dir` / env are unset. Empty → Pictures/lightsnip.
@@ -26,6 +76,19 @@ pub struct Config {
     pub stay_in_tray: bool,
     /// Suggested compositor bind command (docs only; Wayland has no portable global grab).
     pub shortcut_bind_command: String,
+    /// Human-readable key combination to bind in the compositor (e.g. `Super+Shift+S`).
+    pub shortcut_keys: String,
+    /// Annotate tool rail position relative to the preview.
+    pub toolbar_position: ToolbarPosition,
+    /// Dark / light / follow OS appearance.
+    pub theme: UiTheme,
+    /// Show native window decorations (title bar). Off → borderless; Wayland support varies.
+    pub show_title_bar: bool,
+    /// Request a transparent annotate window clear color. Compositor / egui support varies.
+    pub window_transparency: bool,
+    /// Prefer window background blur when the platform supports it.
+    /// egui/winit on Wayland cannot do real desktop backdrop-blur today; stored for honesty + future.
+    pub window_background_blur: bool,
 }
 
 impl Default for Config {
@@ -37,6 +100,12 @@ impl Default for Config {
             replace_default_screenshot: false,
             stay_in_tray: false,
             shortcut_bind_command: default_shortcut_bind_command(),
+            shortcut_keys: default_shortcut_keys(),
+            toolbar_position: ToolbarPosition::Left,
+            theme: UiTheme::System,
+            show_title_bar: true,
+            window_transparency: false,
+            window_background_blur: false,
         }
     }
 }
@@ -109,6 +178,11 @@ pub fn default_shortcut_bind_command() -> String {
     }
 }
 
+/// Suggested Print-style combo label (compositor still does the real bind).
+pub fn default_shortcut_keys() -> String {
+    "Print".to_string()
+}
+
 fn shell_quote(path: &Path) -> String {
     let s = path.display().to_string();
     if s.chars().any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | '$' | '`')) {
@@ -128,6 +202,16 @@ mod tests {
     }
 
     #[test]
+    fn defaults_toolbar_left_theme_system() {
+        let cfg = Config::default();
+        assert_eq!(cfg.toolbar_position, ToolbarPosition::Left);
+        assert_eq!(cfg.theme, UiTheme::System);
+        assert!(cfg.show_title_bar);
+        assert!(!cfg.window_transparency);
+        assert!(!cfg.window_background_blur);
+    }
+
+    #[test]
     fn toml_roundtrip() {
         let mut cfg = Config::default();
         cfg.save_to_clipboard = false;
@@ -135,6 +219,12 @@ mod tests {
         cfg.stay_in_tray = true;
         cfg.save_directory = PathBuf::from("/tmp/snips");
         cfg.shortcut_bind_command = "lightsnip region".into();
+        cfg.shortcut_keys = "Super+Shift+S".into();
+        cfg.toolbar_position = ToolbarPosition::Right;
+        cfg.theme = UiTheme::Dark;
+        cfg.show_title_bar = false;
+        cfg.window_transparency = true;
+        cfg.window_background_blur = true;
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -148,5 +238,22 @@ mod tests {
         };
         let dir = cfg.effective_save_dir();
         assert!(!dir.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn missing_new_fields_deserialize_to_defaults() {
+        let legacy = r#"
+save_directory = "/tmp/snips"
+save_to_clipboard = true
+run_at_startup = false
+replace_default_screenshot = false
+stay_in_tray = false
+shortcut_bind_command = "lightsnip region"
+"#;
+        let cfg: Config = toml::from_str(legacy).unwrap();
+        assert_eq!(cfg.toolbar_position, ToolbarPosition::Left);
+        assert_eq!(cfg.theme, UiTheme::System);
+        assert_eq!(cfg.shortcut_keys, "Print");
+        assert!(cfg.show_title_bar);
     }
 }

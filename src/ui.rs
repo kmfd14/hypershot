@@ -1,79 +1,119 @@
 //! Shared visuals for annotate + settings.
 //!
-//! Annotate: flat pastel chrome (restrained purple / gray / white). egui on Wayland cannot
-//! deliver convincing liquid-glass (no desktop backdrop-blur), so we use opaque flat fills
-//! instead of frosted imitation. Toolbar sits to the RIGHT of the capture with even outer pad.
+//! Annotate chrome targets the liquid-glass language in
+//! `/cursor/stores/self/media/liquid-glass-sample.html`: soft glass pills,
+//! translucent frost fills, specular rim highlights, depth shadow, hover sheen.
 //!
-//! Contrast: dark icons on light pastel wells. Soft feathering + thicker strokes for AA.
-//! One muted purple accent on Save only (not neon, no gradient, no glow).
+//! Honest limits (Wayland + egui/winit):
+//! - No real `backdrop-filter` / desktop blur through the window.
+//! - No SVG refraction / turbulence displacement.
+//! - Window transparency is best-effort (`ViewportBuilder::with_transparent`);
+//!   many Wayland compositors composite opaque or ignore alpha.
+//! - “Background blur” preference is stored and labeled; we approximate frost
+//!   with translucent fills + painted highlights only.
 //!
-//! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1. antislop active: during (project preference).
-//! Palette note: KM requested restrained pastel purple/gray/white as the glass fallback
-//! (R-37 owner override of the purple-default caution).
+//! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover scale/sheen only).
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Vec2,
+    self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Theme,
+    ThemePreference, Vec2,
 };
 use eframe::egui::color_picker::{color_picker_color32, Alpha};
+use eframe::egui::epaint::{self, PathShape};
 use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 
-// --- Annotate (flat pastel) ---------------------------------------------------
+use crate::config::UiTheme;
 
-/// Opaque window / panel fill (soft cool gray-lilac, not pure white).
-pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
 
-/// Vertical tool rail fill (flat pastel gray-lilac).
-pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
+/// Unmultiplied RGBA → premultiplied Color32 (const-safe for egui 0.31).
+const fn rgba_u(r: u8, g: u8, b: u8, a: u8) -> Color32 {
+    Color32::from_rgba_premultiplied(
+        ((r as u16 * a as u16) / 255) as u8,
+        ((g as u16 * a as u16) / 255) as u8,
+        ((b as u16 * a as u16) / 255) as u8,
+        a,
+    )
+}
 
-/// Soft rail edge (muted, not harsh white).
-pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD0, 0xCA, 0xD8);
-
-/// Selected tool well (soft pastel purple tint — flat, no glow).
-pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xDD, 0xD4, 0xEC);
-
-/// Idle tool well (white).
-pub const BTN_IDLE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-
-/// Hovered tool well.
-pub const BTN_HOVER: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xFB);
-
-/// Rail corner radius (moderate; not pill-everything).
-pub const TOOLBAR_RADIUS: f32 = 14.0;
+// --- Annotate sizes -----------------------------------------------------------
 
 /// Circular tool button diameter (desktop ≥ 28 pt).
 pub const TOOL_BTN: f32 = 36.0;
 
-/// Toolbar strip width.
+/// Settings gear is intentionally larger for discoverability.
+pub const SETTINGS_BTN: f32 = 42.0;
+
+/// Toolbar strip thickness (cross-axis).
 pub const TOOLBAR_WIDTH: f32 = 56.0;
 
-/// Gutter between image and right tool rail.
-pub const TOOLBAR_GUTTER: f32 = 16.0;
+/// Gutter between image and floating tool rail.
+pub const TOOLBAR_GUTTER: f32 = 12.0;
 
-/// Outer padding inside the floating window (top / left / right / bottom).
+/// Outer padding inside the floating window.
 pub const WINDOW_PAD: f32 = 18.0;
+
+/// Soft glass pill radius for the rail (near-capsule, not harsh box).
+pub const TOOLBAR_RADIUS: f32 = 22.0;
 
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 
-/// Dark icon ink on light pastel wells.
-pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
+// --- Glass fills (sample structure + pastel purple/gray/white palette) --------
+// Structure from liquid-glass-sample.html (frost alpha ~14%/20%, specular rim,
+// hover sheen). Color stays the project's restrained lilac/gray/white — not
+// generic white-glass-only.
 
-/// Light icon ink on tinted / darker fills (Save / Copy).
+/// Rail frost: pastel gray-lilac at sample-like translucency.
+pub const GLASS_FILL: Color32 = rgba_u(0xE8, 0xE4, 0xEE, 48);
+/// Hover: slightly brighter lilac-white frost (~sample 20%).
+pub const GLASS_FILL_HOVER: Color32 = rgba_u(0xF7, 0xF4, 0xFB, 64);
+/// Selected well — soft pastel purple tint, denser frost.
+pub const GLASS_FILL_SELECTED: Color32 = rgba_u(0xDD, 0xD4, 0xEC, 96);
+
+/// Dark-appearance glass (translucent charcoal-lilac, not pure black).
+pub const GLASS_FILL_DARK: Color32 = rgba_u(0x2A, 0x28, 0x30, 170);
+pub const GLASS_FILL_HOVER_DARK: Color32 = rgba_u(0x42, 0x3E, 0x4C, 200);
+pub const GLASS_FILL_SELECTED_DARK: Color32 = rgba_u(0x4A, 0x42, 0x5C, 220);
+
+/// Opaque fallbacks when transparency is off / compositor refuses alpha.
+pub const FROST_SOLID_LIGHT: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
+pub const FROST_SOLID_DARK: Color32 = Color32::from_rgb(0x2A, 0x28, 0x30);
+
+pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
+pub const ANNOTATE_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1B, 0x20);
+
+/// Specular top rim — cool white with a hint of lilac (not stark white-only).
+pub const GLASS_SPECULAR: Color32 = rgba_u(0xFF, 0xFB, 0xFF, 200);
+/// Soft inner glow (pastel-tinted).
+pub const GLASS_INNER_GLOW: Color32 = rgba_u(0xF0, 0xEA, 0xF8, 48);
+/// Bottom inset shadow (sample inset 0 -1px rgba(0,0,0,0.25)).
+pub const GLASS_INNER_SHADOW: Color32 = rgba_u(0x3A, 0x36, 0x45, 64);
+/// Gradient rim light edge (lilac-white).
+pub const GLASS_RIM_LIGHT: Color32 = rgba_u(0xF7, 0xF4, 0xFB, 190);
+/// Gradient rim mid/faint edge.
+pub const GLASS_RIM_FAINT: Color32 = rgba_u(0xD0, 0xCA, 0xD8, 90);
+
+pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
 pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
 
-/// Soft contact shadow under tool wells only.
-pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(28);
-
-/// Muted pastel purple (Save primary — restrained, not neon).
+/// Muted purple Save primary (restrained; sample keeps labels monochrome on glass).
 pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8B, 0x7C, 0xB6);
+pub const PASTEL_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x9A, 0x8C, 0xC4);
+/// Glass-tinted primary (primary action colors the *background*, HIG).
+pub const GLASS_PRIMARY: Color32 = rgba_u(0x8B, 0x7C, 0xB6, 200);
+pub const GLASS_PRIMARY_HOVER: Color32 = rgba_u(0x9A, 0x8C, 0xC4, 230);
 
-/// Secondary action (Copy): muted gray-violet, flat.
 pub const ACTION_FILL: Color32 = Color32::from_rgb(0x6E, 0x68, 0x7A);
+pub const ACTION_FILL_HOVER: Color32 = Color32::from_rgb(0x7E, 0x78, 0x8A);
+pub const GLASS_ACTION: Color32 = rgba_u(0x6E, 0x68, 0x7A, 200);
+pub const GLASS_ACTION_HOVER: Color32 = rgba_u(0x7E, 0x78, 0x8A, 230);
 
-/// Helper text on pastel chrome.
 pub const MUTED: Color32 = Color32::from_rgb(0x8A, 0x84, 0x94);
+pub const MUTED_DARK: Color32 = Color32::from_rgb(0xA8, 0xA2, 0xB0);
+pub const PREVIEW_MATTE: Color32 = Color32::from_rgb(0xE0, 0xDC, 0xE8);
+pub const PREVIEW_MATTE_DARK: Color32 = Color32::from_rgb(0x28, 0x26, 0x2E);
 
-// --- Settings (grouped light) -------------------------------------------------
+// --- Settings -----------------------------------------------------------------
 
 pub const SETTINGS_BG: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
 pub const SETTINGS_CARD: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
@@ -83,6 +123,99 @@ pub const SETTINGS_SECONDARY: Color32 = Color32::from_rgb(0x6C, 0x6C, 0x70);
 pub const SETTINGS_FIELD: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xED);
 pub const SETTINGS_PRIMARY: Color32 = Color32::from_rgb(0x00, 0x7A, 0xFF);
 
+pub const SETTINGS_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
+pub const SETTINGS_CARD_DARK: Color32 = Color32::from_rgb(0x2C, 0x2C, 0x2E);
+pub const SETTINGS_SEPARATOR_DARK: Color32 = Color32::from_rgb(0x48, 0x48, 0x4A);
+pub const SETTINGS_LABEL_DARK: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
+pub const SETTINGS_SECONDARY_DARK: Color32 = Color32::from_rgb(0xA1, 0xA1, 0xA6);
+pub const SETTINGS_FIELD_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3C);
+
+/// Runtime annotate colors for the active theme + transparency mode.
+#[derive(Debug, Clone, Copy)]
+pub struct AnnotatePalette {
+    pub bg: Color32,
+    pub toolbar_fill: Color32,
+    pub btn_idle: Color32,
+    pub btn_hover: Color32,
+    pub btn_selected: Color32,
+    pub muted: Color32,
+    pub preview_matte: Color32,
+    pub dark: bool,
+    /// True when we requested window alpha (frost can stay translucent).
+    pub translucent: bool,
+}
+
+impl AnnotatePalette {
+    pub fn for_mode(dark: bool, translucent: bool) -> Self {
+        if dark {
+            Self {
+                bg: if translucent {
+                    rgba_u(28, 27, 32, 200)
+                } else {
+                    ANNOTATE_BG_DARK
+                },
+                toolbar_fill: if translucent {
+                    GLASS_FILL_DARK
+                } else {
+                    FROST_SOLID_DARK
+                },
+                btn_idle: if translucent {
+                    rgba_u(0x36, 0x34, 0x3E, 150)
+                } else {
+                    Color32::from_rgb(0x36, 0x34, 0x3E)
+                },
+                btn_hover: if translucent {
+                    GLASS_FILL_HOVER_DARK
+                } else {
+                    Color32::from_rgb(0x42, 0x3E, 0x4C)
+                },
+                btn_selected: if translucent {
+                    GLASS_FILL_SELECTED_DARK
+                } else {
+                    Color32::from_rgb(0x4A, 0x42, 0x5C)
+                },
+                muted: MUTED_DARK,
+                preview_matte: PREVIEW_MATTE_DARK,
+                dark: true,
+                translucent,
+            }
+        } else {
+            Self {
+                bg: if translucent {
+                    rgba_u(0xF3, 0xF1, 0xF6, 210)
+                } else {
+                    ANNOTATE_BG
+                },
+                toolbar_fill: if translucent {
+                    // Pastel gray-lilac frost rail (not plain white glass).
+                    rgba_u(0xE8, 0xE4, 0xEE, 72)
+                } else {
+                    FROST_SOLID_LIGHT
+                },
+                btn_idle: if translucent {
+                    rgba_u(0xFF, 0xFF, 0xFF, 56)
+                } else {
+                    Color32::from_rgb(0xFF, 0xFF, 0xFF)
+                },
+                btn_hover: if translucent {
+                    GLASS_FILL_HOVER
+                } else {
+                    Color32::from_rgb(0xF7, 0xF4, 0xFB)
+                },
+                btn_selected: if translucent {
+                    GLASS_FILL_SELECTED
+                } else {
+                    Color32::from_rgb(0xDD, 0xD4, 0xEC)
+                },
+                muted: MUTED,
+                preview_matte: PREVIEW_MATTE,
+                dark: false,
+                translucent,
+            }
+        }
+    }
+}
+
 /// Approximate relative luminance of a Color32 (ignores alpha).
 pub fn approx_luminance(c: Color32) -> f32 {
     0.2126 * (c.r() as f32) + 0.7152 * (c.g() as f32) + 0.0722 * (c.b() as f32)
@@ -90,35 +223,53 @@ pub fn approx_luminance(c: Color32) -> f32 {
 
 /// Pick dark or light icon ink for contrast on `fill`.
 pub fn icon_color_for_fill(fill: Color32) -> Color32 {
-    if approx_luminance(fill) >= 140.0 {
+    // egui stores premultiplied RGBA; recover approx unmultiplied for luminance.
+    let a = fill.a().max(1) as u16;
+    let ur = ((fill.r() as u16 * 255) / a) as u8;
+    let ug = ((fill.g() as u16 * 255) / a) as u8;
+    let ub = ((fill.b() as u16 * 255) / a) as u8;
+    let lum = approx_luminance(Color32::from_rgb(ur, ug, ub));
+    if lum >= 140.0 {
         ICON_DARK
     } else {
         ICON_LIGHT
     }
 }
 
-/// Pastel annotate visuals; feathering on for soft circle/rail edges.
-pub fn apply_annotate_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::light();
-    visuals.panel_fill = ANNOTATE_BG;
-    visuals.window_fill = ANNOTATE_BG;
-    visuals.extreme_bg_color = Color32::from_rgb(0xE8, 0xE4, 0xEE);
-    visuals.override_text_color = Some(ICON_DARK);
-    visuals.widgets.noninteractive.bg_fill = ANNOTATE_BG;
-    visuals.widgets.noninteractive.weak_bg_fill = ANNOTATE_BG;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
-    visuals.widgets.inactive.bg_fill = BTN_IDLE;
-    visuals.widgets.inactive.weak_bg_fill = BTN_IDLE;
-    visuals.widgets.hovered.bg_fill = BTN_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = BTN_HOVER;
-    visuals.widgets.active.bg_fill = BTN_SELECTED;
-    visuals.widgets.active.weak_bg_fill = BTN_SELECTED;
-    visuals.widgets.open.bg_fill = BTN_IDLE;
-    visuals.widgets.open.weak_bg_fill = BTN_IDLE;
-    visuals.selection.bg_fill = BTN_SELECTED;
+pub fn theme_preference(theme: UiTheme) -> ThemePreference {
+    match theme {
+        UiTheme::Dark => ThemePreference::Dark,
+        UiTheme::Light => ThemePreference::Light,
+        UiTheme::System => ThemePreference::System,
+    }
+}
+
+fn annotate_visuals(dark: bool) -> egui::Visuals {
+    let pal = AnnotatePalette::for_mode(dark, false);
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    visuals.panel_fill = pal.bg;
+    visuals.window_fill = pal.bg;
+    visuals.extreme_bg_color = pal.toolbar_fill;
+    visuals.override_text_color = Some(if dark { ICON_LIGHT } else { ICON_DARK });
+    visuals.widgets.noninteractive.bg_fill = pal.bg;
+    visuals.widgets.noninteractive.weak_bg_fill = pal.bg;
+    visuals.widgets.inactive.bg_fill = pal.btn_idle;
+    visuals.widgets.inactive.weak_bg_fill = pal.btn_idle;
+    visuals.widgets.hovered.bg_fill = pal.btn_hover;
+    visuals.widgets.hovered.weak_bg_fill = pal.btn_hover;
+    visuals.widgets.active.bg_fill = pal.btn_selected;
+    visuals.widgets.active.weak_bg_fill = pal.btn_selected;
+    visuals.widgets.open.bg_fill = pal.btn_idle;
+    visuals.widgets.open.weak_bg_fill = pal.btn_idle;
+    visuals.selection.bg_fill = pal.btn_selected;
     visuals.selection.stroke = Stroke::new(1.0_f32, PASTEL_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, PASTEL_PRIMARY);
     visuals.hyperlink_color = PASTEL_PRIMARY;
+    let fg = if dark { ICON_LIGHT } else { ICON_DARK };
     for w in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -126,51 +277,76 @@ pub fn apply_annotate_visuals(ctx: &egui::Context) {
         &mut visuals.widgets.active,
         &mut visuals.widgets.open,
     ] {
-        w.fg_stroke = Stroke::new(1.0_f32, ICON_DARK);
-        w.corner_radius = CornerRadius::same(8);
+        w.fg_stroke = Stroke::new(1.0_f32, fg);
+        w.corner_radius = CornerRadius::same(12);
     }
-    visuals.window_corner_radius = CornerRadius::same(10);
-    visuals.menu_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
+    visuals.window_corner_radius = CornerRadius::same(14);
+    visuals.menu_corner_radius = CornerRadius::same(10);
+    visuals.window_stroke = Stroke::new(1.0_f32, GLASS_RIM_FAINT);
     visuals.window_shadow = Shadow {
-        offset: [0, 4],
-        blur: 16,
+        offset: [0, 10],
+        blur: 24,
         spread: 0,
-        color: Color32::from_black_alpha(48),
+        color: Color32::from_black_alpha(64),
     };
     visuals.popup_shadow = Shadow::NONE;
-    ctx.set_visuals(visuals);
-
-    ctx.tessellation_options_mut(|opts| {
-        opts.feathering = true;
-        opts.feathering_size_in_pixels = 1.5;
-    });
+    visuals
 }
 
-/// Light Apple-inspired settings (grouped cards, deference to content).
-pub fn apply_settings_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::light();
-    visuals.panel_fill = SETTINGS_BG;
-    visuals.window_fill = SETTINGS_CARD;
-    visuals.extreme_bg_color = SETTINGS_FIELD;
-    visuals.override_text_color = Some(SETTINGS_LABEL);
-    visuals.widgets.noninteractive.bg_fill = SETTINGS_BG;
-    visuals.widgets.noninteractive.weak_bg_fill = SETTINGS_BG;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, SETTINGS_SEPARATOR);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, SETTINGS_SECONDARY);
-    visuals.widgets.inactive.bg_fill = SETTINGS_FIELD;
-    visuals.widgets.inactive.weak_bg_fill = SETTINGS_FIELD;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(0xDC, 0xDC, 0xE0);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xDC, 0xDC, 0xE0);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.active.bg_fill = Color32::from_rgb(0xD0, 0xD0, 0xD5);
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD0, 0xD0, 0xD5);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.open.bg_fill = SETTINGS_FIELD;
-    visuals.widgets.open.weak_bg_fill = SETTINGS_FIELD;
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x40);
+fn settings_visuals(dark: bool) -> egui::Visuals {
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    let (bg, card, sep, label, secondary, field) = if dark {
+        (
+            SETTINGS_BG_DARK,
+            SETTINGS_CARD_DARK,
+            SETTINGS_SEPARATOR_DARK,
+            SETTINGS_LABEL_DARK,
+            SETTINGS_SECONDARY_DARK,
+            SETTINGS_FIELD_DARK,
+        )
+    } else {
+        (
+            SETTINGS_BG,
+            SETTINGS_CARD,
+            SETTINGS_SEPARATOR,
+            SETTINGS_LABEL,
+            SETTINGS_SECONDARY,
+            SETTINGS_FIELD,
+        )
+    };
+    visuals.panel_fill = bg;
+    visuals.window_fill = card;
+    visuals.extreme_bg_color = field;
+    visuals.override_text_color = Some(label);
+    visuals.widgets.noninteractive.bg_fill = bg;
+    visuals.widgets.noninteractive.weak_bg_fill = bg;
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, sep);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, secondary);
+    visuals.widgets.inactive.bg_fill = field;
+    visuals.widgets.inactive.weak_bg_fill = field;
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.hovered.bg_fill = if dark {
+        Color32::from_rgb(0x48, 0x48, 0x4A)
+    } else {
+        Color32::from_rgb(0xDC, 0xDC, 0xE0)
+    };
+    visuals.widgets.hovered.weak_bg_fill = visuals.widgets.hovered.bg_fill;
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.active.bg_fill = if dark {
+        Color32::from_rgb(0x54, 0x54, 0x56)
+    } else {
+        Color32::from_rgb(0xD0, 0xD0, 0xD5)
+    };
+    visuals.widgets.active.weak_bg_fill = visuals.widgets.active.bg_fill;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.open.bg_fill = field;
+    visuals.widgets.open.weak_bg_fill = field;
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.selection.bg_fill = rgba_u(0x00, 0x7A, 0xFF, 0x40);
     visuals.selection.stroke = Stroke::new(1.0_f32, SETTINGS_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, SETTINGS_PRIMARY);
     visuals.hyperlink_color = SETTINGS_PRIMARY;
@@ -185,7 +361,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(6);
-    visuals.window_stroke = Stroke::new(1.0_f32, SETTINGS_SEPARATOR);
+    visuals.window_stroke = Stroke::new(1.0_f32, sep);
     visuals.window_shadow = Shadow {
         offset: [0, 2],
         blur: 12,
@@ -193,78 +369,222 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
         color: Color32::from_black_alpha(40),
     };
     visuals.popup_shadow = Shadow::NONE;
-    ctx.set_visuals(visuals);
+    visuals
 }
 
-/// Frame for the right-side pastel tool rail.
-pub fn toolbar_frame() -> egui::Frame {
+/// Install light + dark annotate styles and select theme preference.
+pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
+    ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
+    ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
+    ctx.set_theme(theme_preference(theme));
+    ctx.tessellation_options_mut(|opts| {
+        opts.feathering = true;
+        // Softer AA for glass rims (sample relies on blur; we feather strokes).
+        opts.feathering_size_in_pixels = 2.0;
+    });
+}
+
+/// Install light + dark settings styles and select theme preference.
+pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
+    ctx.set_visuals_of(Theme::Light, settings_visuals(false));
+    ctx.set_visuals_of(Theme::Dark, settings_visuals(true));
+    ctx.set_theme(theme_preference(theme));
+}
+
+/// Frame for the floating glass tool rail (content-sized, not full window).
+pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
+    let shadow_a = if pal.dark { 80 } else { 64 };
     egui::Frame::new()
-        .fill(TOOLBAR_FILL)
-        .stroke(Stroke::new(1.25_f32, TOOLBAR_STROKE))
+        .fill(pal.toolbar_fill)
+        .stroke(Stroke::new(1.0_f32, GLASS_RIM_LIGHT))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
-        .inner_margin(Margin::symmetric(6, 12))
+        .inner_margin(Margin::symmetric(8, 12))
         .outer_margin(Margin::ZERO)
+        // Sample: 0 10px 24px rgba(0,0,0,0.25)
         .shadow(Shadow {
-            offset: [0, 4],
-            blur: 14,
+            offset: [0, 10],
+            blur: 24,
             spread: 0,
-            color: Color32::from_black_alpha(28),
+            color: Color32::from_black_alpha(shadow_a),
         })
 }
 
 /// Grouped settings card.
-pub fn settings_group_frame() -> egui::Frame {
+pub fn settings_group_frame(dark: bool) -> egui::Frame {
+    let (fill, stroke) = if dark {
+        (SETTINGS_CARD_DARK, SETTINGS_SEPARATOR_DARK)
+    } else {
+        (SETTINGS_CARD, SETTINGS_SEPARATOR)
+    };
     egui::Frame::new()
-        .fill(SETTINGS_CARD)
-        .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR))
+        .fill(fill)
+        .stroke(Stroke::new(1.0_f32, stroke))
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::symmetric(14, 12))
+        .inner_margin(Margin::symmetric(12, 10))
 }
 
-fn paint_soft_circle(painter: &egui::Painter, center: Pos2, radius: f32, fill: Color32) {
-    painter.circle_filled(center + Vec2::new(0.0, 1.0), radius + 0.4, BTN_SHADOW);
+/// Paint specular rim + inner shadow on a glass pill/circle (sample box-shadow insets).
+pub fn paint_glass_surface(
+    painter: &egui::Painter,
+    rect: Rect,
+    radius: f32,
+    fill: Color32,
+    hovered: bool,
+    pointer: Option<Pos2>,
+) {
+    let center = rect.center();
+    // Depth shadow under the pill.
+    painter.circle_filled(
+        center + Vec2::new(0.0, 3.0),
+        radius + 0.5,
+        Color32::from_black_alpha(40),
+    );
     painter.circle_filled(center, radius, fill);
-    // Soft muted rim (wide + low contrast → feathers; no harsh 1px white).
+
+    // Soft inner glow (sample inset 0 0 12px rgba(255,255,255,0.15)).
     painter.circle_stroke(
         center,
-        radius - 0.5,
-        Stroke::new(1.75_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x28)),
+        radius * 0.92,
+        Stroke::new(radius * 0.22, GLASS_INNER_GLOW),
     );
+
+    // Specular top rim highlight.
+    let top_arc_r = radius * 0.86;
+    let mut top_pts = Vec::with_capacity(18);
+    for i in 0..=16 {
+        let t = std::f32::consts::PI * (0.15 + 0.70 * (i as f32 / 16.0));
+        // Upper semicircle-ish highlight.
+        let a = -std::f32::consts::PI + t;
+        top_pts.push(center + Vec2::new(top_arc_r * a.cos(), top_arc_r * a.sin() * 0.85));
+    }
+    if top_pts.len() >= 2 {
+        painter.add(PathShape::line(
+            top_pts,
+            Stroke::new(1.6_f32, GLASS_SPECULAR),
+        ));
+    }
+
+    // Bottom inset shadow stroke.
+    painter.circle_stroke(
+        center + Vec2::new(0.0, 0.6),
+        radius - 0.8,
+        Stroke::new(1.4_f32, GLASS_INNER_SHADOW),
+    );
+
+    // Crisp gradient rim (sample ::after mask border).
+    painter.circle_stroke(center, radius - 0.4, Stroke::new(1.15_f32, GLASS_RIM_LIGHT));
+    painter.circle_stroke(
+        center,
+        radius - 0.4,
+        Stroke::new(1.0_f32, GLASS_RIM_FAINT),
+    );
+
+    // Pointer-reactive sheen (sample ::before radial-gradient), pastel-lilac not pure white.
+    let sheen = rgba_u(0xF7, 0xF4, 0xFB, 72);
+    if hovered {
+        if let Some(p) = pointer {
+            let sheen_r = radius * 1.6;
+            // egui has no true radial gradient mesh; a translucent disc near the pointer
+            // approximates the sample sheen.
+            let offset = (p - center).normalized() * (radius * 0.35);
+            painter.circle_filled(center + offset, sheen_r * 0.45, sheen);
+        } else {
+            painter.circle_filled(
+                center + Vec2::new(-radius * 0.2, -radius * 0.25),
+                radius * 0.55,
+                rgba_u(0xF0, 0xEA, 0xF8, 52),
+            );
+        }
+    }
 }
 
-/// Circular pastel tool button with painted icon and auto-contrast ink.
+/// Paint glass chrome on a rounded rect (toolbar rail). Kept for custom overlays.
+#[allow(dead_code)]
+pub fn paint_glass_rect(painter: &egui::Painter, rect: Rect, radius: f32, fill: Color32) {
+    let rounding = CornerRadius::same(radius as u8);
+    painter.rect(
+        rect.translate(Vec2::new(0.0, 4.0)),
+        rounding,
+        Color32::from_black_alpha(36),
+        Stroke::NONE,
+        egui::StrokeKind::Outside,
+    );
+    painter.rect(
+        rect,
+        rounding,
+        fill,
+        Stroke::new(1.0_f32, GLASS_RIM_LIGHT),
+        egui::StrokeKind::Outside,
+    );
+    // Top specular hairline.
+    let top = Rect::from_min_max(
+        Pos2::new(rect.left() + radius * 0.4, rect.top() + 1.0),
+        Pos2::new(rect.right() - radius * 0.4, rect.top() + 2.5),
+    );
+    painter.rect_filled(top, 1.0, GLASS_SPECULAR);
+    // Bottom inner shade.
+    let bot = Rect::from_min_max(
+        Pos2::new(rect.left() + radius * 0.35, rect.bottom() - 3.0),
+        Pos2::new(rect.right() - radius * 0.35, rect.bottom() - 1.0),
+    );
+    painter.rect_filled(bot, 1.0, GLASS_INNER_SHADOW);
+}
+
+/// Circular glass tool button with painted icon and auto-contrast ink.
 pub fn tool_icon_button(
     ui: &mut egui::Ui,
     selected: bool,
     tooltip: &str,
-    fill_override: Option<Color32>,
+    fill_override: Option<(Color32, Color32)>,
+    diameter: f32,
     paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
 ) -> bool {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::click());
     let response = response.on_hover_text(tooltip);
+    let hovered = response.hovered() || response.is_pointer_button_down_on();
 
-    let fill = fill_override.unwrap_or(if selected {
-        BTN_SELECTED
-    } else if response.hovered() {
-        BTN_HOVER
+    let dark = ui.visuals().dark_mode;
+    let pal = AnnotatePalette::for_mode(dark, true);
+    let fill = if let Some((idle, hover)) = fill_override {
+        if hovered { hover } else { idle }
+    } else if selected {
+        pal.btn_selected
+    } else if hovered {
+        pal.btn_hover
     } else {
-        BTN_IDLE
-    });
-    let icon = icon_color_for_fill(fill);
-    let radius = TOOL_BTN * 0.46;
+        pal.btn_idle
+    };
 
-    let painter = ui.painter_at(rect);
-    paint_soft_circle(&painter, rect.center(), radius, fill);
+    // Sample hover: scale 1.03; active 0.97 — subtle, MOTION 1.
+    let scale = if response.is_pointer_button_down_on() {
+        0.97
+    } else if hovered {
+        1.03
+    } else {
+        1.0
+    };
+    let draw = Rect::from_center_size(rect.center(), rect.size() * scale);
+    let radius = draw.width() * 0.46;
+    let painter = ui.painter_at(rect.expand(4.0));
+    paint_glass_surface(
+        &painter,
+        draw,
+        radius,
+        fill,
+        hovered,
+        response.hover_pos(),
+    );
 
     if selected && fill_override.is_none() {
         painter.circle_stroke(
-            rect.center(),
+            draw.center(),
             radius - 0.2,
-            Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(0x8B, 0x7C, 0xB6, 0x90)),
+            Stroke::new(2.0_f32, rgba_u(0x8B, 0x7C, 0xB6, 0xA0)),
         );
     }
 
-    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(TOOL_BTN * 0.50));
+    let icon = icon_color_for_fill(fill);
+    let icon_rect = Rect::from_center_size(draw.center(), Vec2::splat(diameter * 0.50 * scale));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
@@ -275,15 +595,19 @@ pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Respon
     let popup_id = Id::new("lightsnip_stroke_color_popup");
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
     let response = response.on_hover_text("Stroke color");
+    let hovered = response.hovered();
 
-    let painter = ui.painter_at(rect);
+    let dark = ui.visuals().dark_mode;
+    let pal = AnnotatePalette::for_mode(dark, true);
+    let fill = if hovered { pal.btn_hover } else { pal.btn_idle };
     let radius = TOOL_BTN * 0.46;
-    paint_soft_circle(&painter, rect.center(), radius, BTN_IDLE);
-    painter.circle_filled(rect.center(), radius * 0.62, *color);
+    let painter = ui.painter_at(rect.expand(4.0));
+    paint_glass_surface(&painter, rect, radius, fill, hovered, response.hover_pos());
+    painter.circle_filled(rect.center(), radius * 0.58, *color);
     painter.circle_stroke(
         rect.center(),
-        radius * 0.62,
-        Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x40)),
+        radius * 0.58,
+        Stroke::new(1.4_f32, GLASS_RIM_LIGHT),
     );
 
     if response.clicked() {
@@ -311,9 +635,13 @@ pub use tool_icon_button as glass_icon_button;
 pub use tool_color_swatch as glass_color_swatch;
 pub use toolbar_frame as glass_toolbar_frame;
 
-// --- Icon painters (thicker strokes for AA) -----------------------------------
+// Silence unused import if PathShape path uses epaint directly elsewhere.
+#[allow(unused_imports)]
+use epaint as _;
 
-const ICON_STROKE: f32 = 2.25;
+// --- Icon painters (thicker strokes + feather-friendly geometry) --------------
+
+const ICON_STROKE: f32 = 2.35;
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
@@ -353,27 +681,29 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
     }
 }
 
+/// Clear curved undo arrow (readable at small sizes).
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE, color);
-    let c = rect.center();
-    let r = rect.width() * 0.28;
-    let steps = 28;
-    let mut prev = Pos2::new(c.x + r, c.y);
+    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
+    let c = rect.center() + Vec2::new(rect.width() * 0.04, rect.height() * 0.06);
+    let r = rect.width() * 0.30;
+    let start = -0.35_f32;
+    let sweep = std::f32::consts::PI * 1.35;
+    let steps = 36;
+    let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
-        let t = std::f32::consts::PI * (i as f32 / steps as f32);
-        let p = Pos2::new(c.x + r * t.cos(), c.y - r * t.sin());
+        let t = start - sweep * (i as f32 / steps as f32);
+        let p = Pos2::new(c.x + r * t.cos(), c.y + r * t.sin());
         painter.line_segment([prev, p], stroke);
         prev = p;
     }
-    let tip = Pos2::new(c.x - r, c.y);
-    painter.line_segment(
-        [tip, tip + Vec2::new(rect.width() * 0.14, -rect.height() * 0.12)],
-        stroke,
-    );
-    painter.line_segment(
-        [tip, tip + Vec2::new(rect.width() * 0.14, rect.height() * 0.12)],
-        stroke,
-    );
+    let tip_angle = start - sweep;
+    let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
+    let tangent = Vec2::new(tip_angle.sin(), -tip_angle.cos());
+    let wing = rect.width() * 0.16;
+    let left = tip + tangent * wing + Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
+    let right = tip + tangent * wing - Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
+    painter.line_segment([tip, left], stroke);
+    painter.line_segment([tip, right], stroke);
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
@@ -385,15 +715,15 @@ pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.26;
-    let inner = rect.width() * 0.11;
-    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
+    let outer = rect.width() * 0.28;
+    let inner = rect.width() * 0.12;
+    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE + 0.2, color));
     painter.circle_filled(c, inner, color);
-    for i in 0..6 {
-        let a = (i as f32) * std::f32::consts::TAU / 6.0;
-        let p0 = c + Vec2::angled(a) * (outer * 0.82);
-        let p1 = c + Vec2::angled(a) * (outer * 1.28);
-        painter.line_segment([p0, p1], Stroke::new(2.4_f32, color));
+    for i in 0..8 {
+        let a = (i as f32) * std::f32::consts::TAU / 8.0;
+        let p0 = c + Vec2::angled(a) * (outer * 0.78);
+        let p1 = c + Vec2::angled(a) * (outer * 1.32);
+        painter.line_segment([p0, p1], Stroke::new(2.6_f32, color));
     }
 }
 
@@ -448,6 +778,19 @@ pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
 }
 
+/// Fit `img` into `area` (letterbox). Allows upscale so small captures stay sharp-ish when window is large.
+pub fn fit_image_rect(area: Rect, img_w: f32, img_h: f32) -> (Rect, f32) {
+    let img_size = Vec2::new(img_w.max(1.0), img_h.max(1.0));
+    let scale = (area.width() / img_size.x).min(area.height() / img_size.y);
+    let display = img_size * scale;
+    let origin = area.min
+        + Vec2::new(
+            (area.width() - display.x) * 0.5,
+            (area.height() - display.y) * 0.5,
+        );
+    (Rect::from_min_size(origin, display), scale)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,16 +806,38 @@ mod tests {
     #[test]
     fn tool_button_meets_desktop_target() {
         assert!(TOOL_BTN >= 28.0);
+        assert!(SETTINGS_BTN > TOOL_BTN);
         assert!(TOOLBAR_WIDTH >= TOOL_BTN);
         assert!(WINDOW_PAD >= 12.0);
         assert!(TOOLBAR_GUTTER >= 12.0);
     }
 
     #[test]
-    fn light_wells_get_dark_icons() {
-        assert_eq!(icon_color_for_fill(BTN_IDLE), ICON_DARK);
-        assert_eq!(icon_color_for_fill(BTN_SELECTED), ICON_DARK);
-        assert_eq!(icon_color_for_fill(BTN_HOVER), ICON_DARK);
+    fn glass_fill_keeps_pastel_not_pure_white() {
+        // Palette must stay lilac/gray — not generic white-glass-only.
+        // Colors are stored premultiplied; recover unmultiplied for the check.
+        let unmul = |c: Color32| -> (u8, u8, u8) {
+            let a = c.a().max(1) as u16;
+            (
+                ((c.r() as u16 * 255) / a) as u8,
+                ((c.g() as u16 * 255) / a) as u8,
+                ((c.b() as u16 * 255) / a) as u8,
+            )
+        };
+        let (fr, fg, fb) = unmul(GLASS_FILL);
+        assert!(fr < 255 || fg < 255 || fb < 255);
+        assert!(fb >= fr.saturating_sub(8)); // cool/lilac bias
+        let (sr, sg, sb) = unmul(GLASS_FILL_SELECTED);
+        assert!(sr > 0xC0 && sb > sg); // pastel purple selected tint
+        // Sample-like translucency band (not fully opaque).
+        assert!(GLASS_FILL.a() > 20 && GLASS_FILL.a() < 120);
+        assert!(GLASS_FILL_HOVER.a() >= GLASS_FILL.a());
+    }
+
+    #[test]
+    fn light_glass_gets_dark_icons() {
+        assert_eq!(icon_color_for_fill(GLASS_FILL), ICON_DARK);
+        assert_eq!(icon_color_for_fill(Color32::WHITE), ICON_DARK);
         assert!(approx_luminance(ICON_DARK) < 100.0);
     }
 
@@ -485,10 +850,25 @@ mod tests {
 
     #[test]
     fn pastel_primary_is_muted_not_neon() {
-        // Restrained purple: mid saturation / mid value — not electric neon.
         assert!(PASTEL_PRIMARY.r() < 0xB0);
         assert!(PASTEL_PRIMARY.b() < 0xD0);
         assert!(approx_luminance(PASTEL_PRIMARY) > 100.0);
         assert!(approx_luminance(PASTEL_PRIMARY) < 180.0);
+    }
+
+    #[test]
+    fn fit_image_upscales_small_captures() {
+        let area = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let (r, scale) = fit_image_rect(area, 200.0, 100.0);
+        assert!(scale > 1.0, "small images should scale up with the window");
+        assert!((r.width() - 800.0).abs() < 1.0 || (r.height() - 600.0).abs() < 1.0);
+        assert!((r.center() - area.center()).length() < 1.0);
+    }
+
+    #[test]
+    fn theme_preference_maps() {
+        assert_eq!(theme_preference(UiTheme::Dark), ThemePreference::Dark);
+        assert_eq!(theme_preference(UiTheme::Light), ThemePreference::Light);
+        assert_eq!(theme_preference(UiTheme::System), ThemePreference::System);
     }
 }
