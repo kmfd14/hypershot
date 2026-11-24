@@ -1,8 +1,13 @@
-//! lightsnip — Wayland screenshot CLI (Milestone 4: pixelate + UX polish).
+//! lightsnip - Wayland screenshot CLI (Milestone 5: settings window).
 
 mod annotate;
 mod capture;
+mod config;
+mod desktop;
 mod output;
+mod settings;
+mod tray;
+mod ui;
 
 use std::path::PathBuf;
 
@@ -11,12 +16,14 @@ use clap::{Parser, Subcommand};
 
 use annotate::{run_annotate_overlay, AnnotateOutcome};
 use capture::{capture_to_png, CaptureMode};
+use config::Config;
 use output::{copy_png_to_clipboard, resolve_output_path};
+use settings::{resolve_save_dir, run_settings_window, want_clipboard};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "lightsnip",
-    about = "Wayland screenshot tool with annotation (pixelate + overlay — Milestone 4)",
+    about = "Wayland screenshot tool with annotation + settings (Milestone 5)",
     version
 )]
 struct Cli {
@@ -25,15 +32,15 @@ struct Cli {
     output: Option<PathBuf>,
 
     /// Directory for timestamped PNGs when --output is omitted
-    /// (default: $LIGHTSNIP_SAVE_DIR or ~/Pictures/lightsnip).
+    /// (default: config, else $LIGHTSNIP_SAVE_DIR, else ~/Pictures/lightsnip).
     #[arg(long, value_name = "DIR", global = true)]
     save_dir: Option<PathBuf>,
 
-    /// Copy PNG to the Wayland clipboard via wl-copy (default when neither flag is set).
+    /// Copy PNG to the Wayland clipboard via wl-copy (overrides config).
     #[arg(long, global = true, action = clap::ArgAction::SetTrue, conflicts_with = "no_clipboard")]
     clipboard: bool,
 
-    /// Do not copy the PNG to the clipboard.
+    /// Do not copy the PNG to the clipboard (overrides config).
     #[arg(long = "no-clipboard", global = true, action = clap::ArgAction::SetTrue, conflicts_with = "clipboard")]
     no_clipboard: bool,
 
@@ -56,27 +63,48 @@ enum Commands {
         /// PNG to annotate (overwritten on Save).
         path: PathBuf,
     },
+    /// Open the settings window (TOML config; no system install required).
+    Settings,
+    /// Run the StatusNotifierItem tray (Region / Full / Settings / Quit).
+    Tray,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let want_clipboard = cli.clipboard || !cli.no_clipboard;
+    let cfg = Config::load().unwrap_or_else(|err| {
+        eprintln!("config load failed ({err:#}); using defaults");
+        Config::default()
+    });
+    let want_clipboard = want_clipboard(cli.clipboard, cli.no_clipboard, &cfg);
 
     match cli.command {
         Commands::Region => {
-            run_capture(CaptureMode::Region, cli.output, cli.save_dir, cli.no_annotate, want_clipboard)
-                .await?;
+            run_capture(
+                CaptureMode::Region,
+                cli.output,
+                cli.save_dir,
+                &cfg,
+                cli.no_annotate,
+                want_clipboard,
+            )
+            .await?;
         }
         Commands::Full => {
-            run_capture(CaptureMode::Full, cli.output, cli.save_dir, cli.no_annotate, want_clipboard)
-                .await?;
+            run_capture(
+                CaptureMode::Full,
+                cli.output,
+                cli.save_dir,
+                &cfg,
+                cli.no_annotate,
+                want_clipboard,
+            )
+            .await?;
         }
         Commands::Annotate { path } => {
             if !path.is_file() {
                 bail!("PNG not found: {}", path.display());
             }
-            // Optional redirect: annotate path, but write Save result to -o if set.
             let work_path = if let Some(out) = cli.output.as_ref() {
                 tokio::fs::copy(&path, out)
                     .await
@@ -97,6 +125,12 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Commands::Settings => {
+            run_settings_window()?;
+        }
+        Commands::Tray => {
+            tray::run_tray().await?;
+        }
     }
 
     Ok(())
@@ -106,23 +140,23 @@ async fn run_capture(
     mode: CaptureMode,
     output: Option<PathBuf>,
     save_dir: Option<PathBuf>,
+    cfg: &Config,
     no_annotate: bool,
     want_clipboard: bool,
 ) -> Result<()> {
-    let output = resolve_output_path(output, save_dir)?;
+    let dir = resolve_save_dir(save_dir, cfg)?;
+    let output = resolve_output_path(output, Some(dir))?;
     capture_to_png(mode, &output).await?;
 
     if !no_annotate {
         match run_annotate_overlay(&output) {
             Ok(AnnotateOutcome::Saved) => {}
             Ok(AnnotateOutcome::Cancelled) => {
-                // Discard the raw capture so Escape cancels the whole snip.
                 let _ = tokio::fs::remove_file(&output).await;
                 eprintln!("annotate cancelled");
                 return Ok(());
             }
             Err(err) => {
-                // Cloud / headless: keep raw capture + continue to clipboard.
                 eprintln!("annotate overlay unavailable ({err:#}); keeping raw capture");
             }
         }

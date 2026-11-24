@@ -1,4 +1,4 @@
-//! Fullscreen egui annotate overlay (Milestone 4).
+//! Fullscreen egui annotate overlay (Milestone 4 + settings gear).
 //!
 //! Quiet desktop chrome: neutral surfaces, small radius, no glow / pills / emoji.
 //! Design dials: ENERGY 1 / RHYTHM 1 / MOTION 1 (tool overlay, not marketing UI).
@@ -13,6 +13,9 @@ use anyhow::{bail, Context, Result};
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuilder};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
+
+use crate::settings::{show_settings_window, EmbeddedSettings};
+use crate::ui::{self, ACTION_FILL, MUTED};
 
 /// Result of the annotate session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +83,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
             "lightsnip annotate",
             options,
             Box::new(move |cc| {
-                apply_quiet_visuals(&cc.egui_ctx);
+                ui::apply_quiet_visuals(&cc.egui_ctx);
                 Ok(Box::new(AnnotateApp::new(
                     &cc.egui_ctx,
                     rgba_bytes,
@@ -120,56 +123,11 @@ fn ensure_display_available() -> Result<()> {
     Ok(())
 }
 
-/// Neutral quiet chrome — reason: tool overlay should not compete with the screenshot.
-fn apply_quiet_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    // Charcoal tool chrome: keeps attention on the capture (creative-tool dark, R-21).
-    visuals.panel_fill = Color32::from_rgb(0x22, 0x22, 0x24);
-    visuals.window_fill = Color32::from_rgb(0x22, 0x22, 0x24);
-    visuals.extreme_bg_color = Color32::from_rgb(0x1A, 0x1A, 0x1C);
-    visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
-    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
-    // Buttons paint `weak_bg_fill`; keep hover/active on the same charcoal ladder.
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
-    visuals.widgets.active.bg_fill = Color32::from_rgb(0x44, 0x44, 0x46);
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0x44, 0x44, 0x46);
-    visuals.widgets.open.bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
-    visuals.widgets.open.weak_bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
-    visuals.selection.bg_fill = Color32::from_rgb(0x3A, 0x3A, 0x3C);
-    // Kill egui dark-default cyan/blue selection stroke (R-01 / quiet chrome).
-    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    // Same family as selection stroke: egui dark text cursor defaults to rgb(192,222,255).
-    visuals.text_cursor.stroke =
-        Stroke::new(2.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    visuals.hyperlink_color = Color32::from_rgb(0xB0, 0xB0, 0xB0);
-    visuals.widgets.inactive.fg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    visuals.widgets.hovered.fg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0xF0, 0xF0, 0xF0));
-    visuals.widgets.active.fg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0xF0, 0xF0, 0xF0));
-    visuals.widgets.open.fg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    visuals.widgets.noninteractive.fg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0xB0, 0xB0, 0xB0));
-    // Small radius, not pills (R-11).
-    visuals.widgets.noninteractive.corner_radius = 3.0.into();
-    visuals.widgets.inactive.corner_radius = 3.0.into();
-    visuals.widgets.hovered.corner_radius = 3.0.into();
-    visuals.widgets.active.corner_radius = 3.0.into();
-    visuals.widgets.open.corner_radius = 3.0.into();
-    // No soft floating shadows (R-12).
-    visuals.window_shadow = egui::Shadow::NONE;
-    visuals.popup_shadow = egui::Shadow::NONE;
-    ctx.set_visuals(visuals);
-}
-
-/// Markup stroke color — one deliberate accent on the image, not on chrome (R-29 / Part 3).
+/// Markup stroke color - one deliberate accent on the image, not on chrome (R-29 / Part 3).
 const STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 const STROKE_WIDTH: f32 = 3.0;
 
-/// Privacy region outline — muted, not the markup accent (R-31: redaction ≠ callout).
+/// Privacy region outline - muted, not the markup accent (R-31: redaction ≠ callout).
 /// Premultiplied approx of unmultiplied (0x28,0x28,0x2A,160).
 const PIXELATE_PREVIEW_FILL: Color32 =
     Color32::from_rgba_premultiplied(0x19, 0x19, 0x1A, 160);
@@ -188,6 +146,8 @@ struct AnnotateApp {
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
+    show_settings: bool,
+    settings: EmbeddedSettings,
 }
 
 impl AnnotateApp {
@@ -217,6 +177,8 @@ impl AnnotateApp {
             path,
             outcome,
             finished: false,
+            show_settings: false,
+            settings: EmbeddedSettings::load(),
         }
     }
 
@@ -280,11 +242,16 @@ impl eframe::App for AnnotateApp {
         }
 
         // Keyboard: Escape clears draft then cancels; Enter saves; Ctrl+Z undoes.
+        // When Settings is open, Escape closes Settings first (does not cancel annotate).
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
-                self.cancel_draft_or_session();
+                if self.show_settings {
+                    self.show_settings = false;
+                } else {
+                    self.cancel_draft_or_session();
+                }
             }
-            if i.key_pressed(egui::Key::Enter) {
+            if !self.show_settings && i.key_pressed(egui::Key::Enter) {
                 if let Err(err) = self.save_and_close() {
                     eprintln!("annotate save failed: {err:#}");
                 }
@@ -327,16 +294,16 @@ impl eframe::App for AnnotateApp {
                     if ui.button("Clear").clicked() {
                         self.clear_all();
                     }
+                    if ui.button("Settings").clicked() {
+                        self.show_settings = true;
+                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
                             self.set_outcome(AnnotateOutcome::Cancelled);
                         }
                         if ui
-                            .add(
-                                egui::Button::new("Save")
-                                    .fill(Color32::from_rgb(0x3A, 0x3A, 0x3C)),
-                            )
+                            .add(egui::Button::new("Save").fill(ACTION_FILL))
                             .clicked()
                         {
                             if let Err(err) = self.save_and_close() {
@@ -345,13 +312,14 @@ impl eframe::App for AnnotateApp {
                         }
                         ui.label(
                             egui::RichText::new("Enter save · Esc cancel")
-                                // #A0 on #222 ≈ 5.7:1 (WCAG AA for normal text).
-                                .color(Color32::from_rgb(0xA0, 0xA0, 0xA0))
+                                .color(MUTED)
                                 .size(12.0),
                         );
                     });
                 });
             });
+
+        show_settings_window(ctx, &mut self.show_settings, &mut self.settings);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(Color32::from_rgb(0x12, 0x12, 0x14)))
