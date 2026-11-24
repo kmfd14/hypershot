@@ -1,8 +1,16 @@
 # lightsnip — user guide
 
-**Do this now:** run `lightsnip region`, then open the PNG path it prints.
+**Do this now** (from the repo checkout):
 
-About 1 minute for first capture (Milestone 1). Annotation, clipboard defaults, and the settings window land in later milestones.
+```bash
+cargo run --release -- region
+```
+
+Then open the PNG path it prints. About 1 minute for first capture after deps (Milestone 1).
+
+No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install and “replace default screenshot tool” are separate and off by default.
+
+Annotation, clipboard defaults, and the settings window land in later milestones.
 
 Quiet desktop UI planned for annotate/settings: small chrome, neutral surfaces. No decorative gradients or emoji controls.
 
@@ -10,15 +18,25 @@ Quiet desktop UI planned for annotate/settings: small chrome, neutral surfaces. 
 
 ## Capture (available now)
 
-Pick one mode. Region is the default path.
+Pick one mode. Region is the default path. Run from the checkout — you do not need a system binary.
 
-1. **Region** — `lightsnip region` → portal interactive picker, or `slurp` → `grim` if the portal fails.
-2. **Fullscreen** — `lightsnip full` → active output via portal, or `grim` fallback.
-3. Optional output path: `lightsnip region -o ~/Pictures/snip.png`.
+1. **Region** — `cargo run --release -- region` → portal interactive picker, or `slurp` → `grim` if the portal fails.
+2. **Fullscreen** — `cargo run --release -- full` → active output via portal, or `grim` fallback.
+3. Optional output path: `cargo run --release -- region -o ~/Pictures/snip.png`.
 4. The command prints the PNG path on success (default: `/tmp/lightsnip-<unix>.png`).
 5. Escape / cancel in the picker aborts with a non-zero exit.
 
 Portal capture is preferred. If the portal path fails, lightsnip uses `grim` + `slurp` when installed.
+
+---
+
+## Optional install
+
+Skip unless you want `lightsnip` on your `PATH`. Default stays `cargo run` from the checkout.
+
+1. `cargo build --release`
+2. Optionally: `cp target/release/lightsnip ~/.local/bin/` (user PATH only — not `/usr`)
+3. Then `lightsnip region` / `lightsnip full` work the same way
 
 ---
 
@@ -44,7 +62,7 @@ Blur/pixelate is for privacy redaction before share or copy.
 4. Clipboard uses the portal when available; otherwise `wl-copy` (`wl-clipboard`).
 5. If nothing lands in the clipboard, install `wl-clipboard` or fix portal clipboard permissions, then retry.
 
-Until then: use the path printed by `lightsnip region` / `lightsnip full`.
+Until then: use the path printed by `cargo run --release -- region` / `cargo run --release -- full`.
 
 ---
 
@@ -52,14 +70,14 @@ Until then: use the path printed by `lightsnip region` / `lightsnip full`.
 
 Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on every desktop.
 
-1. In your compositor or DE keyboard settings, bind a key to `lightsnip region`.
-2. Optionally bind fullscreen the same way (`lightsnip full`).
-3. Sample command to bind: `lightsnip region`.
+1. Bind a key to `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` (or `full`).
+2. Or bind `lightsnip region` / `lightsnip full` only after optional install.
+3. Sample primary command: `cargo run --release -- region`.
 
 | Desktop | Idea |
 | --- | --- |
-| Sway / Hyprland | Bind a key to `exec lightsnip region` |
-| GNOME / KDE | Custom shortcut → command `lightsnip region` |
+| Sway / Hyprland | Bind a key to `exec` the `cargo run … region` command |
+| GNOME / KDE | Custom shortcut → same command |
 
 ---
 
@@ -68,8 +86,8 @@ Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on e
 A later milestone adds a small settings control → settings window (~1 minute to set the basics).
 
 1. **Shortcuts** — see docs; configure only what Wayland allows.
-2. **Run at startup** — enable if you want lightsnip available after login.
-3. **Replace default screenshot tool** — enable only where the DE allows; otherwise ignore.
+2. **Run at startup** — opt-in; off by default.
+3. **Replace default screenshot tool** — off by default; enable only where the DE allows.
 4. **Stay in taskbar / tray** — enable to keep a tray/status presence.
 5. **Save directory** + **Save to clipboard** — set once; change anytime.
 
@@ -79,6 +97,6 @@ Settings will persist in a TOML config file under your user config directory.
 
 ## Next
 
-1. Build: `cargo build --release`
-2. Run: `lightsnip region`
-3. Bind one compositor key to `lightsnip region`
+1. From the checkout: `cargo run --release -- region`
+2. Open the printed PNG path
+3. Bind one compositor key to that same `cargo run …` command (optional install later if you want)
