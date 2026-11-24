@@ -1,9 +1,13 @@
 //! Settings window: grouped cards, `?` tooltips, clearer controls.
 //!
-//! Shortcuts: click “Assign…”, then type a combination (stored as a label;
-//! Wayland still needs a compositor bind — no portable global grab).
-//! User Interface: toolbar position, theme, title bar, transparency / blur
-//! intensity (honest about egui/Wayland limits). About shows name + version.
+//! Shortcuts: click “Assign…”, then type a combination. That stores a *label*
+//! and suggested bind command only — lightsnip does **not** register a global
+//! hotkey on Wayland. Bind the command in your compositor / DE (COSMIC,
+//! GNOME, Hyprland, …). “Replace default screenshot” only installs a user
+//! `.desktop` helper; it does not make Assign… live and does not steal Print.
+//! User Interface: toolbar position, theme, title bar, tiling vs floating,
+//! Esc-to-exit, transparency / blur intensity (honest about egui/Wayland
+//! limits). About shows name + version.
 
 use std::path::PathBuf;
 
@@ -220,12 +224,22 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "Shortcuts",
-                "Wayland has no portable global hotkey API. Assign a combo here, then bind the command in your compositor (Sway/Hyprland) or DE keyboard settings.",
+                "Assign… only stores a suggested key label — it does not register a global hotkey. Wayland has no portable global grab. Copy the bind command below into your compositor or DE keyboard settings (Fedora COSMIC: Settings → Input Devices → Keyboard → Custom shortcuts). Replace default screenshot is unrelated: it only installs a user .desktop helper and never steals PrintScreen.",
                 label,
                 secondary,
             );
 
-            ui.label(egui::RichText::new("Key combination").color(label).size(12.0));
+            ui.label(
+                egui::RichText::new(
+                    "Not a live global hotkey. Bind the command in your desktop.",
+                )
+                .color(SETTINGS_PRIMARY)
+                .size(11.0)
+                .strong(),
+            );
+            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("Suggested key (label only)").color(label).size(12.0));
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let chip_text = if self.capturing_shortcut {
@@ -274,6 +288,9 @@ impl SettingsApp {
                     Some(SETTINGS_PRIMARY),
                     96.0,
                 )
+                .on_hover_text(
+                    "Stores a label for your notes. Does not grab the key system-wide.",
+                )
                 .clicked()
                 {
                     self.capturing_shortcut = !self.capturing_shortcut;
@@ -284,12 +301,20 @@ impl SettingsApp {
                 }
             });
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("Bind command").color(label).size(12.0));
+            ui.label(egui::RichText::new("Bind command (paste into DE / compositor)").color(label).size(12.0));
             settings_text_edit(
                 ui,
                 &mut self.shortcut_text,
                 f32::INFINITY,
                 "path/to/lightsnip region",
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "COSMIC: Settings → Input Devices → Keyboard → Custom shortcuts → add this command.",
+                )
+                .color(secondary)
+                .size(10.5),
             );
         });
         ui.add_space(10.0);
@@ -318,7 +343,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.replace_default_screenshot,
                 "Replace default screenshot",
-                "User .desktop helper only.",
+                "User .desktop helper only — does not bind keys or steal PrintScreen.",
                 label,
                 secondary,
             );
@@ -378,7 +403,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "User Interface",
-                "Annotate chrome: toolbar position, theme, title bar, and window effects. Transparency lowers window/panel opacity (compositor-dependent on Wayland). Background blur cannot sample the desktop in egui; intensity drives a translucent frosted panel instead.",
+                "Annotate chrome: toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. Transparency / blur affect the window and preview area; the tool rail stays fully opaque. Background blur cannot sample the desktop in egui.",
                 label,
                 secondary,
             );
@@ -421,9 +446,33 @@ impl SettingsApp {
 
             session_row(
                 ui,
+                &mut self.cfg.follow_window_tiling,
+                "Follow window tiling",
+                "On: skip center + always-on-top so a tiling WM can place annotate. Off (default): center + always-on-top. Wayland/COSMIC may still ignore always-on-top.",
+                label,
+                secondary,
+            );
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            session_row(
+                ui,
+                &mut self.cfg.esc_to_exit,
+                "Esc to exit",
+                "When on (default), Escape dismisses annotate without save/copy (after clearing a draft). Exit button always works.",
+                label,
+                secondary,
+            );
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            session_row(
+                ui,
                 &mut self.cfg.window_transparency,
                 "Window transparency",
-                "Applies window clear alpha + translucent panels. Many Wayland compositors ignore alpha.",
+                "Applies window clear alpha + translucent preview area. Toolbar stays opaque. Many Wayland compositors ignore alpha.",
                 label,
                 secondary,
             );
@@ -445,7 +494,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_background_blur,
                 "Window background blur",
-                "No true desktop blur in egui/Wayland. Intensity frosts the annotate panel (translucent lift).",
+                "No true desktop blur in egui/Wayland. Intensity frosts the preview area; toolbar stays a solid pastel panel.",
                 label,
                 secondary,
             );
@@ -462,7 +511,7 @@ impl SettingsApp {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "Wayland / egui: transparency is compositor-dependent; blur is a frosted panel, not backdrop-blur.",
+                    "Wayland / egui: transparency is compositor-dependent; blur is a frosted panel, not backdrop-blur. Always-on-top is a no-op on Wayland (winit).",
                 )
                 .color(secondary)
                 .size(10.5)

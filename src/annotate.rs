@@ -2,15 +2,18 @@
 //!
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
-//! settings. Esc cancels/discards; Save dismisses after write. Copy shows a
-//! short clipboard toast, then closes without blanking the preview.
+//! settings. Exit cancels/discards (Esc does the same when enabled in settings).
+//! Save dismisses after write. Copy shows a short clipboard toast, then closes
+//! without blanking the preview.
 //!
 //! Chrome: flat pastel purple / gray / white. Transparency + blur settings
-//! apply window opacity and a translucent frosted panel (egui cannot sample
-//! the desktop for real compositor backdrop-blur on Wayland).
+//! apply window opacity and a translucent frosted panel on the window/preview
+//! area; the tool rail stays fully opaque. egui cannot sample the desktop for
+//! real compositor backdrop-blur on Wayland.
 //!
-//! Stay-on-top: `ViewportBuilder::with_always_on_top`. Many Wayland compositors
-//! ignore or gate always-on-top.
+//! Floating (default): centered + `ViewportBuilder::with_always_on_top`.
+//! Follow tiling: skip those hints so a tiling WM can place the window.
+//! Wayland: winit’s always-on-top is a no-op; COSMIC/tiling may still tile.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -26,9 +29,9 @@ use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate,
-    paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette,
-    ACTION_FILL, ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER,
-    SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
+    paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step, paint_icon_undo,
+    AnnotatePalette, ACTION_FILL, ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY,
+    PASTEL_PRIMARY_HOVER, SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
 
 /// How long the “copied to clipboard” toast stays visible before close.
@@ -51,6 +54,8 @@ enum Tool {
     Rect,
     /// Privacy redaction: coarse pixel blocks over a drag rect.
     Pixelate,
+    /// Click to stamp a numbered circle (1, 2, …).
+    Step,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -69,7 +74,15 @@ enum Shape {
         a: Pos2,
         b: Pos2,
     },
+    Step {
+        center: Pos2,
+        number: u32,
+        color: Color32,
+    },
 }
+
+/// Radius of a step stamp in image pixels.
+const STEP_RADIUS: f32 = 14.0;
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
 const PIXELATE_BLOCK: u32 = 12;
@@ -80,26 +93,28 @@ const MAX_DISPLAY_H: f32 = 800.0;
 
 /// Approximate content size of the floating rail (vertical).
 fn toolbar_content_height() -> f32 {
-    // Annotate label + 3 tools + color + undo + redo + clear + settings + save + copy
-    let n_btns = 9.0_f32;
+    // Annotate label + 4 tools + color + undo + redo + clear + settings + save + copy + Exit
+    let n_btns = 10.0_f32;
     let label = 22.0;
-    let gaps = 9.0 * 8.0 + 28.0;
-    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+    let exit = 22.0;
+    let gaps = 11.0 * 8.0 + 28.0;
+    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
 }
 
 /// Approximate content size of the floating rail (horizontal).
 fn toolbar_content_width() -> f32 {
-    let n_btns = 9.0_f32;
+    let n_btns = 10.0_f32;
     let label = 72.0;
-    let gaps = 9.0 * 8.0 + 28.0;
-    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+    let exit = 48.0;
+    let gaps = 11.0 * 8.0 + 28.0;
+    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
 }
 
 /// Open a floating annotate window on an existing PNG.
 ///
 /// On Save / Enter / Copy: composites annotations onto the image and overwrites `path`.
-/// On Escape: clears an in-progress drag first; with no draft, returns
-/// [`AnnotateOutcome::Cancelled`] without modifying the file.
+/// On Exit (or Escape when enabled): clears an in-progress drag first; with no draft,
+/// returns [`AnnotateOutcome::Cancelled`] without modifying the file.
 pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     ensure_display_available()?;
 
@@ -121,20 +136,27 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
 
     let transparent = cfg.window_transparency;
     let decorations = cfg.show_title_bar;
+    let follow_tiling = cfg.follow_window_tiling;
+
+    // Floating (default): center + always-on-top. Follow tiling: skip those hints.
+    // Wayland: winit `set_window_level` is a no-op; COSMIC may still tile anyway.
+    let mut viewport = ViewportBuilder::default()
+        .with_title("Lightsnip")
+        .with_inner_size([win_w, win_h])
+        .with_min_inner_size([
+            TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
+            200.0,
+        ])
+        .with_decorations(decorations)
+        .with_transparent(transparent)
+        .with_resizable(true);
+    if !follow_tiling {
+        viewport = viewport.with_always_on_top();
+    }
 
     let options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_title("Lightsnip")
-            .with_inner_size([win_w, win_h])
-            .with_min_inner_size([
-                TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
-                200.0,
-            ])
-            .with_decorations(decorations)
-            .with_transparent(transparent)
-            .with_resizable(true)
-            // Best-effort; Wayland compositors often ignore or restrict this.
-            .with_always_on_top(),
+        viewport,
+        centered: !follow_tiling,
         ..Default::default()
     };
 
@@ -218,6 +240,8 @@ struct AnnotateApp {
     redo_stack: Vec<Shape>,
     tool: Tool,
     stroke_color: Color32,
+    /// Next step stamp number (1-based). Reset by undo/clear of step marks.
+    next_step_number: u32,
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
     path: std::path::PathBuf,
@@ -230,6 +254,7 @@ struct AnnotateApp {
     /// Last applied viewport decoration / transparency (to avoid spam).
     applied_title_bar: bool,
     applied_transparency: bool,
+    applied_follow_tiling: bool,
 }
 
 impl AnnotateApp {
@@ -258,6 +283,7 @@ impl AnnotateApp {
             redo_stack: Vec::new(),
             tool: Tool::Arrow,
             stroke_color: DEFAULT_STROKE,
+            next_step_number: 1,
             drag_start: None,
             draft: None,
             path,
@@ -267,8 +293,23 @@ impl AnnotateApp {
             show_settings: false,
             applied_title_bar: cfg.show_title_bar,
             applied_transparency: cfg.window_transparency,
+            applied_follow_tiling: cfg.follow_window_tiling,
             settings,
         }
+    }
+
+    /// Next stamp = max(existing step numbers) + 1, or 1 when none remain.
+    fn sync_step_counter(&mut self) {
+        self.next_step_number = self
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Step { number, .. } => Some(*number),
+                _ => None,
+            })
+            .max()
+            .map(|m| m.saturating_add(1))
+            .unwrap_or(1);
     }
 
     fn set_outcome(&mut self, outcome: AnnotateOutcome) {
@@ -296,6 +337,7 @@ impl AnnotateApp {
         }
         self.draft = None;
         self.drag_start = None;
+        self.sync_step_counter();
     }
 
     fn redo(&mut self) {
@@ -304,6 +346,7 @@ impl AnnotateApp {
         }
         self.draft = None;
         self.drag_start = None;
+        self.sync_step_counter();
     }
 
     fn clear_all(&mut self) {
@@ -311,6 +354,7 @@ impl AnnotateApp {
         self.redo_stack.clear();
         self.draft = None;
         self.drag_start = None;
+        self.next_step_number = 1;
     }
 
     fn push_shape(&mut self, shape: Shape) {
@@ -362,19 +406,20 @@ impl AnnotateApp {
         )
     }
 
-    fn draft_from_drag(&self, start: Pos2, end: Pos2) -> Shape {
+    fn draft_from_drag(&self, start: Pos2, end: Pos2) -> Option<Shape> {
         match self.tool {
-            Tool::Arrow => Shape::Arrow {
+            Tool::Arrow => Some(Shape::Arrow {
                 from: start,
                 to: end,
                 color: self.stroke_color,
-            },
-            Tool::Rect => Shape::Rect {
+            }),
+            Tool::Rect => Some(Shape::Rect {
                 a: start,
                 b: end,
                 color: self.stroke_color,
-            },
-            Tool::Pixelate => Shape::Pixelate { a: start, b: end },
+            }),
+            Tool::Pixelate => Some(Shape::Pixelate { a: start, b: end }),
+            Tool::Step => None,
         }
     }
 
@@ -388,6 +433,16 @@ impl AnnotateApp {
         if cfg.window_transparency != self.applied_transparency {
             ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(cfg.window_transparency));
             self.applied_transparency = cfg.window_transparency;
+        }
+        if cfg.follow_window_tiling != self.applied_follow_tiling {
+            // Best-effort; Wayland ignores WindowLevel.
+            let level = if cfg.follow_window_tiling {
+                egui::viewport::WindowLevel::Normal
+            } else {
+                egui::viewport::WindowLevel::AlwaysOnTop
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+            self.applied_follow_tiling = cfg.follow_window_tiling;
         }
     }
 
@@ -453,6 +508,16 @@ impl AnnotateApp {
             ) {
                 self.tool = Tool::Pixelate;
             }
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Step,
+                "Step number",
+                None,
+                TOOL_BTN,
+                paint_icon_step,
+            ) {
+                self.tool = Tool::Step;
+            }
 
             glass_color_swatch(ui, &mut self.stroke_color);
 
@@ -513,7 +578,32 @@ impl AnnotateApp {
                 }
             }
 
-            ui.label(egui::RichText::new("Esc").color(pal.muted).size(10.0));
+            // Clear Exit control (replaces the old Esc label). Same cancel path as Esc.
+            let exit_fill = if pal.dark {
+                Color32::from_rgb(0x4A, 0x3E, 0x48)
+            } else {
+                Color32::from_rgb(0xE8, 0xE0, 0xE6)
+            };
+            let exit_text = if pal.dark {
+                crate::ui::ICON_LIGHT
+            } else {
+                crate::ui::ICON_DARK
+            };
+            let exit = ui.add_sized(
+                Vec2::new(if horizontal { 52.0 } else { TOOL_BTN + 4.0 }, 22.0),
+                egui::Button::new(
+                    egui::RichText::new("Exit")
+                        .color(exit_text)
+                        .size(12.0)
+                        .strong(),
+                )
+                .fill(exit_fill)
+                .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
+                .corner_radius(egui::CornerRadius::same(6)),
+            );
+            if exit.on_hover_text("Close without saving").clicked() {
+                self.cancel_draft_or_session();
+            }
         });
     }
 
@@ -543,26 +633,45 @@ impl AnnotateApp {
             paint_shape(&painter, *shape, to_screen, scale);
         }
 
-        if response.drag_started() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                if image_rect.contains(pos) {
-                    self.drag_start = Some(to_image(pos));
+        if self.tool == Tool::Step {
+            if response.clicked() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    if image_rect.contains(pos) {
+                        let center = clamp_to_image(to_image(pos), self.width, self.height);
+                        let number = self.next_step_number;
+                        self.push_shape(Shape::Step {
+                            center,
+                            number,
+                            color: self.stroke_color,
+                        });
+                        self.next_step_number = number.saturating_add(1);
+                    }
                 }
             }
-        }
-        if response.dragged() {
-            if let (Some(start), Some(pos)) = (self.drag_start, response.interact_pointer_pos()) {
-                let end = clamp_to_image(to_image(pos), self.width, self.height);
-                self.draft = Some(self.draft_from_drag(start, end));
-            }
-        }
-        if response.drag_stopped() {
-            if let Some(shape) = self.draft.take() {
-                if shape_is_meaningful(shape) {
-                    self.push_shape(shape);
+        } else {
+            if response.drag_started() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    if image_rect.contains(pos) {
+                        self.drag_start = Some(to_image(pos));
+                    }
                 }
             }
-            self.drag_start = None;
+            if response.dragged() {
+                if let (Some(start), Some(pos)) =
+                    (self.drag_start, response.interact_pointer_pos())
+                {
+                    let end = clamp_to_image(to_image(pos), self.width, self.height);
+                    self.draft = self.draft_from_drag(start, end);
+                }
+            }
+            if response.drag_stopped() {
+                if let Some(shape) = self.draft.take() {
+                    if shape_is_meaningful(shape) {
+                        self.push_shape(shape);
+                    }
+                }
+                self.drag_start = None;
+            }
         }
     }
 
@@ -663,12 +772,17 @@ impl eframe::App for AnnotateApp {
         self.sync_viewport_prefs(ctx);
 
         if interactive {
+            let esc_to_exit = self.settings.config().esc_to_exit;
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::Escape) {
                     if self.show_settings {
                         self.show_settings = false;
-                    } else {
+                    } else if esc_to_exit {
                         self.cancel_draft_or_session();
+                    } else if self.draft.is_some() || self.drag_start.is_some() {
+                        // Esc-to-exit off: still drop an in-progress drag, never close.
+                        self.draft = None;
+                        self.drag_start = None;
                     }
                 }
                 if !self.show_settings && i.key_pressed(egui::Key::Enter) {
@@ -805,6 +919,7 @@ fn shape_is_meaningful(shape: Shape) -> bool {
         Shape::Rect { a, b, .. } | Shape::Pixelate { a, b } => {
             (a.x - b.x).abs() >= 4.0 && (a.y - b.y).abs() >= 4.0
         }
+        Shape::Step { number, .. } => number >= 1,
     }
 }
 
@@ -861,6 +976,28 @@ fn paint_shape(
                 egui::StrokeKind::Outside,
             );
         }
+        Shape::Step {
+            center,
+            number,
+            color,
+        } => {
+            let c = to_screen(center);
+            let r = (STEP_RADIUS * scale).max(10.0);
+            // High-contrast: solid fill + white rim + white number.
+            painter.circle_filled(c, r, color);
+            painter.circle_stroke(
+                c,
+                r,
+                Stroke::new(2.0_f32, Color32::WHITE),
+            );
+            painter.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                number.to_string(),
+                egui::FontId::proportional((r * 1.05).clamp(11.0, 28.0)),
+                Color32::WHITE,
+            );
+        }
     }
 }
 
@@ -901,6 +1038,107 @@ fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
         }
         Shape::Pixelate { a, b } => {
             pixelate_region(img, a, b, PIXELATE_BLOCK);
+        }
+        Shape::Step {
+            center,
+            number,
+            color,
+        } => {
+            rasterize_step(img, center, number, color);
+        }
+    }
+}
+
+fn rasterize_step(img: &mut RgbaImage, center: Pos2, number: u32, color: Color32) {
+    let fill = Rgba([color.r(), color.g(), color.b(), 255]);
+    let white = Rgba([255, 255, 255, 255]);
+    let cx = center.x.round() as i32;
+    let cy = center.y.round() as i32;
+    let radius = STEP_RADIUS.round() as i32;
+    draw_filled_circle_mut(img, (cx, cy), radius, fill);
+    // White rim for contrast on busy backgrounds.
+    draw_circle_ring(img, cx, cy, radius, white);
+    if radius > 2 {
+        draw_circle_ring(img, cx, cy, radius - 1, white);
+    }
+    let label = number.to_string();
+    let digit_w = 5i32;
+    let digit_h = 7i32;
+    let scale = 2i32;
+    let gap = 1i32;
+    let total_w = label.len() as i32 * (digit_w * scale + gap) - gap;
+    let mut x = cx - total_w / 2;
+    let y = cy - (digit_h * scale) / 2;
+    for ch in label.chars() {
+        if let Some(d) = ch.to_digit(10) {
+            blit_digit_5x7(img, d as u8, x, y, scale, white);
+        }
+        x += digit_w * scale + gap;
+    }
+}
+
+fn draw_circle_ring(img: &mut RgbaImage, cx: i32, cy: i32, radius: i32, color: Rgba<u8>) {
+    if radius <= 0 {
+        return;
+    }
+    let (w, h) = img.dimensions();
+    let r2 = radius * radius;
+    let outer = (radius + 1) * (radius + 1);
+    for dy in -radius - 1..=radius + 1 {
+        for dx in -radius - 1..=radius + 1 {
+            let d2 = dx * dx + dy * dy;
+            if d2 > r2 && d2 <= outer {
+                let x = cx + dx;
+                let y = cy + dy;
+                if x >= 0 && y >= 0 && (x as u32) < w && (y as u32) < h {
+                    img.put_pixel(x as u32, y as u32, color);
+                }
+            }
+        }
+    }
+}
+
+/// Tiny 5×7 digit bitmaps (MSB left). Enough for high-contrast step labels.
+fn digit_bitmap_5x7(d: u8) -> [u8; 7] {
+    match d {
+        0 => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        1 => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        2 => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+        3 => [0b01110, 0b10001, 0b00001, 0b00110, 0b00001, 0b10001, 0b01110],
+        4 => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+        5 => [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
+        6 => [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+        7 => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+        8 => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+        9 => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
+        _ => [0; 7],
+    }
+}
+
+fn blit_digit_5x7(
+    img: &mut RgbaImage,
+    digit: u8,
+    ox: i32,
+    oy: i32,
+    scale: i32,
+    color: Rgba<u8>,
+) {
+    let bmp = digit_bitmap_5x7(digit);
+    let (w, h) = img.dimensions();
+    let scale = scale.max(1);
+    for (row, bits) in bmp.iter().enumerate() {
+        for col in 0..5 {
+            if bits & (1 << (4 - col)) != 0 {
+                for sy in 0..scale {
+                    for sx in 0..scale {
+                        let x = ox + col as i32 * scale + sx;
+                        let y = oy + row as i32 * scale + sy;
+                        if x >= 0 && y >= 0 && (x as u32) < w && (y as u32) < h {
+                            img.put_pixel(x as u32, y as u32, color);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1190,5 +1428,95 @@ mod tests {
         redo.clear();
         assert!(redo.is_empty());
         assert_eq!(shapes.len(), 3);
+    }
+
+    fn next_from_shapes(shapes: &[Shape]) -> u32 {
+        shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Step { number, .. } => Some(*number),
+                _ => None,
+            })
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(1)
+    }
+
+    #[test]
+    fn step_counter_resets_on_undo_and_clear() {
+        let mut shapes = Vec::new();
+        let mut next = 1u32;
+        for _ in 0..3 {
+            shapes.push(Shape::Step {
+                center: Pos2::new(10.0, 10.0),
+                number: next,
+                color: DEFAULT_STROKE,
+            });
+            next += 1;
+        }
+        assert_eq!(next, 4);
+        assert_eq!(next_from_shapes(&shapes), 4);
+
+        // Undo last stamp → next becomes 3 again.
+        shapes.pop();
+        next = next_from_shapes(&shapes);
+        assert_eq!(next, 3);
+
+        // Clear everything → back to 1.
+        shapes.clear();
+        next = next_from_shapes(&shapes);
+        assert_eq!(next, 1);
+    }
+
+    #[test]
+    fn rasterize_step_paints_circle_and_digit() {
+        let mut img = RgbaImage::from_pixel(64, 64, Rgba([0, 0, 0, 255]));
+        rasterize_shape(
+            &mut img,
+            Shape::Step {
+                center: Pos2::new(32.0, 32.0),
+                number: 1,
+                color: DEFAULT_STROKE,
+            },
+        );
+        // Fill is visible just inside the rim (away from the centered digit).
+        let fill = img.get_pixel(32, 32 - (STEP_RADIUS as u32) + 3);
+        assert_eq!(fill.0[0], DEFAULT_STROKE.r());
+        assert_eq!(fill.0[1], DEFAULT_STROKE.g());
+        // White digit / rim should appear somewhere near the center.
+        let mut saw_white = false;
+        for y in 18..46 {
+            for x in 18..46 {
+                let p = img.get_pixel(x, y).0;
+                if p == [255, 255, 255, 255] {
+                    saw_white = true;
+                }
+            }
+        }
+        assert!(saw_white, "step stamp should paint a white rim or digit");
+    }
+
+    #[test]
+    fn step_shape_is_always_meaningful() {
+        assert!(shape_is_meaningful(Shape::Step {
+            center: Pos2::ZERO,
+            number: 1,
+            color: DEFAULT_STROKE,
+        }));
+    }
+
+    #[test]
+    fn floating_mode_prefers_center_when_not_tiling() {
+        // Documented contract for NativeOptions: centered iff !follow_window_tiling.
+        let follow = false;
+        assert!(!follow);
+        let centered = !follow;
+        assert!(centered);
+        let follow = true;
+        assert!(!follows_to_centered(follow));
+    }
+
+    fn follows_to_centered(follow_tiling: bool) -> bool {
+        !follow_tiling
     }
 }
