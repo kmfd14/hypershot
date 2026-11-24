@@ -122,6 +122,9 @@ fn apply_quiet_visuals(ctx: &egui::Context) {
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
     visuals.widgets.active.bg_fill = Color32::from_rgb(0x44, 0x44, 0x46);
     visuals.selection.bg_fill = Color32::from_rgb(0x3A, 0x3A, 0x3C);
+    // Kill egui dark-default cyan/blue selection stroke (R-01 / quiet chrome).
+    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
+    visuals.hyperlink_color = Color32::from_rgb(0xB0, 0xB0, 0xB0);
     visuals.widgets.inactive.fg_stroke =
         Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
     visuals.widgets.hovered.fg_stroke =
@@ -133,6 +136,7 @@ fn apply_quiet_visuals(ctx: &egui::Context) {
     visuals.widgets.inactive.corner_radius = 3.0.into();
     visuals.widgets.hovered.corner_radius = 3.0.into();
     visuals.widgets.active.corner_radius = 3.0.into();
+    visuals.widgets.open.corner_radius = 3.0.into();
     // No soft floating shadows (R-12).
     visuals.window_shadow = egui::Shadow::NONE;
     visuals.popup_shadow = egui::Shadow::NONE;
@@ -282,7 +286,8 @@ impl eframe::App for AnnotateApp {
                         }
                         ui.label(
                             egui::RichText::new("Enter save · Esc cancel")
-                                .color(Color32::from_rgb(0x88, 0x88, 0x88))
+                                // #A0 on #222 ≈ 5.7:1 (WCAG AA for normal text).
+                                .color(Color32::from_rgb(0xA0, 0xA0, 0xA0))
                                 .size(12.0),
                         );
                     });
