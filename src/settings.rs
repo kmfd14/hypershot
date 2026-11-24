@@ -340,7 +340,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_background_blur,
                 "Window background blur",
-                "Not available: egui cannot backdrop-blur the desktop on Wayland. Preference is saved; chrome uses pastel frost fills instead.",
+                "Not available: egui cannot backdrop-blur the desktop on Wayland. Preference is saved; annotate stays flat pastel (no frosted imitation).",
                 label,
                 secondary,
             );

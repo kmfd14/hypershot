@@ -1,16 +1,11 @@
-//! Floating annotate window (glass tool rail + image canvas).
+//! Floating annotate window (flat pastel tool rail + image canvas).
 //!
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
 //! settings. Esc cancels/discards; Save and Copy dismiss after a successful write.
 //!
-//! Chrome: liquid-glass *structure* from `liquid-glass-sample.html` (frost alpha,
-//! specular rim, hover sheen, depth shadow) with the project pastel purple /
-//! gray / white palette — not generic white-glass-only.
-//!
-//! Honest limits (Wayland + egui/winit): no real backdrop-blur / refraction;
-//! transparency is best-effort; “background blur” is remembered but approximated
-//! with translucent frost fills only.
+//! Chrome: flat pastel purple / gray / white — no liquid-glass imitation
+//! (no frost, specular rim, or hover sheen). egui on Wayland cannot backdrop-blur.
 //!
 //! Stay-on-top: `ViewportBuilder::with_always_on_top`. Many Wayland compositors
 //! ignore or gate always-on-top.
@@ -28,9 +23,9 @@ use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate,
-    paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette, ACTION_FILL_HOVER,
-    DEFAULT_STROKE, GLASS_ACTION, GLASS_ACTION_HOVER, GLASS_PRIMARY, GLASS_PRIMARY_HOVER,
-    PASTEL_PRIMARY, SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
+    paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette, ACTION_FILL,
+    ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER, SETTINGS_BTN,
+    TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
 
 /// Result of the annotate session.
@@ -406,18 +401,9 @@ impl AnnotateApp {
                 self.show_settings = true;
             }
 
-            // Save / Copy: tinted glass pills with hover (sample structure + pastel accent).
-            let translucent = self.settings.config().window_transparency;
-            let save_pair = if translucent {
-                (GLASS_PRIMARY, GLASS_PRIMARY_HOVER)
-            } else {
-                (PASTEL_PRIMARY, crate::ui::PASTEL_PRIMARY_HOVER)
-            };
-            let copy_pair = if translucent {
-                (GLASS_ACTION, GLASS_ACTION_HOVER)
-            } else {
-                (crate::ui::ACTION_FILL, ACTION_FILL_HOVER)
-            };
+            // Save / Copy: flat pastel fills with hover color change.
+            let save_pair = (PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER);
+            let copy_pair = (ACTION_FILL, ACTION_FILL_HOVER);
 
             if glass_icon_button(
                 ui,
