@@ -6,7 +6,7 @@
 cargo run --release -- region
 ```
 
-Draw arrow or box → **Save** / Enter. Escape cancels. PNG lands in `~/Pictures/lightsnip/` and copies to the clipboard when `wl-copy` is installed.
+Draw arrow, box, or pixelate a private region → **Save** / Enter. Escape clears a draft drag, then cancels. PNG lands in `~/Pictures/lightsnip/` and copies to the clipboard when `wl-copy` is installed.
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install and “replace default screenshot tool” are separate steps and off by default — see [Optional install](#optional-install).
 
@@ -14,15 +14,14 @@ Wayland screenshot tool with capture and annotation. Region or fullscreen → ma
 
 Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
 
-**Milestone 3 (this tree):** capture → annotate overlay (arrow, box, undo/clear) → save + clipboard. Settings window comes later. Blur/pixelate is Milestone 4.
+**Milestone 4 (this tree):** capture → annotate (arrow, box, pixelate, undo/clear) → save + clipboard. Settings window is Milestone 5.
 
 It provides / will provide:
 
 * Portal-first capture with grim/slurp fallback (**now**)
-* Annotate overlay: arrow, rectangle/box, undo/clear (**now**)
+* Annotate overlay: arrow, rectangle/box, pixelate (privacy), undo/clear (**now**)
 * Save to timestamped PNG under a default / configurable dir (**now**)
 * Clipboard copy via `wl-copy` (**now**; default on after Save)
-* Blur / pixelate tool — later
 * Small settings window (shortcuts, startup, tray, paths) — later
 
 > [!CAUTION]
@@ -41,7 +40,7 @@ It provides / will provide:
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — fullscreen overlay after capture, or `cargo run --release -- annotate path.png`. Tools: arrow, box, undo, clear. Enter / Save commits; Escape cancels. Blur later.
+2. **Annotate** — fullscreen overlay after capture, or `cargo run --release -- annotate path.png`. Tools: arrow, box, pixelate, undo, clear. Enter / Save commits; Escape clears an in-progress drag, then cancels.
 3. **Save** — default `~/Pictures/lightsnip/lightsnip-<unix>.png`; override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — on by default via `wl-copy` after Save; use `--no-clipboard` to skip; `--clipboard` to affirm.
 5. **Settings** — small control → window for shortcuts, startup, replace-default, tray, save dir, clipboard preference (planned).
@@ -119,7 +118,7 @@ lightsnip documents compositor binds for v1. Global grabs are compositor-depende
    | Sway / Hyprland | Bind a key to `exec` the `cargo run … region` command (or `lightsnip region` after optional install) |
    | GNOME / KDE | Custom shortcut → same command |
 
-Overlay keys (when annotate is open): Enter = Save, Escape = Cancel, Ctrl+Z = Undo.
+Overlay keys (when annotate is open): Enter = Save, Escape = clear draft then Cancel, Ctrl+Z = Undo.
 
 ## Settings
 
