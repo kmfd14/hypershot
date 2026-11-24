@@ -7,10 +7,10 @@ cargo run --release -- region
 ```
 
 1. Select a region.
-2. Mark up with Arrow or Box, or drag **Pixelate** over private text.
-3. Press **Save** or Enter (Escape clears a draft drag, then cancels and discards).
+2. Mark up in the floating window: left glass strip has Arrow, Box, Pixelate, Undo, Clear, Settings, Save, Copy.
+3. Press **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels and discards.
 
-PNG path prints to stdout. Clipboard follows your settings default (on out of the box) when `wl-copy` is installed. About 1–2 minutes for first capture after deps.
+PNG path prints to stdout. About 1–2 minutes for first capture after deps.
 
 Open settings (~1 minute):
 
@@ -20,7 +20,7 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and off by default.
 
-Quiet charcoal chrome on annotate and settings. No decorative gradients or emoji controls.
+Floating annotate window (not fullscreen) with a vertical liquid-glass tool strip. Settings uses light grouped cards. No purple / glow marketing chrome.
 
 ---
 
@@ -38,17 +38,20 @@ Pick one mode. Region is the default path. Run from the checkout. You do not nee
 
 ## Annotate
 
-After capture, a fullscreen overlay opens on the PNG. You can also annotate a file you already have.
+After capture, a floating bordered window opens (sized to the image + left toolbar). You can also annotate a file you already have.
 
-1. Tools: **Arrow**, **Box** (rectangle), **Pixelate** (privacy mosaic).
-2. Drag on the image to draw or redact. **Undo** (or Ctrl+Z) / **Clear** as needed.
-3. **Settings** opens the settings popup (same six fields as `lightsnip settings`).
-4. **Save** or Enter writes the annotated PNG, then clipboard (unless disabled).
-5. **Cancel** exits without keeping the capture (region/full) or without changing the file (`annotate`). Escape first drops an in-progress drag (or closes Settings); Escape again cancels.
-6. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
-7. Skip the overlay: `cargo run --release -- region --no-annotate`.
+1. Left glass strip: **Arrow**, **Box**, **Pixelate**, **Undo**, **Clear**, **Settings**, **Save**, **Copy**.
+2. Drag on the image (right) to draw or redact. Ctrl+Z undoes.
+3. **Settings** opens the settings sheet (same six fields as `lightsnip settings`).
+4. **Save** / Enter writes the PNG and dismisses; clipboard follows settings / CLI flags.
+5. **Copy** writes the PNG, copies to the clipboard (always), and dismisses.
+6. Escape first drops an in-progress drag (or closes Settings); Escape again cancels without keeping the capture (region/full) or without changing the file (`annotate`).
+7. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
+8. Skip annotate: `cargo run --release -- region --no-annotate`.
 
 **Display note:** annotate / settings need `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open those windows. On annotate failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
+
+**Stay on top:** annotate requests always-on-top through egui/winit. Wayland compositors often ignore or restrict this (no portable layer-shell API in this stack); X11 usually honors it. If the window goes under others, raise it from the task switcher.
 
 ---
 
@@ -111,7 +114,7 @@ Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on e
 | GNOME | Settings → Keyboard → Custom Shortcut → same command (does not steal PrintScreen by itself) |
 | KDE | System Settings → Shortcuts → Custom → same command |
 
-Inside the annotate overlay: Enter = Save, Escape = clear draft / close Settings then Cancel, Ctrl+Z = Undo.
+Inside annotate: Enter = Save, Copy = save + clipboard + dismiss, Escape = clear draft / close Settings then Cancel, Ctrl+Z = Undo.
 
 ---
 

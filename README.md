@@ -12,7 +12,7 @@
 cargo run --release -- region
 ```
 
-Draw arrow, box, or pixelate a private region → **Save** / Enter. Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`) and copies to the clipboard when that preference is on and `wl-copy` is installed.
+Draw arrow, box, or pixelate a private region → **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
 
 Open settings anytime:
 
@@ -22,7 +22,7 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and **off by default**.
 
-Wayland screenshot tool with capture and annotation. Region or fullscreen → mark up → save or copy. Built in Rust. Quiet, functional desktop UI for the annotate overlay and settings window.
+Wayland screenshot tool with capture and annotation. Region or fullscreen capture → floating annotate window → save or copy. Built in Rust. Left liquid-glass tool strip + Apple-inspired settings.
 
 Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
 
@@ -37,7 +37,7 @@ It provides:
 > [!CAUTION]
 > Linux Wayland only for v1. No Windows, macOS, or X11-first support. No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. lightsnip documents limits and writes opt-in helpers; it does not pretend PrintScreen is always stolen for you.
 >
-> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save.
+> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland.
 
 ## Tech stack
 
@@ -51,7 +51,7 @@ It provides:
 
 * **Language / CLI:** Rust, `tokio`, `clap`, `directories`, `serde` / `toml`
 * **Capture:** `ashpd` (xdg-desktop-portal Screenshot); fallback `grim` + `slurp`
-* **Annotate / settings UI:** egui + eframe (fullscreen overlay + settings window)
+* **Annotate / settings UI:** egui + eframe (floating annotate window + settings)
 * **Images:** `image` / `imageproc` (draw annotations onto PNG)
 * **Clipboard:** `wl-clipboard` (`wl-copy`) when on `PATH`
 * **Tray:** `ksni` (StatusNotifierItem) when you enable stay-in-tray / run `tray`
@@ -59,18 +59,18 @@ It provides:
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — fullscreen overlay after capture, or `cargo run --release -- annotate path.png`. Tools: arrow, box, pixelate, undo, clear. **Settings** opens the settings popup. Enter / Save commits; Escape clears an in-progress drag, then cancels.
+2. **Annotate** — floating window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Left glass strip: arrow, box, pixelate, undo, clear, settings, **Save**, **Copy**. Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels.
 3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
 5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Six fields: shortcuts, run at startup, replace-default helper, stay in tray, save directory, save to clipboard.
 6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Quiet UI** — neutral charcoal chrome, small radius, no gradient/glow/pill marketing look.
+7. **Floating UI** — annotate is a bordered window sized to the image; vertical liquid-glass tool strip on the left (sketch-matched). Settings uses light grouped cards. No purple / glow marketing chrome.
 
 <!-- VISUAL SUGGESTION [SCREENSHOT]:
 Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`
 
-Add a screenshot of the fullscreen annotate overlay on a Wayland desktop.
-Show the quiet charcoal chrome, Arrow / Box / Pixelate tools, and Settings control.
+Add a screenshot of the floating annotate window on a Wayland desktop.
+Show the left glass tool strip, image canvas, Save / Copy, and Settings.
 Purpose: Prove the capture → annotate loop at a glance.
 -->
 
@@ -161,7 +161,9 @@ lightsnip documents compositor binds for v1. Global grabs are compositor-depende
 
 4. If “replace default screenshot tool” is unavailable on your DE, keep the custom shortcut and leave the DE default alone.
 
-Overlay keys (when annotate is open): Enter = Save, Escape = clear draft then Cancel (or close Settings first), Ctrl+Z = Undo.
+Annotate keys: Enter = Save, Escape = clear draft then Cancel (or close Settings first), Ctrl+Z = Undo. **Copy** always copies to the clipboard after writing the PNG.
+
+**Stay on top:** the annotate window requests always-on-top via winit. Many Wayland compositors ignore or gate this (no portable layer-shell guarantee in egui); X11 is more reliable. If the window sinks, raise it from the task switcher.
 
 ## Settings
 
