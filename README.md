@@ -12,19 +12,22 @@ Or fullscreen:
 cargo run --release -- full
 ```
 
+PNG lands in `~/Pictures/lightsnip/` (timestamp name) and copies to the clipboard when `wl-copy` is installed. Path prints to stdout.
+
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install and “replace default screenshot tool” are separate steps and off by default — see [Optional install](#optional-install).
 
 Wayland screenshot tool with capture and annotation. Region or fullscreen → (soon) mark up → save or copy. Built in Rust. Quiet, functional desktop UI planned for annotate/settings.
 
 Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
 
-**Milestone 1 (this tree):** capture CLI only — portal-first PNG write with grim/slurp fallback.
+**Milestone 2 (this tree):** capture + save to a known dir + clipboard via `wl-copy`. Annotate overlay and settings window come later.
 
 It provides / will provide:
 
 * Portal-first capture with grim/slurp fallback (**now**)
+* Save to timestamped PNG under a default / configurable dir (**now**)
+* Clipboard copy via `wl-copy` (**now**; default on)
 * Annotate overlay (arrow, box, blur/pixelate, undo) — later
-* Save to file and/or clipboard — later
 * Small settings window (shortcuts, startup, tray, paths) — later
 
 > [!CAUTION]
@@ -32,23 +35,24 @@ It provides / will provide:
 
 ## Tech stack
 
-* **Language:** Rust, `tokio`, `clap`
+* **Language:** Rust, `tokio`, `clap`, `directories`
 * **Capture:** `ashpd` (xdg-desktop-portal Screenshot); fallback `grim` + `slurp`
+* **Clipboard:** `wl-clipboard` (`wl-copy`) when on `PATH`
 * **Images (later):** `image` / `imageproc` for annotate
 * **UI (later):** egui + eframe (overlay + settings)
-* **Clipboard (later):** portal or `wl-clipboard` (`wl-copy`)
 
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — arrow, rectangle, blur/pixelate, undo/clear (planned).
-3. **Output** — PNG path printed to stdout; configurable save dir + clipboard later.
-4. **Settings** — small control → window for shortcuts, startup, replace-default, tray, save dir, clipboard preference (planned).
-5. **Quiet UI** — neutral surfaces, clear hierarchy, small chrome (no gradient/glow marketing look).
+2. **Save** — default `~/Pictures/lightsnip/lightsnip-<unix>.png`; override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
+3. **Clipboard** — on by default via `wl-copy`; use `--no-clipboard` to skip; `--clipboard` to affirm.
+4. **Annotate** — arrow, rectangle, blur/pixelate, undo/clear (planned).
+5. **Settings** — small control → window for shortcuts, startup, replace-default, tray, save dir, clipboard preference (planned).
+6. **Quiet UI** — neutral surfaces, clear hierarchy, small chrome (no gradient/glow marketing look).
 
 ## Prerequisites
 
-Rust toolchain, a Wayland session, and either a working xdg-desktop-portal Screenshot path **or** `grim` + `slurp`.
+Rust toolchain, a Wayland session, and either a working xdg-desktop-portal Screenshot path **or** `grim` + `slurp`. For clipboard: `wl-clipboard` (`wl-copy`).
 
 ```bash
 git clone https://github.com/kmfd14/lightsnip.git
@@ -59,7 +63,7 @@ cd lightsnip
 
 Primary path: build and run from the checkout. Do not install a system binary.
 
-1. Region (prints the PNG path):
+1. Region (prints the PNG path; copies to clipboard when `wl-copy` exists):
 
    ```bash
    cargo run --release -- region
@@ -71,10 +75,12 @@ Primary path: build and run from the checkout. Do not install a system binary.
    cargo run --release -- full
    ```
 
-3. Optional custom path:
+3. Custom path, or skip clipboard:
 
    ```bash
    cargo run --release -- region -o /tmp/snip.png
+   cargo run --release -- region --no-clipboard
+   cargo run --release -- full --save-dir ~/Pictures/Screenshots
    ```
 
 4. Bind a compositor hotkey to the same `cargo run …` command, or to a binary only after optional install (see [Hotkeys](#hotkeys)).
@@ -111,7 +117,9 @@ lightsnip documents compositor binds for v1. Global grabs are compositor-depende
 
 ## Settings
 
-Settings window lands in a later milestone. Planned fields:
+Settings window lands in a later milestone. Until then, override save location with `--save-dir`, `-o` / `--output`, or `LIGHTSNIP_SAVE_DIR`, and clipboard with `--clipboard` / `--no-clipboard`.
+
+Planned settings fields:
 
 Desktop / session:
 
@@ -122,14 +130,14 @@ Desktop / session:
 
 Output defaults:
 
-1. **Save directory** — default PNG folder.
-2. **Save to clipboard** — default on/off or always-copy preference.
+1. **Save directory** — default PNG folder (CLI / env cover this for now).
+2. **Save to clipboard** — default on/off preference (CLI flags cover this for now).
 
 ## Documentation
 
 | Guide | Description |
 | --- | --- |
-| [User guide](./docs/user-guide.md) | Capture now; annotate / save / settings roadmap |
+| [User guide](./docs/user-guide.md) | Capture, save, clipboard now; annotate / settings roadmap |
 
 ## Contributing
 

@@ -8,7 +8,7 @@ use ashpd::desktop::screenshot::{AvailableTargets, Screenshot};
 use tokio::process::Command;
 use url::Url;
 
-/// Capture mode for Milestone 1.
+/// Capture mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureMode {
     /// Interactive region (portal picker or slurp).
@@ -163,13 +163,4 @@ fn command_on_path(name: &str) -> bool {
         let candidate = dir.join(name);
         candidate.is_file()
     })
-}
-
-/// Default PNG path under `/tmp` with a unix-timestamp suffix.
-pub fn default_output_path() -> PathBuf {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    PathBuf::from(format!("/tmp/lightsnip-{secs}.png"))
 }

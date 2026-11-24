@@ -6,11 +6,11 @@
 cargo run --release -- region
 ```
 
-Then open the PNG path it prints. About 1 minute for first capture after deps (Milestone 1).
+Then open the printed PNG path (or paste — clipboard is on by default when `wl-copy` is installed). About 1 minute for first capture after deps (Milestone 2).
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install and “replace default screenshot tool” are separate and off by default.
 
-Annotation, clipboard defaults, and the settings window land in later milestones.
+Annotation and the settings window land in later milestones.
 
 Quiet desktop UI planned for annotate/settings: small chrome, neutral surfaces. No decorative gradients or emoji controls.
 
@@ -22,11 +22,25 @@ Pick one mode. Region is the default path. Run from the checkout — you do not 
 
 1. **Region** — `cargo run --release -- region` → portal interactive picker, or `slurp` → `grim` if the portal fails.
 2. **Fullscreen** — `cargo run --release -- full` → active output via portal, or `grim` fallback.
-3. Optional output path: `cargo run --release -- region -o ~/Pictures/snip.png`.
-4. The command prints the PNG path on success (default: `/tmp/lightsnip-<unix>.png`).
-5. Escape / cancel in the picker aborts with a non-zero exit.
+3. Escape / cancel in the picker aborts with a non-zero exit.
 
 Portal capture is preferred. If the portal path fails, lightsnip uses `grim` + `slurp` when installed.
+
+---
+
+## Save and clipboard (available now)
+
+After capture, lightsnip writes a PNG and (by default) copies it to the Wayland clipboard.
+
+1. **Default save** — `~/Pictures/lightsnip/lightsnip-<unix>.png` (directory is created if needed).
+2. **Custom file** — `cargo run --release -- region -o ~/Pictures/snip.png`.
+3. **Custom directory** — `cargo run --release -- full --save-dir ~/Pictures/Screenshots` (timestamped name inside that dir).
+4. **Env override** — set `LIGHTSNIP_SAVE_DIR` to change the default directory without flags.
+5. **Clipboard** — on by default via `wl-copy`. Skip with `--no-clipboard`. Affirm with `--clipboard`.
+
+If clipboard is skipped with a warning, install `wl-clipboard` (`wl-copy`) and retry. Save still succeeds either way; the PNG path is always printed.
+
+Settings UI for save dir / clipboard defaults comes later — flags and env cover it for now.
 
 ---
 
@@ -51,18 +65,6 @@ After capture, a later milestone opens a fullscreen overlay.
 5. Escape cancels without saving that capture.
 
 Blur/pixelate is for privacy redaction before share or copy.
-
----
-
-## Save and clipboard (coming soon)
-
-1. Open **Settings** → set **Save directory** (timestamped PNG names).
-2. Set **Save to clipboard** to your preference (default on/off or always-copy).
-3. After commit, check the save folder and/or paste into another app.
-4. Clipboard uses the portal when available; otherwise `wl-copy` (`wl-clipboard`).
-5. If nothing lands in the clipboard, install `wl-clipboard` or fix portal clipboard permissions, then retry.
-
-Until then: use the path printed by `cargo run --release -- region` / `cargo run --release -- full`.
 
 ---
 
@@ -91,6 +93,8 @@ A later milestone adds a small settings control → settings window (~1 minute t
 4. **Stay in taskbar / tray** — enable to keep a tray/status presence.
 5. **Save directory** + **Save to clipboard** — set once; change anytime.
 
+Until then: `--save-dir` / `-o` / `LIGHTSNIP_SAVE_DIR` and `--clipboard` / `--no-clipboard`.
+
 Settings will persist in a TOML config file under your user config directory.
 
 ---
@@ -98,5 +102,5 @@ Settings will persist in a TOML config file under your user config directory.
 ## Next
 
 1. From the checkout: `cargo run --release -- region`
-2. Open the printed PNG path
+2. Paste into another app, or open the printed PNG path
 3. Bind one compositor key to that same `cargo run …` command (optional install later if you want)
