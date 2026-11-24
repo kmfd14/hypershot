@@ -92,10 +92,9 @@ fn file_uri_to_path(uri_str: &str) -> Result<PathBuf> {
 }
 
 async fn grim_slurp_capture(mode: CaptureMode, output: &Path) -> Result<()> {
-    if !command_on_path("grim") {
-        bail!(
-            "grim not found on PATH (install grim for wlroots/tiling fallback)"
-        );
+    let missing = missing_fallback_tools(mode);
+    if !missing.is_empty() {
+        bail!("{}", fallback_tools_missing_message(&missing));
     }
 
     if let Some(parent) = output.parent() {
@@ -106,11 +105,6 @@ async fn grim_slurp_capture(mode: CaptureMode, output: &Path) -> Result<()> {
 
     match mode {
         CaptureMode::Region => {
-            if !command_on_path("slurp") {
-                bail!(
-                    "slurp not found on PATH (needed for region selection fallback)"
-                );
-            }
             let geometry = Command::new("slurp")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -155,6 +149,27 @@ async fn grim_slurp_capture(mode: CaptureMode, output: &Path) -> Result<()> {
     Ok(())
 }
 
+fn missing_fallback_tools(mode: CaptureMode) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if !command_on_path("grim") {
+        missing.push("grim");
+    }
+    if mode == CaptureMode::Region && !command_on_path("slurp") {
+        missing.push("slurp");
+    }
+    missing
+}
+
+/// Error text when grim/slurp fallback cannot run (lists missing tools + install hint).
+fn fallback_tools_missing_message(missing: &[&str]) -> String {
+    format!(
+        "grim/slurp fallback unavailable — missing on PATH: {}\n\
+         See README.md → Runtime dependencies.\n\
+         Fedora: sudo dnf install grim slurp wl-clipboard",
+        missing.join(", ")
+    )
+}
+
 fn command_on_path(name: &str) -> bool {
     let Some(path_var) = std::env::var_os("PATH") else {
         return false;
@@ -163,4 +178,17 @@ fn command_on_path(name: &str) -> bool {
         let candidate = dir.join(name);
         candidate.is_file()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_message_lists_tools_and_fedora_hint() {
+        let msg = fallback_tools_missing_message(&["grim", "slurp"]);
+        assert!(msg.contains("missing on PATH: grim, slurp"));
+        assert!(msg.contains("README.md → Runtime dependencies"));
+        assert!(msg.contains("sudo dnf install grim slurp wl-clipboard"));
+    }
 }
