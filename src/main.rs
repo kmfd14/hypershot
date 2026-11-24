@@ -170,7 +170,11 @@ async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<(
         match copy_png_to_clipboard(path).await {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("clipboard skipped: wl-copy not found (install wl-clipboard)");
+                eprintln!(
+                    "clipboard skipped: wl-copy not found on PATH\n\
+                     See README.md → Runtime dependencies.\n\
+                     Fedora: sudo dnf install wl-clipboard"
+                );
             }
             Err(err) => {
                 eprintln!("clipboard copy failed: {err}");

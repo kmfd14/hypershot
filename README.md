@@ -24,7 +24,7 @@ No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouch
 
 Wayland screenshot tool with capture and annotation. Region or fullscreen → mark up → save or copy. Built in Rust. Quiet, functional desktop UI for the annotate overlay and settings window.
 
-Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
+Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (COSMIC, GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
 
 It provides:
 
@@ -74,12 +74,50 @@ Show the quiet charcoal chrome, Arrow / Box / Pixelate tools, and Settings contr
 Purpose: Prove the capture → annotate loop at a glance.
 -->
 
+## Runtime dependencies
+
+lightsnip prefers **xdg-desktop-portal** Screenshot. If the portal fails, it falls back to `grim` (+ `slurp` for region). Clipboard needs `wl-copy`.
+
+### Fedora 44 COSMIC — install now
+
+```bash
+sudo dnf install grim slurp wl-clipboard \
+  xdg-desktop-portal xdg-desktop-portal-cosmic
+```
+
+Then from the checkout: `cargo run --release -- region`.
+
+### Runtime tools checklist
+
+| Need | Binary / package | Role |
+| --- | --- | --- |
+| Capture fallback | `grim` | Writes the PNG when the portal fails |
+| Region fallback | `slurp` | Interactive region geometry for `grim` |
+| Clipboard | `wl-copy` from `wl-clipboard` | Copy PNG after Save |
+
+Also required: Rust toolchain, a Wayland session, and a display for annotate / settings (see caution above).
+
+### Portal backends (by desktop)
+
+Install the shared portal plus the backend for your session. Full desktop installs often already include these.
+
+| Desktop | Fedora packages |
+| --- | --- |
+| COSMIC | `xdg-desktop-portal` + `xdg-desktop-portal-cosmic` |
+| GNOME | `xdg-desktop-portal` + `xdg-desktop-portal-gnome` |
+| KDE Plasma | `xdg-desktop-portal` + `xdg-desktop-portal-kde` |
+| Sway / Hyprland (wlroots) | `xdg-desktop-portal` + `xdg-desktop-portal-wlr` |
+
+> [!NOTE]
+> On COSMIC and some tiling setups the portal Screenshot path can fail or be incomplete. Keep `grim` + `slurp` installed so the fallback works. Re-login after installing a portal backend if capture still fails.
+
+Other distros: same binary names (`grim`, `slurp`, `wl-clipboard`); package managers differ (`apt`, `pacman`, …).
+
 ## Install
 
 Primary path: clone and `cargo run`. Do not install a system binary unless you want one.
 
-1. Prerequisites: Rust toolchain, a Wayland session, and either a working **xdg-desktop-portal** Screenshot path **or** `grim` + `slurp`. Clipboard needs `wl-clipboard` (`wl-copy`). Annotate / settings need a display plus egui native deps (see caution above).
-
+1. Install [Runtime dependencies](#runtime-dependencies) for your desktop (Fedora COSMIC one-liner above).
 2. Clone:
 
    ```bash
@@ -87,7 +125,7 @@ Primary path: clone and `cargo run`. Do not install a system binary unless you w
    cd lightsnip
    ```
 
-3. Confirm the session can capture (portal **or** grim/slurp installed), then jump to [Quick start](#quick-start).
+3. Jump to [Quick start](#quick-start).
 
 ### Optional install
 

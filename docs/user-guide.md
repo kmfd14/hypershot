@@ -24,6 +24,40 @@ Quiet charcoal chrome on annotate and settings. No decorative gradients or emoji
 
 ---
 
+## Dependencies
+
+Portal first. `grim` / `slurp` when the portal fails. `wl-copy` for clipboard.
+
+### Fedora 44 COSMIC — install now
+
+```bash
+sudo dnf install grim slurp wl-clipboard \
+  xdg-desktop-portal xdg-desktop-portal-cosmic
+```
+
+Then: `cargo run --release -- region`.
+
+### Runtime tools
+
+| Need | Binary / package | Role |
+| --- | --- | --- |
+| Capture fallback | `grim` | PNG when portal fails |
+| Region fallback | `slurp` | Region geometry for `grim` |
+| Clipboard | `wl-copy` (`wl-clipboard`) | Copy after Save |
+
+### Portal backends
+
+| Desktop | Fedora packages |
+| --- | --- |
+| COSMIC | `xdg-desktop-portal` + `xdg-desktop-portal-cosmic` |
+| GNOME | `xdg-desktop-portal` + `xdg-desktop-portal-gnome` |
+| KDE Plasma | `xdg-desktop-portal` + `xdg-desktop-portal-kde` |
+| Sway / Hyprland | `xdg-desktop-portal` + `xdg-desktop-portal-wlr` |
+
+COSMIC and tiling sessions often need `grim` + `slurp` even when the portal package is installed. Re-login after adding a portal backend if capture still fails. Full checklist: [README → Runtime dependencies](../README.md#runtime-dependencies).
+
+---
+
 ## Capture
 
 Pick one mode. Region is the default path. Run from the checkout. You do not need a system binary.
@@ -32,7 +66,7 @@ Pick one mode. Region is the default path. Run from the checkout. You do not nee
 2. **Fullscreen** — `cargo run --release -- full` → active output via portal, or `grim` fallback.
 3. Escape / cancel in the picker aborts with a non-zero exit.
 
-**Deps:** prefer a working xdg-desktop-portal Screenshot path. If the portal path fails, lightsnip uses `grim` + `slurp` when installed.
+If you see `grim/slurp fallback unavailable`, install the missing tools from [Dependencies](#dependencies) and retry.
 
 ---
 
@@ -62,7 +96,7 @@ After **Save** (or after capture when using `--no-annotate` / when the overlay c
 4. **Env override** — set `LIGHTSNIP_SAVE_DIR` to change the default directory without flags (beats config).
 5. **Clipboard** — default from settings. Skip with `--no-clipboard`. Affirm with `--clipboard`.
 
-If clipboard is skipped with a warning, install `wl-clipboard` (`wl-copy`) and retry. Save still succeeds either way; the PNG path is always printed after a successful Save.
+If clipboard is skipped with a warning, install `wl-clipboard` (`wl-copy`) — on Fedora: `sudo dnf install wl-clipboard` — and retry. Save still succeeds either way; the PNG path is always printed after a successful Save.
 
 ---
 
