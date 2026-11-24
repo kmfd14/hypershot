@@ -1,0 +1,17 @@
+[package]
+name = "lightsnip"
+version = "0.1.0"
+edition = "2024"
+description = "Rust Wayland screenshot tool with annotation (Lightshot/Flameshot alternative)"
+license = "MIT"
+repository = "https://github.com/kmfd14/lightsnip"
+readme = "README.md"
+keywords = ["wayland", "screenshot", "portal", "grim", "linux"]
+categories = ["command-line-utilities", "multimedia::images"]
+
+[dependencies]
+anyhow = "1.0.105"
+ashpd = { version = "0.14.3", features = ["screenshot", "tokio"] }
+clap = { version = "4.6.9", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["full"] }
+url = "2.5.9"
