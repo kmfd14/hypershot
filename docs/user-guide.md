@@ -20,7 +20,7 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and off by default.
 
-Floating annotate window (not fullscreen) with a content-sized flat pastel rail (default left). Settings uses compact grouped cards + User Interface prefs. Pastel purple / gray / white — not neon / glow, no frosted glass imitation.
+Floating annotate window (not fullscreen) with a content-sized flat pastel rail (default left). Settings uses card sections with `?` tooltips, folder picker, intensity sliders, and About (name + version). Pastel purple / gray / white — not neon / glow, no frosted glass imitation.
 
 ---
 
@@ -115,10 +115,11 @@ cargo run --release -- settings
 
 Or click **Settings** on the annotate bar. Persist with **Save** inside the window. Config path: `~/.config/lightsnip/config.toml`.
 
-1. **Shortcuts** — **Press keys…** to capture a combination label, plus the bind command. Wayland has no portable global hotkey API; bind that command in your compositor or DE.
-2. **Session** — compact toggles: run at startup (XDG → tray), replace-default `.desktop` helper (does **not** steal PrintScreen), stay in tray (StatusNotifierItem; GNOME often needs AppIndicator). All off by default.
-3. **Output** — save directory + save to clipboard by default.
-4. **User Interface** — toolbar position (left/right/top/bottom), theme (dark / light / system), show title bar, window transparency (best-effort), background blur (preference only: egui cannot backdrop-blur on Wayland).
+1. **Shortcuts** — **Assign…** captures a key combination (chip + Reset); bind command field for compositor wiring. Wayland has no portable global hotkey API.
+2. **Session** — toggles: run at startup (XDG → tray), replace-default `.desktop` helper (does **not** steal PrintScreen), stay in tray (StatusNotifierItem; GNOME often needs AppIndicator). All off by default. Section help lives on the `?` control.
+3. **Output** — save directory (text + **Browse…** folder picker) + save to clipboard by default.
+4. **User Interface** — toolbar position and theme as buttons; title bar toggle; transparency and background blur with intensity sliders. Wayland/egui: transparency is compositor-dependent; blur preference is stored but not applied (flat pastel instead).
+5. **About** — app name + `x.y` version (semver-lite: `x` major, `y` fixes/polish).
 
 Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
 

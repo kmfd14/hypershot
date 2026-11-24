@@ -491,10 +491,23 @@ impl eframe::App for AnnotateApp {
         let dark = matches!(
             self.settings.config().theme,
             crate::config::UiTheme::Dark
-        ) || (_visuals.dark_mode && matches!(self.settings.config().theme, crate::config::UiTheme::System));
-        let translucent = self.settings.config().window_transparency;
+        ) || (_visuals.dark_mode
+            && matches!(
+                self.settings.config().theme,
+                crate::config::UiTheme::System
+            ));
+        let cfg = self.settings.config();
+        let translucent = cfg.window_transparency;
         let pal = AnnotatePalette::for_mode(dark || _visuals.dark_mode, translucent);
-        egui::Rgba::from(pal.bg).to_array()
+        let mut rgba = egui::Rgba::from(pal.bg).to_array();
+        // Intensity scales window clear alpha when transparency is enabled.
+        // Many Wayland compositors still ignore transparent viewports.
+        if translucent {
+            let intensity = cfg.effective_transparency_intensity();
+            // Keep some opacity so chrome stays readable (never fully invisible).
+            rgba[3] = (1.0 - intensity * 0.55).clamp(0.35, 1.0);
+        }
+        rgba
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

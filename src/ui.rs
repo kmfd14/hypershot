@@ -39,8 +39,8 @@ pub const TOOLBAR_RADIUS: f32 = 14.0;
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 
-/// Soft contact shadow under tool wells only.
-pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(28);
+/// Soft contact shadow under tool wells only (kept light for a sharper chrome).
+pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(20);
 
 // --- Annotate light palette ---------------------------------------------------
 
@@ -202,10 +202,10 @@ fn annotate_visuals(dark: bool) -> egui::Visuals {
     visuals.menu_corner_radius = CornerRadius::same(8);
     visuals.window_stroke = Stroke::new(1.0_f32, pal.toolbar_stroke);
     visuals.window_shadow = Shadow {
-        offset: [0, 4],
-        blur: 16,
+        offset: [0, 2],
+        blur: 8,
         spread: 0,
-        color: Color32::from_black_alpha(if dark { 80 } else { 48 }),
+        color: Color32::from_black_alpha(if dark { 64 } else { 36 }),
     };
     visuals.popup_shadow = Shadow::NONE;
     visuals
@@ -281,12 +281,16 @@ fn settings_visuals(dark: bool) -> egui::Visuals {
     visuals.menu_corner_radius = CornerRadius::same(6);
     visuals.window_stroke = Stroke::new(1.0_f32, sep);
     visuals.window_shadow = Shadow {
-        offset: [0, 2],
-        blur: 12,
+        offset: [0, 1],
+        blur: 6,
         spread: 0,
-        color: Color32::from_black_alpha(40),
+        color: Color32::from_black_alpha(32),
     };
     visuals.popup_shadow = Shadow::NONE;
+    // High-contrast checkbox marks on light and dark cards.
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, label);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, label);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.5_f32, label);
     visuals
 }
 
@@ -295,9 +299,10 @@ pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
     ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
     ctx.set_theme(theme_preference(theme));
+    // Sharper strokes: less feathering than the soft glass-era defaults.
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 1.5;
+        opts.feathering_size_in_pixels = 0.75;
     });
 }
 
@@ -306,21 +311,25 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, settings_visuals(false));
     ctx.set_visuals_of(Theme::Dark, settings_visuals(true));
     ctx.set_theme(theme_preference(theme));
+    ctx.tessellation_options_mut(|opts| {
+        opts.feathering = true;
+        opts.feathering_size_in_pixels = 0.75;
+    });
 }
 
 /// Frame for the floating pastel tool rail (content-sized, not full window).
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
     egui::Frame::new()
         .fill(pal.toolbar_fill)
-        .stroke(Stroke::new(1.25_f32, pal.toolbar_stroke))
+        .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
         .inner_margin(Margin::symmetric(6, 12))
         .outer_margin(Margin::ZERO)
         .shadow(Shadow {
-            offset: [0, 4],
-            blur: 14,
+            offset: [0, 2],
+            blur: 6,
             spread: 0,
-            color: Color32::from_black_alpha(if pal.dark { 48 } else { 28 }),
+            color: Color32::from_black_alpha(if pal.dark { 40 } else { 22 }),
         })
 }
 
@@ -335,17 +344,23 @@ pub fn settings_group_frame(dark: bool) -> egui::Frame {
         .fill(fill)
         .stroke(Stroke::new(1.0_f32, stroke))
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::symmetric(12, 10))
+        .inner_margin(Margin::symmetric(14, 12))
+        .shadow(Shadow {
+            offset: [0, 1],
+            blur: 4,
+            spread: 0,
+            color: Color32::from_black_alpha(if dark { 48 } else { 18 }),
+        })
 }
 
 fn paint_soft_circle(painter: &egui::Painter, center: Pos2, radius: f32, fill: Color32) {
-    painter.circle_filled(center + Vec2::new(0.0, 1.0), radius + 0.4, BTN_SHADOW);
+    painter.circle_filled(center + Vec2::new(0.0, 0.75), radius, BTN_SHADOW);
     painter.circle_filled(center, radius, fill);
-    // Soft muted rim (wide + low contrast → feathers; no specular glass rim).
+    // Crisp rim (no wide soft glass stroke).
     painter.circle_stroke(
         center,
         radius - 0.5,
-        Stroke::new(1.75_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x28)),
+        Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x38)),
     );
 }
 
@@ -442,9 +457,113 @@ pub use tool_icon_button as glass_icon_button;
 pub use tool_color_swatch as glass_color_swatch;
 pub use toolbar_frame as glass_toolbar_frame;
 
+/// Segmented choice button (toolbar position, theme, etc.).
+pub fn choice_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response {
+    let dark = ui.visuals().dark_mode;
+    let (fill, stroke, text) = if selected {
+        (
+            SETTINGS_PRIMARY,
+            SETTINGS_PRIMARY,
+            Color32::WHITE,
+        )
+    } else if dark {
+        (
+            SETTINGS_FIELD_DARK,
+            SETTINGS_SEPARATOR_DARK,
+            SETTINGS_LABEL_DARK,
+        )
+    } else {
+        (
+            SETTINGS_FIELD,
+            SETTINGS_SEPARATOR,
+            SETTINGS_LABEL,
+        )
+    };
+    let btn = egui::Button::new(egui::RichText::new(label).color(text).size(12.0).strong())
+        .fill(fill)
+        .stroke(Stroke::new(1.0_f32, stroke))
+        .corner_radius(CornerRadius::same(6))
+        .min_size(Vec2::new(64.0, 28.0));
+    ui.add(btn)
+}
+
+/// High-contrast checkbox for light and dark settings cards.
+pub fn contrast_checkbox(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
+    let dark = ui.visuals().dark_mode;
+    let box_size = 18.0_f32;
+    let (rect, mut response) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+
+    let painter = ui.painter_at(rect);
+    let border = if dark {
+        SETTINGS_LABEL_DARK
+    } else {
+        Color32::from_rgb(0x3A, 0x3A, 0x3C)
+    };
+    let fill = if *value {
+        SETTINGS_PRIMARY
+    } else if dark {
+        SETTINGS_FIELD_DARK
+    } else {
+        Color32::WHITE
+    };
+    painter.rect_filled(rect, 3.0, fill);
+    painter.rect_stroke(
+        rect,
+        3.0,
+        Stroke::new(1.5_f32, if *value { SETTINGS_PRIMARY } else { border }),
+        egui::StrokeKind::Outside,
+    );
+    if *value {
+        let stroke = Stroke::new(2.0_f32, Color32::WHITE);
+        let a = Pos2::new(rect.left() + box_size * 0.22, rect.center().y + box_size * 0.02);
+        let b = Pos2::new(
+            rect.center().x - box_size * 0.04,
+            rect.bottom() - box_size * 0.24,
+        );
+        let c = Pos2::new(rect.right() - box_size * 0.20, rect.top() + box_size * 0.22);
+        painter.line_segment([a, b], stroke);
+        painter.line_segment([b, c], stroke);
+    }
+    response
+}
+
+/// Card section title with a `?` help control (tooltip = section help).
+pub fn section_title_with_help(
+    ui: &mut egui::Ui,
+    title: &str,
+    help: &str,
+    label: Color32,
+    secondary: Color32,
+) {
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(title)
+                .color(label)
+                .size(13.0)
+                .strong(),
+        );
+        let help_btn = egui::Button::new(
+            egui::RichText::new("?")
+                .color(secondary)
+                .size(11.0)
+                .strong(),
+        )
+        .fill(Color32::TRANSPARENT)
+        .stroke(Stroke::new(1.0_f32, secondary))
+        .corner_radius(CornerRadius::same(9))
+        .min_size(Vec2::splat(18.0));
+        ui.add(help_btn).on_hover_text(help);
+    });
+    ui.add_space(6.0);
+}
+
 // --- Icon painters (thicker strokes for AA) -----------------------------------
 
-const ICON_STROKE: f32 = 2.35;
+const ICON_STROKE: f32 = 2.2;
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
@@ -484,14 +603,15 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
     }
 }
 
-/// Clear curved undo arrow (readable at small sizes).
+/// Clear curved undo arrow with a filled arrowhead (readable at small sizes).
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
-    let c = rect.center() + Vec2::new(rect.width() * 0.04, rect.height() * 0.06);
-    let r = rect.width() * 0.30;
-    let start = -0.35_f32;
-    let sweep = std::f32::consts::PI * 1.35;
-    let steps = 36;
+    let stroke = Stroke::new(ICON_STROKE + 0.25, color);
+    // Arc opens leftward (classic undo), ending at a filled chevron head.
+    let c = rect.center() + Vec2::new(rect.width() * 0.06, rect.height() * 0.04);
+    let r = rect.width() * 0.32;
+    let start = std::f32::consts::FRAC_PI_4 * 0.35;
+    let sweep = std::f32::consts::PI * 1.45;
+    let steps = 28;
     let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
         let t = start - sweep * (i as f32 / steps as f32);
@@ -501,12 +621,19 @@ pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
     }
     let tip_angle = start - sweep;
     let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
-    let tangent = Vec2::new(tip_angle.sin(), -tip_angle.cos());
+    // Outward radial for the arrow direction along the arc end.
+    let tangent = Vec2::new(tip_angle.sin(), -tip_angle.cos()).normalized();
+    let normal = Vec2::new(-tangent.y, tangent.x);
+    let head = rect.width() * 0.22;
     let wing = rect.width() * 0.16;
-    let left = tip + tangent * wing + Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
-    let right = tip + tangent * wing - Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
-    painter.line_segment([tip, left], stroke);
-    painter.line_segment([tip, right], stroke);
+    let base = tip + tangent * head;
+    let left = tip - tangent * (head * 0.15) + normal * wing;
+    let right = tip - tangent * (head * 0.15) - normal * wing;
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, left, base, right],
+        color,
+        Stroke::NONE,
+    ));
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {

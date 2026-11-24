@@ -1,6 +1,6 @@
 [package]
 name = "lightsnip"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Rust Wayland screenshot tool with annotation (Lightshot/Flameshot alternative)"
 license = "MIT"
@@ -19,6 +19,7 @@ egui = "0.31"
 image = "0.25"
 imageproc = "0.25"
 ksni = "0.3"
+rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["full"] }
 toml = "0.8"
