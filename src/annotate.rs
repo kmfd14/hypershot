@@ -129,16 +129,28 @@ fn apply_quiet_visuals(ctx: &egui::Context) {
     visuals.extreme_bg_color = Color32::from_rgb(0x1A, 0x1A, 0x1C);
     visuals.widgets.inactive.bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
     visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
+    // Buttons paint `weak_bg_fill`; keep hover/active on the same charcoal ladder.
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
+    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x38, 0x38, 0x3A);
     visuals.widgets.active.bg_fill = Color32::from_rgb(0x44, 0x44, 0x46);
+    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0x44, 0x44, 0x46);
+    visuals.widgets.open.bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
+    visuals.widgets.open.weak_bg_fill = Color32::from_rgb(0x2C, 0x2C, 0x2E);
     visuals.selection.bg_fill = Color32::from_rgb(0x3A, 0x3A, 0x3C);
     // Kill egui dark-default cyan/blue selection stroke (R-01 / quiet chrome).
     visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
+    // Same family as selection stroke: egui dark text cursor defaults to rgb(192,222,255).
+    visuals.text_cursor.stroke =
+        Stroke::new(2.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
     visuals.hyperlink_color = Color32::from_rgb(0xB0, 0xB0, 0xB0);
     visuals.widgets.inactive.fg_stroke =
         Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
     visuals.widgets.hovered.fg_stroke =
         Stroke::new(1.0_f32, Color32::from_rgb(0xF0, 0xF0, 0xF0));
+    visuals.widgets.active.fg_stroke =
+        Stroke::new(1.0_f32, Color32::from_rgb(0xF0, 0xF0, 0xF0));
+    visuals.widgets.open.fg_stroke =
+        Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
     visuals.widgets.noninteractive.fg_stroke =
         Stroke::new(1.0_f32, Color32::from_rgb(0xB0, 0xB0, 0xB0));
     // Small radius, not pills (R-11).
