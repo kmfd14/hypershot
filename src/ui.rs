@@ -1,8 +1,9 @@
 //! Shared visuals for annotate + settings.
 //!
 //! Annotate: flat pastel chrome (restrained purple / gray / white). No liquid-glass
-//! imitation — no frost fills, specular rims, or hover sheen. egui on Wayland
-//! cannot backdrop-blur the desktop; we stay opaque flat rather than fake glass.
+//! imitation — no specular rims or glow. When Window Transparency / Background Blur
+//! are on, we apply real window opacity plus a translucent frosted panel (closest
+//! effect egui can do). True compositor backdrop-blur is unavailable on Wayland/egui.
 //!
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
 //! Palette note: restrained pastel purple/gray/white is an owner override (R-37).
@@ -35,6 +36,12 @@ pub const WINDOW_PAD: f32 = 18.0;
 
 /// Rail corner radius (moderate; not pill-everything).
 pub const TOOLBAR_RADIUS: f32 = 14.0;
+
+/// Universal settings control row height (buttons, text fields, checkbox wells).
+pub const SETTINGS_CONTROL_HEIGHT: f32 = 28.0;
+
+/// Checkbox mark size inside the universal control height.
+pub const SETTINGS_CHECKBOX_SIZE: f32 = 18.0;
 
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
@@ -105,13 +112,47 @@ pub struct AnnotatePalette {
     pub muted: Color32,
     pub preview_matte: Color32,
     pub dark: bool,
+    /// Window / panel opacity from transparency intensity (`1.0` = fully opaque).
+    pub panel_opacity: f32,
+    /// Frost strength from blur intensity (`0.0` = solid flat, higher = more translucent frost).
+    pub frost: f32,
 }
 
 impl AnnotatePalette {
-    pub fn for_mode(dark: bool, _translucent: bool) -> Self {
-        // Flat pastel only — window transparency may clear the panel, but chrome
-        // stays opaque flat fills (no frost imitation).
-        if dark {
+    pub fn for_mode(dark: bool, translucent: bool) -> Self {
+        Self::with_effects(dark, translucent, 0.0, 0.0)
+    }
+
+    /// Build palette with transparency + frosted-panel intensities (`0.0..=1.0`).
+    ///
+    /// Transparency lowers panel/window alpha. Blur cannot sample the desktop in
+    /// egui; we approximate with a lighter translucent frost fill on chrome.
+    pub fn with_effects(
+        dark: bool,
+        translucent: bool,
+        transparency_intensity: f32,
+        blur_intensity: f32,
+    ) -> Self {
+        let t = if translucent {
+            transparency_intensity.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let frost = blur_intensity.clamp(0.0, 1.0);
+        // Keep chrome readable: never drop below ~0.42 when transparency is on.
+        let panel_opacity = if translucent {
+            (1.0 - t * 0.55).clamp(0.42, 1.0)
+        } else {
+            1.0
+        };
+        // Frost lightens/thins the toolbar fill further (simulated blur panel).
+        let frost_alpha = if frost > 0.0 {
+            (panel_opacity * (1.0 - frost * 0.35)).clamp(0.38, 1.0)
+        } else {
+            panel_opacity
+        };
+
+        let mut pal = if dark {
             Self {
                 bg: ANNOTATE_BG_DARK,
                 toolbar_fill: TOOLBAR_FILL_DARK,
@@ -122,6 +163,8 @@ impl AnnotatePalette {
                 muted: MUTED_DARK,
                 preview_matte: PREVIEW_MATTE_DARK,
                 dark: true,
+                panel_opacity,
+                frost,
             }
         } else {
             Self {
@@ -134,9 +177,42 @@ impl AnnotatePalette {
                 muted: MUTED,
                 preview_matte: PREVIEW_MATTE,
                 dark: false,
+                panel_opacity,
+                frost,
+            }
+        };
+
+        if translucent || frost > 0.0 {
+            pal.bg = with_alpha(pal.bg, panel_opacity);
+            pal.toolbar_fill = with_alpha(pal.toolbar_fill, frost_alpha);
+            // Soften stroke with frost so the rail edge is not a hard opaque rim.
+            let stroke_a = if frost > 0.0 {
+                (0.55 + (1.0 - frost) * 0.45).clamp(0.45, 1.0)
+            } else {
+                panel_opacity
+            };
+            pal.toolbar_stroke = with_alpha(pal.toolbar_stroke, stroke_a);
+            if frost > 0.0 {
+                // Lift fill slightly toward white/gray for a frosted read.
+                pal.toolbar_fill = frost_lift(pal.toolbar_fill, frost, dark);
             }
         }
+        pal
     }
+}
+
+fn with_alpha(c: Color32, a: f32) -> Color32 {
+    let a = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
+}
+
+fn frost_lift(c: Color32, frost: f32, dark: bool) -> Color32 {
+    let frost = frost.clamp(0.0, 1.0);
+    let lift = if dark { 28.0 } else { 18.0 } * frost;
+    let r = (c.r() as f32 + lift).min(255.0) as u8;
+    let g = (c.g() as f32 + lift).min(255.0) as u8;
+    let b = (c.b() as f32 + lift).min(255.0) as u8;
+    Color32::from_rgba_unmultiplied(r, g, b, c.a())
 }
 
 /// Approximate relative luminance of a Color32 (ignores alpha).
@@ -299,10 +375,10 @@ pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
     ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
     ctx.set_theme(theme_preference(theme));
-    // Sharper strokes: less feathering than the soft glass-era defaults.
+    // Tighter feathering keeps vector icons crisp without jagged stair-steps.
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.75;
+        opts.feathering_size_in_pixels = 0.55;
     });
 }
 
@@ -313,12 +389,20 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_theme(theme_preference(theme));
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.75;
+        opts.feathering_size_in_pixels = 0.55;
     });
 }
 
 /// Frame for the floating pastel tool rail (content-sized, not full window).
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
+    // Soften contact shadow when frosted so the rail does not look glued opaque.
+    let shadow_a = if pal.frost > 0.0 {
+        ((1.0 - pal.frost * 0.5) * if pal.dark { 40.0 } else { 22.0 }) as u8
+    } else if pal.dark {
+        40
+    } else {
+        22
+    };
     egui::Frame::new()
         .fill(pal.toolbar_fill)
         .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
@@ -329,7 +413,7 @@ pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
             offset: [0, 2],
             blur: 6,
             spread: 0,
-            color: Color32::from_black_alpha(if pal.dark { 40 } else { 22 }),
+            color: Color32::from_black_alpha(shadow_a),
         })
 }
 
@@ -483,39 +567,75 @@ pub fn choice_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Re
         .fill(fill)
         .stroke(Stroke::new(1.0_f32, stroke))
         .corner_radius(CornerRadius::same(6))
-        .min_size(Vec2::new(64.0, 28.0));
+        .min_size(Vec2::new(64.0, SETTINGS_CONTROL_HEIGHT));
     ui.add(btn)
 }
 
+/// Primary / secondary settings button sized to the universal control height.
+pub fn settings_button(
+    ui: &mut egui::Ui,
+    label: impl Into<egui::WidgetText>,
+    fill: Option<Color32>,
+    min_width: f32,
+) -> egui::Response {
+    let mut btn = egui::Button::new(label).min_size(Vec2::new(min_width, SETTINGS_CONTROL_HEIGHT));
+    if let Some(fill) = fill {
+        btn = btn.fill(fill);
+    }
+    ui.add(btn)
+}
+
+/// Single-line text field with the universal control height.
+pub fn settings_text_edit(ui: &mut egui::Ui, text: &mut String, width: f32, hint: &str) -> egui::Response {
+    ui.add(
+        egui::TextEdit::singleline(text)
+            .desired_width(width)
+            .min_size(Vec2::new(0.0, SETTINGS_CONTROL_HEIGHT))
+            .margin(Margin::symmetric(8, 4))
+            .hint_text(hint),
+    )
+}
+
 /// High-contrast checkbox for light and dark settings cards.
+///
+/// Painted with an Inside stroke and field-colored unchecked fill so rounded
+/// corners do not leave white AA artifacts on card backgrounds.
 pub fn contrast_checkbox(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
     let dark = ui.visuals().dark_mode;
-    let box_size = 18.0_f32;
-    let (rect, mut response) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
+    let box_size = SETTINGS_CHECKBOX_SIZE;
+    // Allocate the universal control height so the well aligns with buttons/fields.
+    let (row, mut response) =
+        ui.allocate_exact_size(Vec2::new(box_size, SETTINGS_CONTROL_HEIGHT), Sense::click());
     if response.clicked() {
         *value = !*value;
         response.mark_changed();
     }
 
-    let painter = ui.painter_at(rect);
+    let rect = Rect::from_center_size(row.center(), Vec2::splat(box_size));
+    let painter = ui.painter_at(row);
+    let radius = 3.0_f32;
     let border = if dark {
         SETTINGS_LABEL_DARK
     } else {
         Color32::from_rgb(0x3A, 0x3A, 0x3C)
     };
+    // Unchecked: match card field tone (not pure white) to avoid corner speckles.
     let fill = if *value {
         SETTINGS_PRIMARY
     } else if dark {
         SETTINGS_FIELD_DARK
     } else {
-        Color32::WHITE
+        SETTINGS_FIELD
     };
-    painter.rect_filled(rect, 3.0, fill);
+    let stroke_color = if *value { SETTINGS_PRIMARY } else { border };
+
+    // Fill first, then Inside stroke so AA stays within the rounded rect.
+    painter.rect_filled(rect, radius, fill);
     painter.rect_stroke(
         rect,
-        3.0,
-        Stroke::new(1.5_f32, if *value { SETTINGS_PRIMARY } else { border }),
-        egui::StrokeKind::Outside,
+        radius,
+        Stroke::new(1.5_f32, stroke_color),
+        egui::StrokeKind::Inside,
     );
     if *value {
         let stroke = Stroke::new(2.0_f32, Color32::WHITE);
@@ -561,57 +681,22 @@ pub fn section_title_with_help(
     ui.add_space(6.0);
 }
 
-// --- Icon painters (thicker strokes for AA) -----------------------------------
+// --- Icon painters (vector strokes; keep AA feathering low in apply_*_visuals) ---
 
-const ICON_STROKE: f32 = 2.2;
+const ICON_STROKE: f32 = 2.35;
 
-pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE, color);
-    let a = Pos2::new(rect.left() + rect.width() * 0.2, rect.bottom() - rect.height() * 0.25);
-    let b = Pos2::new(rect.right() - rect.width() * 0.18, rect.top() + rect.height() * 0.22);
-    painter.line_segment([a, b], stroke);
-    let dir = (b - a).normalized();
-    let perp = Vec2::new(-dir.y, dir.x);
-    let back = b - dir * (rect.width() * 0.28);
-    painter.line_segment([b, back + perp * (rect.width() * 0.18)], stroke);
-    painter.line_segment([b, back - perp * (rect.width() * 0.18)], stroke);
-}
-
-pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.18);
-    painter.rect_stroke(
-        inset,
-        2.0,
-        Stroke::new(ICON_STROKE, color),
-        egui::StrokeKind::Middle,
-    );
-}
-
-pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.18);
-    let cell = inset.width() / 3.0;
-    for row in 0..3 {
-        for col in 0..3 {
-            if (row + col) % 2 == 0 {
-                let c = Rect::from_min_size(
-                    Pos2::new(inset.min.x + col as f32 * cell, inset.min.y + row as f32 * cell),
-                    Vec2::splat(cell * 0.88),
-                );
-                painter.rect_filled(c, 1.5, color);
-            }
-        }
-    }
-}
-
-/// Clear curved undo arrow with a filled arrowhead (readable at small sizes).
-pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.25, color);
-    // Arc opens leftward (classic undo), ending at a filled chevron head.
-    let c = rect.center() + Vec2::new(rect.width() * 0.06, rect.height() * 0.04);
+/// `direction`: +1 = undo (opens left), -1 = redo (opens right).
+fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, direction: f32) {
+    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
+    let c = rect.center() + Vec2::new(-direction * rect.width() * 0.06, rect.height() * 0.04);
     let r = rect.width() * 0.32;
-    let start = std::f32::consts::FRAC_PI_4 * 0.35;
-    let sweep = std::f32::consts::PI * 1.45;
-    let steps = 28;
+    let start = if direction > 0.0 {
+        std::f32::consts::FRAC_PI_4 * 0.35
+    } else {
+        std::f32::consts::PI - std::f32::consts::FRAC_PI_4 * 0.35
+    };
+    let sweep = direction * std::f32::consts::PI * 1.45;
+    let steps = 32;
     let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
         let t = start - sweep * (i as f32 / steps as f32);
@@ -621,8 +706,9 @@ pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
     }
     let tip_angle = start - sweep;
     let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
-    // Outward radial for the arrow direction along the arc end.
-    let tangent = Vec2::new(tip_angle.sin(), -tip_angle.cos()).normalized();
+    // Unit tangent at tip, oriented toward the arc travel end.
+    let travel = -sweep.signum();
+    let tangent = Vec2::new(-travel * tip_angle.sin(), travel * tip_angle.cos()).normalized();
     let normal = Vec2::new(-tangent.y, tangent.x);
     let head = rect.width() * 0.22;
     let wing = rect.width() * 0.16;
@@ -636,74 +722,152 @@ pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
     ));
 }
 
-pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
+pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let inset = rect.shrink(rect.width() * 0.28);
+    let a = Pos2::new(rect.left() + rect.width() * 0.18, rect.bottom() - rect.height() * 0.22);
+    let b = Pos2::new(rect.right() - rect.width() * 0.16, rect.top() + rect.height() * 0.20);
+    painter.line_segment([a, b], stroke);
+    let dir = (b - a).normalized();
+    let perp = Vec2::new(-dir.y, dir.x);
+    let head = rect.width() * 0.30;
+    let wing = rect.width() * 0.17;
+    let back = b - dir * head;
+    // Filled head reads sharper than two thin strokes at 36px.
+    painter.add(egui::Shape::convex_polygon(
+        vec![b, back + perp * wing, back - perp * wing],
+        color,
+        Stroke::NONE,
+    ));
+}
+
+pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let inset = rect.shrink(rect.width() * 0.20);
+    painter.rect_stroke(
+        inset,
+        2.5,
+        Stroke::new(ICON_STROKE, color),
+        egui::StrokeKind::Middle,
+    );
+}
+
+pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let inset = rect.shrink(rect.width() * 0.18);
+    let cell = inset.width() / 3.0;
+    let gap = cell * 0.12;
+    for row in 0..3 {
+        for col in 0..3 {
+            if (row + col) % 2 == 0 {
+                let c = Rect::from_min_size(
+                    Pos2::new(
+                        inset.min.x + col as f32 * cell + gap * 0.5,
+                        inset.min.y + row as f32 * cell + gap * 0.5,
+                    ),
+                    Vec2::splat(cell - gap),
+                );
+                painter.rect_filled(c, 1.0, color);
+            }
+        }
+    }
+}
+
+/// Curved undo arrow with a filled arrowhead (readable at small sizes).
+pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_arc_arrow(painter, rect, color, 1.0);
+}
+
+/// Curved redo arrow (mirror of undo).
+pub fn paint_icon_redo(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_arc_arrow(painter, rect, color, -1.0);
+}
+
+pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
+    let inset = rect.shrink(rect.width() * 0.26);
     painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
     painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
 }
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.28;
-    let inner = rect.width() * 0.12;
-    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE + 0.2, color));
-    painter.circle_filled(c, inner, color);
-    for i in 0..8 {
-        let a = (i as f32) * std::f32::consts::TAU / 8.0;
-        let p0 = c + Vec2::angled(a) * (outer * 0.78);
-        let p1 = c + Vec2::angled(a) * (outer * 1.32);
-        painter.line_segment([p0, p1], Stroke::new(2.6_f32, color));
+    let outer = rect.width() * 0.26;
+    let hub = rect.width() * 0.11;
+    let tooth_len = rect.width() * 0.16;
+    let tooth_w = rect.width() * 0.11;
+    // Hub ring + filled center.
+    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
+    painter.circle_filled(c, hub, color);
+    // Six trapezoid teeth (sharper than stubby spokes).
+    for i in 0..6 {
+        let a = (i as f32) * std::f32::consts::TAU / 6.0;
+        let dir = Vec2::angled(a);
+        let perp = Vec2::new(-dir.y, dir.x);
+        let base = c + dir * (outer * 0.72);
+        let tip = c + dir * (outer + tooth_len);
+        let half = tooth_w * 0.5;
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                base + perp * half,
+                tip + perp * (half * 0.55),
+                tip - perp * (half * 0.55),
+                base - perp * half,
+            ],
+            color,
+            Stroke::NONE,
+        ));
     }
 }
 
 pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let inset = rect.shrink(rect.width() * 0.22);
+    let inset = rect.shrink(rect.width() * 0.20);
+    // Tray
+    let tray_y = inset.bottom() - inset.height() * 0.08;
     painter.line_segment(
         [
-            Pos2::new(inset.left(), inset.bottom() - inset.height() * 0.15),
-            Pos2::new(inset.left(), inset.bottom()),
+            Pos2::new(inset.left(), tray_y - inset.height() * 0.18),
+            Pos2::new(inset.left(), tray_y),
         ],
         stroke,
     );
     painter.line_segment(
-        [
-            Pos2::new(inset.left(), inset.bottom()),
-            Pos2::new(inset.right(), inset.bottom()),
-        ],
+        [Pos2::new(inset.left(), tray_y), Pos2::new(inset.right(), tray_y)],
         stroke,
     );
     painter.line_segment(
         [
-            Pos2::new(inset.right(), inset.bottom()),
-            Pos2::new(inset.right(), inset.bottom() - inset.height() * 0.15),
+            Pos2::new(inset.right(), tray_y),
+            Pos2::new(inset.right(), tray_y - inset.height() * 0.18),
         ],
         stroke,
     );
-    let top = Pos2::new(inset.center().x, inset.top());
-    let mid = Pos2::new(inset.center().x, inset.bottom() - inset.height() * 0.28);
-    painter.line_segment([top, mid], stroke);
-    painter.line_segment(
-        [mid, mid + Vec2::new(-inset.width() * 0.22, -inset.height() * 0.2)],
-        stroke,
-    );
-    painter.line_segment(
-        [mid, mid + Vec2::new(inset.width() * 0.22, -inset.height() * 0.2)],
-        stroke,
-    );
+    // Down arrow
+    let tip = Pos2::new(inset.center().x, tray_y - inset.height() * 0.12);
+    let top = Pos2::new(inset.center().x, inset.top() + inset.height() * 0.05);
+    painter.line_segment([top, tip], stroke);
+    let wing = inset.width() * 0.22;
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            tip,
+            tip + Vec2::new(-wing, -wing * 0.95),
+            tip + Vec2::new(wing, -wing * 0.95),
+        ],
+        color,
+        Stroke::NONE,
+    ));
 }
 
 pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
     let back = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.18, rect.top() + rect.height() * 0.18),
-        Pos2::new(rect.right() - rect.width() * 0.32, rect.bottom() - rect.height() * 0.32),
+        Pos2::new(rect.left() + rect.width() * 0.16, rect.top() + rect.height() * 0.16),
+        Pos2::new(rect.right() - rect.width() * 0.34, rect.bottom() - rect.height() * 0.34),
     );
     let front = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.32, rect.top() + rect.height() * 0.32),
-        Pos2::new(rect.right() - rect.width() * 0.18, rect.bottom() - rect.height() * 0.18),
+        Pos2::new(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.34),
+        Pos2::new(rect.right() - rect.width() * 0.16, rect.bottom() - rect.height() * 0.16),
     );
+    // Fill front sheet so the glyph reads as two pages, not two empty frames.
+    painter.rect_filled(front, 2.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 28));
     painter.rect_stroke(back, 2.0, stroke, egui::StrokeKind::Middle);
     painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
 }
@@ -786,5 +950,26 @@ mod tests {
         assert_eq!(theme_preference(UiTheme::Dark), ThemePreference::Dark);
         assert_eq!(theme_preference(UiTheme::Light), ThemePreference::Light);
         assert_eq!(theme_preference(UiTheme::System), ThemePreference::System);
+    }
+
+    #[test]
+    fn settings_controls_share_height() {
+        assert_eq!(SETTINGS_CONTROL_HEIGHT, 28.0);
+        assert!(SETTINGS_CHECKBOX_SIZE < SETTINGS_CONTROL_HEIGHT);
+        assert!(SETTINGS_CHECKBOX_SIZE >= 16.0);
+    }
+
+    #[test]
+    fn palette_effects_lower_opacity_and_frost() {
+        let solid = AnnotatePalette::with_effects(false, false, 0.0, 0.0);
+        assert!((solid.panel_opacity - 1.0).abs() < f32::EPSILON);
+        assert_eq!(solid.frost, 0.0);
+        assert_eq!(solid.bg.a(), 255);
+
+        let clear = AnnotatePalette::with_effects(false, true, 1.0, 0.8);
+        assert!(clear.panel_opacity < 1.0);
+        assert!(clear.bg.a() < 255);
+        assert!(clear.toolbar_fill.a() < 255);
+        assert!((clear.frost - 0.8).abs() < f32::EPSILON);
     }
 }

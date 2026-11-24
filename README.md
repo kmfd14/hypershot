@@ -12,7 +12,7 @@
 cargo run --release -- region
 ```
 
-Draw with icon tools (arrow, box, pixelate), pick a stroke color (default red) → **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
+Draw with icon tools (arrow, box, pixelate), Undo/Redo, pick a stroke color (default red) → **Save** / Enter, or **Copy** (toast, then clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
 
 Open settings anytime:
 
@@ -37,7 +37,7 @@ It provides:
 > [!CAUTION]
 > Linux Wayland only for v1. No Windows, macOS, or X11-first support. No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. lightsnip documents limits and writes opt-in helpers; it does not pretend PrintScreen is always stolen for you.
 >
-> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland. Annotate chrome is flat pastel (purple / gray / white): egui on Wayland cannot deliver real liquid-glass backdrop-blur, so we do not fake frosted glass.
+> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland. Annotate chrome is flat pastel (purple / gray / white). Transparency is compositor-dependent; “background blur” frosts the panel (egui cannot sample the desktop for real backdrop-blur).
 
 ## Tech stack
 
@@ -59,12 +59,12 @@ It provides:
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — floating **Lightsnip** window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Content-sized flat pastel tool rail attached to the preview (default **left**; settings: top/bottom/left/right): arrow, box, pixelate, color picker (default red), undo, clear, larger settings, **Save**, **Copy** (hover). Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels. Preview letterboxes and may upscale with LINEAR filtering.
+2. **Annotate** — floating **Lightsnip** window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Content-sized flat pastel rail labeled **Annotate** (default **left**; settings: top/bottom/left/right): arrow, box, pixelate, color picker (default red), undo, redo, clear, larger settings, **Save**, **Copy**. Enter / Save commits; Copy shows a toast then closes (clipboard always); Escape clears a draft, then cancels. Preview letterboxes and may upscale with LINEAR filtering.
 3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
-5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Card sections with `?` tooltips: shortcuts (Assign…), session toggles, output (folder picker), **User Interface** (toolbar/theme buttons, transparency + blur intensity sliders), **About** (name + `x.y` version).
+5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Card sections with `?` tooltips: shortcuts (Assign…), session toggles, output (folder picker), **User Interface** (toolbar/theme, transparency + frosted-panel blur intensity), **About** (name + `x.y` version). Controls share one row height.
 6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Floating UI** — flat pastel purple / gray / white chrome (no frost / specular / sheen). egui/Wayland cannot backdrop-blur; transparency intensity is best-effort; blur preference is saved and labeled honestly.
+7. **Floating UI** — flat pastel purple / gray / white chrome. Transparency intensity applies window/panel opacity (compositor-dependent). Blur intensity frosts the annotate panel (no true desktop backdrop-blur in egui/Wayland).
 
 <!-- VISUAL SUGGESTION [SCREENSHOT]:
 Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`

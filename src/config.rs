@@ -105,10 +105,10 @@ pub struct Config {
     pub window_transparency: bool,
     /// User-assignable transparency intensity (`0.0..=1.0`). Applied when transparency is on.
     pub window_transparency_intensity: f32,
-    /// Prefer window background blur when the platform supports it.
-    /// egui/winit on Wayland cannot do real desktop backdrop-blur today; stored for honesty + future.
+    /// Prefer a frosted translucent annotate panel (closest to background blur in egui).
+    /// True compositor backdrop-blur is unavailable on Wayland/egui; intensity still applies.
     pub window_background_blur: bool,
-    /// User-assignable blur intensity (`0.0..=1.0`). Preference only on Wayland/egui today.
+    /// Frost intensity for the simulated blur panel (`0.0..=1.0`).
     pub window_background_blur_intensity: f32,
 }
 
@@ -190,9 +190,9 @@ impl Config {
         }
     }
 
-    /// Effective blur intensity when the preference is enabled (else `0.0`).
-    /// Preference is stored for honesty / future compositors; egui cannot apply
-    /// desktop backdrop-blur on Wayland today.
+    /// Effective frost/blur intensity when the preference is enabled (else `0.0`).
+    /// Drives a translucent frosted panel; egui cannot sample the desktop for
+    /// real compositor backdrop-blur on Wayland.
     pub fn effective_blur_intensity(&self) -> f32 {
         if self.window_background_blur {
             clamp_intensity(self.window_background_blur_intensity)

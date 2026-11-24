@@ -7,8 +7,8 @@ cargo run --release -- region
 ```
 
 1. Select a region.
-2. Mark up in the **Lightsnip** window: floating flat pastel rail (Arrow, Box, Pixelate, color, Undo, Clear, Settings, Save, Copy).
-3. Press **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels and discards.
+2. Mark up in the **Lightsnip** window: floating flat pastel rail labeled **Annotate** (Arrow, Box, Pixelate, color, Undo, Redo, Clear, Settings, Save, Copy).
+3. Press **Save** / Enter, or **Copy** (toast, then clipboard + close). Escape clears a draft drag, then cancels and discards.
 
 PNG path prints to stdout. About 1–2 minutes for first capture after deps.
 
@@ -74,20 +74,20 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 
 After capture, a floating bordered **Lightsnip** window opens (sized to the image + floating toolbar). You can also annotate a file you already have.
 
-1. Floating flat pastel tool rail (icons + hover tooltips), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
-2. Tools: **Arrow**, **Box**, **Pixelate**, **color picker**, **Undo**, **Clear**, larger **Settings**, **Save**, **Copy** (hover fill).
+1. Floating flat pastel tool rail with an **Annotate** label (icons + hover tooltips), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
+2. Tools: **Arrow**, **Box**, **Pixelate**, **color picker**, **Undo**, **Redo**, **Clear**, larger **Settings**, **Save**, **Copy** (hover fill).
 3. Stroke color defaults to red. Click the swatch for the color wheel; Arrow and Box use it. Pixelate ignores stroke color.
-4. Drag on the image to draw or redact. Ctrl+Z undoes. The preview letterboxes and can upscale small captures when you enlarge the window (LINEAR filtering).
+4. Drag on the image to draw or redact. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes. The preview letterboxes and can upscale small captures when you enlarge the window (LINEAR filtering).
 5. **Settings** opens the settings sheet (shortcuts, session, output, User Interface).
 6. **Save** / Enter writes the PNG and dismisses; clipboard follows settings / CLI flags.
-7. **Copy** writes the PNG, copies to the clipboard (always), and dismisses.
+7. **Copy** writes the PNG, shows a short “Copied to clipboard” toast, then closes cleanly (always forces clipboard after close).
 8. Escape first drops an in-progress drag (or closes Settings); Escape again cancels without keeping the capture (region/full) or without changing the file (`annotate`).
 9. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
 10. Skip annotate: `cargo run --release -- region --no-annotate`.
 
 **Display note:** annotate / settings need `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open those windows. On annotate failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
 
-**Chrome:** flat pastel purple / gray / white (no frost / specular / sheen). Honest limits: egui on Wayland cannot backdrop-blur the desktop; window transparency is best-effort; “background blur” in settings is stored and labeled unavailable.
+**Chrome:** flat pastel purple / gray / white (no specular / glow). Transparency intensity lowers window/panel opacity (compositor-dependent). Background blur cannot sample the desktop in egui/Wayland; intensity frosts the annotate panel instead.
 
 **Stay on top:** annotate requests always-on-top through egui/winit. Wayland compositors often ignore or restrict this (no portable layer-shell API in this stack); X11 usually honors it. If the window goes under others, raise it from the task switcher.
 
@@ -118,7 +118,7 @@ Or click **Settings** on the annotate bar. Persist with **Save** inside the wind
 1. **Shortcuts** — **Assign…** captures a key combination (chip + Reset); bind command field for compositor wiring. Wayland has no portable global hotkey API.
 2. **Session** — toggles: run at startup (XDG → tray), replace-default `.desktop` helper (does **not** steal PrintScreen), stay in tray (StatusNotifierItem; GNOME often needs AppIndicator). All off by default. Section help lives on the `?` control.
 3. **Output** — save directory (text + **Browse…** folder picker) + save to clipboard by default.
-4. **User Interface** — toolbar position and theme as buttons; title bar toggle; transparency and background blur with intensity sliders. Wayland/egui: transparency is compositor-dependent; blur preference is stored but not applied (flat pastel instead).
+4. **User Interface** — toolbar position and theme as buttons; title bar toggle; transparency and background blur with intensity sliders (buttons / fields / checkboxes share one control height). Wayland/egui: transparency is compositor-dependent; blur frosts the annotate panel (no true desktop backdrop-blur).
 5. **About** — app name + `x.y` version (semver-lite: `x` major, `y` fixes/polish).
 
 Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
