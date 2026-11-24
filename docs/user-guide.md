@@ -24,19 +24,19 @@ Quiet charcoal chrome on annotate and settings. No decorative gradients or emoji
 
 ---
 
-## Capture (available now)
+## Capture
 
 Pick one mode. Region is the default path. Run from the checkout. You do not need a system binary.
 
-1. **Region**: `cargo run --release -- region` → portal interactive picker, or `slurp` → `grim` if the portal fails.
-2. **Fullscreen**: `cargo run --release -- full` → active output via portal, or `grim` fallback.
+1. **Region** — `cargo run --release -- region` → portal interactive picker, or `slurp` → `grim` if the portal fails.
+2. **Fullscreen** — `cargo run --release -- full` → active output via portal, or `grim` fallback.
 3. Escape / cancel in the picker aborts with a non-zero exit.
 
-Portal capture is preferred. If the portal path fails, lightsnip uses `grim` + `slurp` when installed.
+**Deps:** prefer a working xdg-desktop-portal Screenshot path. If the portal path fails, lightsnip uses `grim` + `slurp` when installed.
 
 ---
 
-## Annotate (available now)
+## Annotate
 
 After capture, a fullscreen overlay opens on the PNG. You can also annotate a file you already have.
 
@@ -52,21 +52,21 @@ After capture, a fullscreen overlay opens on the PNG. You can also annotate a fi
 
 ---
 
-## Save and clipboard (available now)
+## Save and clipboard
 
 After **Save** (or after capture when using `--no-annotate` / when the overlay cannot open), lightsnip writes a PNG and (by default) copies it to the Wayland clipboard.
 
-1. **Default save**: settings save directory, else `~/Pictures/lightsnip/lightsnip-<unix>.png` (directory is created if needed).
-2. **Custom file**: `cargo run --release -- region -o ~/Pictures/snip.png`.
-3. **Custom directory**: `cargo run --release -- full --save-dir ~/Pictures/Screenshots` (timestamped name inside that dir).
-4. **Env override**: set `LIGHTSNIP_SAVE_DIR` to change the default directory without flags (beats config).
-5. **Clipboard**: default from settings. Skip with `--no-clipboard`. Affirm with `--clipboard`.
+1. **Default save** — settings save directory, else `~/Pictures/lightsnip/lightsnip-<unix>.png` (directory is created if needed).
+2. **Custom file** — `cargo run --release -- region -o ~/Pictures/snip.png`.
+3. **Custom directory** — `cargo run --release -- full --save-dir ~/Pictures/Screenshots` (timestamped name inside that dir).
+4. **Env override** — set `LIGHTSNIP_SAVE_DIR` to change the default directory without flags (beats config).
+5. **Clipboard** — default from settings. Skip with `--no-clipboard`. Affirm with `--clipboard`.
 
 If clipboard is skipped with a warning, install `wl-clipboard` (`wl-copy`) and retry. Save still succeeds either way; the PNG path is always printed after a successful Save.
 
 ---
 
-## Settings (available now)
+## Settings
 
 ```bash
 cargo run --release -- settings
@@ -74,12 +74,12 @@ cargo run --release -- settings
 
 Or click **Settings** on the annotate bar. Persist with **Save** inside the window. Config path: `~/.config/lightsnip/config.toml`.
 
-1. **Shortcuts**: edit the suggested bind command. Wayland has no portable global hotkey API; bind that command in your compositor or DE.
-2. **Run at startup**: opt-in XDG autostart → launches `tray`. Off by default.
-3. **Replace default screenshot tool**: writes a user `.desktop` helper only. Does **not** steal PrintScreen on GNOME/KDE; assign a custom shortcut yourself. Off by default.
-4. **Stay in taskbar / tray**: use StatusNotifierItem via `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a tray watcher; GNOME often needs an AppIndicator extension. Off by default.
-5. **Save directory**: default PNG folder.
-6. **Save to clipboard**: default on/off after Save.
+1. **Shortcuts** — edit the suggested bind command. Wayland has no portable global hotkey API; bind that command in your compositor or DE.
+2. **Run at startup** — opt-in XDG autostart → launches `tray`. Off by default.
+3. **Replace default screenshot tool** — writes a user `.desktop` helper only. Does **not** steal PrintScreen on GNOME/KDE; assign a custom shortcut yourself. Off by default.
+4. **Stay in taskbar / tray** — use StatusNotifierItem via `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a tray watcher; GNOME often needs an AppIndicator extension. Off by default.
+5. **Save directory** — default PNG folder.
+6. **Save to clipboard** — default on/off after Save.
 
 Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
 
@@ -104,10 +104,12 @@ Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on e
 3. Or copy the command from Settings → Shortcuts.
 4. Sample primary command: `cargo run --release -- region`.
 
-| Desktop | Idea |
+| Desktop | Sample |
 | --- | --- |
-| Sway / Hyprland | Bind a key to `exec` the `cargo run … region` command |
-| GNOME / KDE | Custom shortcut → same command |
+| Hyprland | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| Sway | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| GNOME | Settings → Keyboard → Custom Shortcut → same command (does not steal PrintScreen by itself) |
+| KDE | System Settings → Shortcuts → Custom → same command |
 
 Inside the annotate overlay: Enter = Save, Escape = clear draft / close Settings then Cancel, Ctrl+Z = Undo.
 
