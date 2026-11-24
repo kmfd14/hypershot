@@ -2179,9 +2179,10 @@ dependencies = [
 
 [[package]]
 name = "lightsnip"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "ashpd 0.14.3",
  "clap",
  "directories",

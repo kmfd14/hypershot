@@ -1,12 +1,10 @@
-//! Save path resolution and Wayland clipboard copy.
+//! Save path resolution and cross-platform clipboard copy.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Context, Result};
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use anyhow::{Context, Result};
+use image::RgbaImage;
 
 pub use crate::config::SAVE_DIR_ENV;
 
@@ -46,66 +44,36 @@ fn timestamped_filename() -> String {
     format!("lightsnip-{secs}.png")
 }
 
-/// Copy a PNG file to the Wayland clipboard via `wl-copy` when available.
+/// Copy a PNG file to the system clipboard (image/png via `arboard`).
 ///
-/// Returns `Ok(true)` if copy succeeded, `Ok(false)` if `wl-copy` is missing
-/// (caller should warn). Errors if `wl-copy` ran but failed.
+/// Returns `Ok(true)` on success. On Linux Wayland, `arboard` uses `wl-copy`
+/// when available — install `wl-clipboard` if copy fails.
 pub async fn copy_png_to_clipboard(path: &Path) -> Result<bool> {
-    if !command_on_path("wl-copy") {
-        return Ok(false);
-    }
-
-    let bytes = tokio::fs::read(path)
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || copy_png_to_clipboard_blocking(&path))
         .await
-        .with_context(|| format!("read PNG for clipboard {}", path.display()))?;
-
-    let mut child = Command::new("wl-copy")
-        .args(["--type", "image/png"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawn wl-copy")?;
-
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("wl-copy stdin missing"))?;
-        stdin
-            .write_all(&bytes)
-            .await
-            .context("write PNG bytes to wl-copy")?;
-        stdin.shutdown().await.context("close wl-copy stdin")?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .await
-        .context("wait for wl-copy")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "wl-copy exited with {}{}",
-            output.status,
-            if stderr.trim().is_empty() {
-                String::new()
-            } else {
-                format!(": {}", stderr.trim())
-            }
-        );
-    }
-    Ok(true)
+        .context("clipboard worker join")?
 }
 
-fn command_on_path(name: &str) -> bool {
-    let Some(path_var) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path_var).any(|dir| {
-        let candidate = dir.join(name);
-        candidate.is_file()
-    })
+fn copy_png_to_clipboard_blocking(path: &Path) -> Result<bool> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("read PNG for clipboard {}", path.display()))?;
+    let rgba = image::load_from_memory(&bytes)
+        .with_context(|| format!("decode PNG for clipboard {}", path.display()))?
+        .to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let img = RgbaImage::from_raw(w, h, rgba.into_raw())
+        .ok_or_else(|| anyhow::anyhow!("rebuild RGBA for clipboard"))?;
+
+    let mut clipboard = arboard::Clipboard::new().context("open system clipboard")?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: w as usize,
+            height: h as usize,
+            bytes: img.into_raw().into(),
+        })
+        .context("set clipboard image")?;
+    Ok(true)
 }
 
 #[cfg(test)]

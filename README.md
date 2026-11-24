@@ -5,16 +5,19 @@
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![CI](https://github.com/kmfd14/lightsnip/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/lightsnip/actions/workflows/ci.yml)
 
-**Do this now** (from the repo checkout, Wayland session, ~1 minute after deps):
+**Do this now** (from the repo checkout, graphical session, ~1 minute after deps):
 
 ```bash
 cargo run --release -- region
 ```
 
-Draw with icon tools (arrow, box, pixelate), Undo/Redo, pick a stroke color (default red) → **Save** / Enter, or **Copy** (toast, then clipboard). Escape clears a draft drag, then cancels. PNG lands in your save directory (default `~/Pictures/lightsnip/`).
+1. Mark up with icon tools (arrow, box, pixelate, step number).
+2. **Save** → pick a file in the dialog → close. **Enter** → same dialog + copy to clipboard + toast + close. **Copy** → clipboard toast + close (no dialog).
+3. Cancel the save dialog (or **Exit**) to keep the window open.
 
-Open settings anytime:
+PNG default folder: `~/Pictures/lightsnip/` (overridable in Settings).
 
 ```bash
 cargo run --release -- settings
@@ -22,22 +25,37 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and **off by default**.
 
-Wayland screenshot tool with capture and annotation. Region or fullscreen capture → floating annotate window → save or copy. Built in Rust. Left pastel tool rail + Apple-inspired settings.
+Screenshot tool with capture + annotation. Region or fullscreen → floating annotate window → save or copy. Built in Rust. Flat pastel tool rail + Apple-inspired settings.
 
-Use it when you want a Lightshot / Flameshot-style loop on Linux Wayland (COSMIC, GNOME, KDE, Sway, Hyprland) without leaving your compositor’s permission model.
+## Platform support (v0.5)
 
-It provides:
-
-* Portal-first capture with grim/slurp fallback
-* Annotate overlay: arrow, rectangle/box, pixelate (privacy), undo/clear
-* Save to timestamped PNG under a default / configurable dir
-* Clipboard copy via `wl-copy` (default from settings, on out of the box)
-* Settings window + optional StatusNotifierItem tray
+| Platform | Capture | Annotate / Save / Clipboard | Tray | Native ARM |
+| --- | --- | --- | --- | --- |
+| Linux Wayland | **Works** — portal first, `grim`/`slurp` fallback | **Works** | **Works** (SNI / `ksni`) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
+| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) | **Works** (`arboard` + `rfd`) | Not in v0.5 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
+| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v0.5 | `aarch64-pc-windows-msvc` via CI `cargo check` |
 
 > [!CAUTION]
-> Linux Wayland only for v1. No Windows, macOS, or X11-first support. No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. lightsnip documents limits and writes opt-in helpers; it does not pretend PrintScreen is always stolen for you.
+> No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop (Linux XDG helpers only). Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
 >
-> The annotate / settings windows need a real graphical session (`WAYLAND_DISPLAY` or `DISPLAY`) plus native libs for egui/winit (for example `libxkbcommon`). Headless / cloud VMs usually can **compile** but cannot run those UIs; use `--no-annotate` there, or expect a warning and a raw (unannotated) save. Annotate stay-on-top is best-effort on Wayland. Annotate chrome is flat pastel (purple / gray / white). Transparency is compositor-dependent; “background blur” frosts the panel (egui cannot sample the desktop for real backdrop-blur).
+> Annotate chrome is flat pastel purple / gray / white (no liquid-glass). Transparency is compositor-dependent; “background blur” frosts the panel only.
+
+### ARM / cross builds
+
+```bash
+# Apple Silicon (native on M-series)
+cargo build --release --target aarch64-apple-darwin
+
+# Windows ARM64 (from an MSVC toolchain host)
+rustup target add aarch64-pc-windows-msvc
+cargo build --release --target aarch64-pc-windows-msvc
+
+# Linux ARM64
+rustup target add aarch64-unknown-linux-gnu
+cargo build --release --target aarch64-unknown-linux-gnu
+```
+
+CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `cargo check` for the ARM targets above.
 
 ## Tech stack
 
@@ -47,77 +65,74 @@ It provides:
   <img src="https://cdn.simpleicons.org/toml/9C4121" width="32" height="32" alt="TOML">
   <img src="https://cdn.simpleicons.org/linux/FCC624" width="32" height="32" alt="Linux">
   <img src="https://cdn.simpleicons.org/wayland/ff0000" width="32" height="32" alt="Wayland">
+  <img src="https://cdn.simpleicons.org/apple/000000" width="32" height="32" alt="Apple">
+  <img src="https://cdn.simpleicons.org/windows/0078D4" width="32" height="32" alt="Windows">
 </p>
 
 * **Language / CLI:** Rust, `tokio`, `clap`, `directories`, `serde` / `toml`
-* **Capture:** `ashpd` (xdg-desktop-portal Screenshot); fallback `grim` + `slurp`
-* **Annotate / settings UI:** egui + eframe (floating annotate window + settings)
-* **Images:** `image` / `imageproc` (draw annotations onto PNG)
-* **Clipboard:** `wl-clipboard` (`wl-copy`) when on `PATH`
-* **Tray:** `ksni` (StatusNotifierItem) when you enable stay-in-tray / run `tray`
+* **Capture:** Linux `ashpd` + `grim`/`slurp`; macOS `screencapture`; Windows stub (WIP)
+* **Annotate / settings UI:** egui + eframe; save dialog via `rfd`
+* **Images:** `image` / `imageproc`
+* **Clipboard:** `arboard` (Wayland still benefits from `wl-clipboard` on PATH)
+* **Tray:** Linux `ksni` only
 
 ## Features
 
-1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — floating **Lightsnip** window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Content-sized flat pastel rail labeled **Annotate** (default **left**; settings: top/bottom/left/right): arrow, box, pixelate, **step number**, color picker (default red), undo, redo, clear, larger settings, **Save**, **Copy**, **Exit**. Enter / Save commits; Copy shows a toast then closes (clipboard always); Exit cancels (Esc does the same when enabled). Preview letterboxes and may upscale with LINEAR filtering.
-3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
-4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
-5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Card sections with `?` tooltips: shortcuts (label + bind command), session toggles, output (folder picker), **User Interface** (toolbar/theme, tiling vs floating, Esc-to-exit, transparency + blur intensity), **About** (name + `x.y` version). Controls share one row height.
-6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Floating UI** — flat pastel purple / gray / white chrome. Transparency / blur affect the window and preview area; the **toolbar stays fully opaque**. No true desktop backdrop-blur in egui/Wayland.
-
-<!-- VISUAL SUGGESTION [SCREENSHOT]:
-Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`
-
-Add a screenshot of the floating annotate window on a Wayland desktop.
-Show the left glass tool strip, image canvas, Save / Copy, and Settings.
-Purpose: Prove the capture → annotate loop at a glance.
--->
+1. **Capture** — `cargo run --release -- region` / `full` (see [Platform support](#platform-support-v05)).
+2. **Annotate** — floating **Lightsnip** window, or `cargo run --release -- annotate path.png`. Flat pastel icon rail (no text label): arrow, box, pixelate, step number, color (default red), undo, redo, clear, settings, **Save**, **Copy**, **Exit**.
+3. **Save** — file dialog (defaults under configured save dir). Cancel keeps the window open.
+4. **Enter** — save dialog + copy to clipboard + toast + close (always). Esc respects **Esc to exit**; Enter does not.
+5. **Pixelate** — strong single-pass mosaic (`PIXELATE_BLOCK = 28` + offset densify) so text is unreadable; undo/redo still work.
+6. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
+7. **Settings** — cards with `?` tooltips, folder picker, UI + About (`0.5`).
+8. **Tray** — Linux only: `cargo run --release -- tray`.
 
 ## Runtime dependencies
 
-lightsnip prefers **xdg-desktop-portal** Screenshot. If the portal fails, it falls back to `grim` (+ `slurp` for region). Clipboard needs `wl-copy`.
+### Linux (Wayland)
 
-### Fedora 44 COSMIC — install now
+Portal first; `grim` + `slurp` fallback. Install `wl-clipboard` for reliable clipboard.
+
+#### Fedora 44 COSMIC — install now
 
 ```bash
 sudo dnf install grim slurp wl-clipboard \
   xdg-desktop-portal xdg-desktop-portal-cosmic
 ```
 
-Then from the checkout: `cargo run --release -- region`.
-
-### Runtime tools checklist
-
 | Need | Binary / package | Role |
 | --- | --- | --- |
-| Capture fallback | `grim` | Writes the PNG when the portal fails |
-| Region fallback | `slurp` | Interactive region geometry for `grim` |
-| Clipboard | `wl-copy` from `wl-clipboard` | Copy PNG after Save |
-
-Also required: Rust toolchain, a Wayland session, and a display for annotate / settings (see caution above).
-
-### Portal backends (by desktop)
-
-Install the shared portal plus the backend for your session. Full desktop installs often already include these.
+| Capture fallback | `grim` | PNG when portal fails |
+| Region fallback | `slurp` | Region geometry for `grim` |
+| Clipboard | `wl-copy` (`wl-clipboard`) | Helps `arboard` on Wayland |
 
 | Desktop | Fedora packages |
 | --- | --- |
 | COSMIC | `xdg-desktop-portal` + `xdg-desktop-portal-cosmic` |
 | GNOME | `xdg-desktop-portal` + `xdg-desktop-portal-gnome` |
 | KDE Plasma | `xdg-desktop-portal` + `xdg-desktop-portal-kde` |
-| Sway / Hyprland (wlroots) | `xdg-desktop-portal` + `xdg-desktop-portal-wlr` |
+| Sway / Hyprland | `xdg-desktop-portal` + `xdg-desktop-portal-wlr` |
 
 > [!NOTE]
-> On COSMIC and some tiling setups the portal Screenshot path can fail or be incomplete. Keep `grim` + `slurp` installed so the fallback works. Re-login after installing a portal backend if capture still fails.
+> Keep `grim` + `slurp` installed on COSMIC / tiling. Re-login after adding a portal backend if capture still fails.
 
-Other distros: same binary names (`grim`, `slurp`, `wl-clipboard`); package managers differ (`apt`, `pacman`, …).
+### macOS
+
+1. Grant **Screen Recording** to your terminal (or the `lightsnip` binary) in System Settings → Privacy & Security.
+2. `cargo run --release -- region` uses `screencapture -i`.
+
+### Windows 10/11
+
+1. Capture is **WIP** in v0.5.
+2. Do this instead: Win+Shift+S (or Snipping Tool) → save a PNG →
+
+   ```bash
+   cargo run --release -- annotate path\to\snip.png
+   ```
 
 ## Install
 
-Primary path: clone and `cargo run`. Do not install a system binary unless you want one.
-
-1. Install [Runtime dependencies](#runtime-dependencies) for your desktop (Fedora COSMIC one-liner above).
+1. Install platform deps above (Linux one-liner, or macOS Screen Recording).
 2. Clone:
 
    ```bash
@@ -129,49 +144,26 @@ Primary path: clone and `cargo run`. Do not install a system binary unless you w
 
 ### Optional install
 
-Skip unless you want a `lightsnip` command on your `PATH`. Default workflow stays `cargo run` from the checkout. Nothing is copied to `/usr`, and other screenshot apps are unaffected. Replace-default and autostart stay off until you enable them in settings.
-
-1. Build:
-
-   ```bash
-   cargo build --release
-   ```
-
-2. Copy somewhere on your user `PATH` (not required):
-
-   ```bash
-   cp target/release/lightsnip ~/.local/bin/
-   ```
-
-3. Then you can run `lightsnip region` / `lightsnip full` / `lightsnip settings` / `lightsnip tray` the same way.
+```bash
+cargo build --release
+cp target/release/lightsnip ~/.local/bin/   # or Windows equivalent on PATH
+```
 
 ## Quick start
 
-1. Region → annotate → Save (prints the PNG path; copies to clipboard when preferred and `wl-copy` exists):
+1. Region → annotate → Save dialog:
 
    ```bash
    cargo run --release -- region
    ```
 
-2. Fullscreen:
+2. Fullscreen: `cargo run --release -- full`
 
-   ```bash
-   cargo run --release -- full
-   ```
+3. Annotate an existing PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/lightsnip-123.png`
 
-3. Annotate an existing PNG:
+4. Settings: `cargo run --release -- settings`
 
-   ```bash
-   cargo run --release -- annotate ~/Pictures/lightsnip/lightsnip-123.png
-   ```
-
-4. Open settings (change save dir / clipboard default without editing files by hand):
-
-   ```bash
-   cargo run --release -- settings
-   ```
-
-5. Skip overlay, custom path, or skip clipboard:
+5. Flags:
 
    ```bash
    cargo run --release -- region --no-annotate
@@ -180,53 +172,37 @@ Skip unless you want a `lightsnip` command on your `PATH`. Default workflow stay
    cargo run --release -- full --save-dir ~/Pictures/Screenshots
    ```
 
-6. Bind a compositor hotkey to the same `cargo run …` command, or to a binary only after optional install (see [Hotkeys](#hotkeys)).
-
 ## Hotkeys
 
-**Assign… in Settings is not a live global hotkey.** It only stores a suggested key label. Wayland has no portable global grab, so lightsnip cannot register PrintScreen (or any combo) system-wide. You must bind the **bind command** in your compositor or DE.
-
-**Replace default screenshot** does **not** make shortcuts work. It only installs a user `.desktop` helper under `~/.local/share/applications/`. It never steals PrintScreen on GNOME, KDE, or COSMIC.
-
-1. Copy the bind command from **Settings → Shortcuts** (or use `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region`).
-2. Paste that command into a custom shortcut in your desktop (samples below).
-3. Optional install (`~/.local/bin/lightsnip`) lets you bind `lightsnip region` instead of `cargo run …`.
+**Assign… in Settings is not a live global hotkey.** Bind the **bind command** in your DE / compositor (Linux). macOS / Windows: bind your own shortcut to `lightsnip region` after optional install.
 
 | Desktop | Where to bind | Sample |
 | --- | --- | --- |
-| Fedora COSMIC | Settings → Input Devices → Keyboard → Custom shortcuts | Command: `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| Fedora COSMIC | Settings → Input Devices → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
 | Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
 | Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| GNOME | Settings → Keyboard → Custom Shortcut | Same command (does not steal PrintScreen by itself) |
-| KDE | System Settings → Shortcuts → Custom | Same command |
+| GNOME / KDE | Custom shortcut | Same command (does not steal PrintScreen by itself) |
 
-Annotate keys: Enter = Save, **Exit** = cancel without save/copy, Escape = same as Exit when **Esc to exit** is on (default), Ctrl+Z = Undo. **Copy** always copies to the clipboard after writing the PNG.
+Annotate keys:
 
-**Window placement:** default floating mode centers the annotate window and requests always-on-top. **Follow window tiling** (Settings → User Interface) skips those hints for tiling WMs. Wayland: winit’s always-on-top is a no-op; COSMIC may still tile. X11 usually honors always-on-top. If the window sinks, raise it from the task switcher.
+* **Enter** = save dialog + copy + toast + close
+* **Save** = save dialog + close
+* **Copy** = write + clipboard toast + close
+* **Exit** = cancel; **Esc** = same when Esc-to-exit is on
+* **Ctrl+Z** / **Ctrl+Shift+Z** = undo / redo
 
 ## Settings
 
-Open with `cargo run --release -- settings`, or **Settings** on the annotate bar.
+`cargo run --release -- settings`, or **Settings** on the annotate bar.
 
-Config file (created on Save): `~/.config/lightsnip/config.toml` (via the `directories` crate).
+Config: `~/.config/lightsnip/config.toml` (via `directories`; macOS/Windows use the platform equivalent).
 
-Desktop / session:
-
-1. **Shortcuts** — Assign… stores a **label only** (not a global grab). Paste the bind command into your DE / compositor. See [Hotkeys](#hotkeys).
-2. **Run at startup** — opt-in XDG autostart (`~/.config/autostart/lightsnip.desktop` → `tray`). Off by default.
-3. **Replace default screenshot tool** — opt-in user `.desktop` helper under `~/.local/share/applications/`. Does **not** rebind PrintScreen and does **not** activate Assign…. Off by default.
-4. **Stay in taskbar / tray** — prefer the StatusNotifierItem tray (`cargo run --release -- tray`). Needs a tray watcher; GNOME often needs an extension. Off by default.
-5. **User Interface** — toolbar position / theme, title bar, **follow window tiling**, **Esc to exit**, transparency + blur intensity (toolbar stays opaque; Wayland/egui limits documented in-app).
-6. **About** — Lightsnip + version (`x.y` semver-lite).
-
-Output defaults:
-
-1. **Save directory** — default PNG folder with Browse… picker (CLI / env still override).
-2. **Save to clipboard** — default on/off after Save (CLI flags still override).
-
-Precedence for save path: `--output` → `--save-dir` → `LIGHTSNIP_SAVE_DIR` → config → `~/Pictures/lightsnip`.
-
-Precedence for clipboard: `--clipboard` / `--no-clipboard` → config `save_to_clipboard`.
+1. **Shortcuts** — label only (not a global grab).
+2. **Run at startup** / **Replace default** — Linux XDG `.desktop` helpers; off by default.
+3. **Stay in tray** — Linux SNI tray; off by default.
+4. **User Interface** — toolbar / theme / Esc-to-exit / transparency (toolbar stays opaque).
+5. **About** — Lightsnip `0.5`.
+6. **Save directory** + **Save to clipboard** defaults.
 
 ## Documentation
 
@@ -239,6 +215,7 @@ Precedence for clipboard: `--clipboard` / `--no-clipboard` → config `save_to_c
 1. Fork the repository.
 2. Create a feature branch from `main`.
 3. Open a pull request with a clear description of the change.
+4. Run `cargo test` (and CI covers cross targets).
 
 Issues: <https://github.com/kmfd14/lightsnip/issues>
 

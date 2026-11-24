@@ -3,8 +3,9 @@
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
 //! settings. Exit cancels/discards (Esc does the same when enabled in settings).
-//! Save dismisses after write. Copy shows a short clipboard toast, then closes
-//! without blanking the preview.
+//! Save opens a file dialog, then dismisses after a successful write (cancel
+//! leaves the window open). Enter = save dialog + clipboard toast + close.
+//! Copy shows a short clipboard toast, then closes without blanking the preview.
 //!
 //! Chrome: flat pastel purple / gray / white. Transparency + blur settings
 //! apply window opacity and a translucent frosted panel on the window/preview
@@ -15,7 +16,7 @@
 //! Follow tiling: skip those hints so a tiling WM can place the window.
 //! Wayland: winit’s always-on-top is a no-op; COSMIC/tiling may still tile.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,7 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
 use crate::config::ToolbarPosition;
+use crate::output::default_save_dir;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -38,13 +40,13 @@ use crate::ui::{
 const COPY_TOAST_SECS: f32 = 1.15;
 
 /// Result of the annotate session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnotateOutcome {
-    /// User confirmed Save; annotated PNG was written.
-    Saved,
-    /// User confirmed Copy; annotated PNG was written — caller should copy to clipboard.
-    Copied,
-    /// User cancelled (Escape); path left unchanged.
+    /// User confirmed Save; annotated PNG written to this path.
+    Saved(PathBuf),
+    /// User confirmed Copy (or Enter save+copy); annotated PNG written — caller copies to clipboard.
+    Copied(PathBuf),
+    /// User cancelled (Escape / Exit); path left unchanged.
     Cancelled,
 }
 
@@ -85,7 +87,10 @@ enum Shape {
 const STEP_RADIUS: f32 = 14.0;
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
-const PIXELATE_BLOCK: u32 = 12;
+///
+/// Tunable: raised in v0.5 so a single drag pass makes typical UI text unreadable.
+/// Previous default was 12; 28 averages a wider neighborhood into each cell.
+const PIXELATE_BLOCK: u32 = 28;
 
 /// Max displayed image size inside the floating window (px). Larger captures scale down.
 const MAX_DISPLAY_W: f32 = 1100.0;
@@ -93,26 +98,26 @@ const MAX_DISPLAY_H: f32 = 800.0;
 
 /// Approximate content size of the floating rail (vertical).
 fn toolbar_content_height() -> f32 {
-    // Annotate label + 4 tools + color + undo + redo + clear + settings + save + copy + Exit
+    // 4 tools + color + undo + redo + clear + settings + save + copy + Exit
     let n_btns = 10.0_f32;
-    let label = 22.0;
     let exit = 22.0;
-    let gaps = 11.0 * 8.0 + 28.0;
-    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
+    let gaps = 10.0 * 8.0 + 28.0;
+    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
 }
 
 /// Approximate content size of the floating rail (horizontal).
 fn toolbar_content_width() -> f32 {
     let n_btns = 10.0_f32;
-    let label = 72.0;
     let exit = 48.0;
-    let gaps = 11.0 * 8.0 + 28.0;
-    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
+    let gaps = 10.0 * 8.0 + 28.0;
+    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
 }
 
 /// Open a floating annotate window on an existing PNG.
 ///
-/// On Save / Enter / Copy: composites annotations onto the image and overwrites `path`.
+/// On Save: file dialog → write chosen path → close.
+/// On Enter: file dialog → write → clipboard toast → close (forces clipboard).
+/// On Copy: write current/`path` → clipboard toast → close.
 /// On Exit (or Escape when enabled): clears an in-progress drag first; with no draft,
 /// returns [`AnnotateOutcome::Cancelled`] without modifying the file.
 pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
@@ -191,9 +196,10 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
         }
     }
 
-    let result = *outcome
+    let result = outcome
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
     Ok(result)
 }
 
@@ -216,11 +222,15 @@ fn floating_window_size(img_w: u32, img_h: u32, pos: ToolbarPosition) -> (f32, f
 }
 
 fn ensure_display_available() -> Result<()> {
-    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
-    let x11 = std::env::var_os("DISPLAY").is_some();
-    if !wayland && !x11 {
-        bail!("no WAYLAND_DISPLAY or DISPLAY set (annotate needs a graphical session)");
+    #[cfg(target_os = "linux")]
+    {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let x11 = std::env::var_os("DISPLAY").is_some();
+        if !wayland && !x11 {
+            bail!("no WAYLAND_DISPLAY or DISPLAY set (annotate needs a graphical session)");
+        }
     }
+    // macOS / Windows: eframe fails clearly if no GUI session is available.
     Ok(())
 }
 
@@ -368,28 +378,85 @@ impl AnnotateApp {
         for shape in &self.shapes {
             rasterize_shape(&mut img, *shape);
         }
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create save dir {}", parent.display()))?;
+        }
         img.save(&self.path)
             .with_context(|| format!("write annotated PNG {}", self.path.display()))?;
         Ok(())
     }
 
+    /// Save-file dialog defaulting to the configured save dir + current filename.
+    /// Returns `None` if the user cancels (window stays open).
+    fn pick_save_path(&self) -> Option<PathBuf> {
+        let default_name = self
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "lightsnip.png".into());
+        let start_dir = self
+            .path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(default_save_dir);
+
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Save screenshot")
+            .set_file_name(&default_name)
+            .add_filter("PNG image", &["png"]);
+        if !start_dir.as_os_str().is_empty() {
+            dialog = dialog.set_directory(&start_dir);
+        }
+        dialog.save_file().map(|mut path| {
+            if path.extension().is_none() {
+                path.set_extension("png");
+            }
+            path
+        })
+    }
+
+    /// Save button: dialog → write → close. Cancel leaves the window open.
     fn save_and_close(&mut self) -> Result<()> {
         if self.copy_toast_until.is_some() {
             return Ok(());
         }
+        let Some(path) = self.pick_save_path() else {
+            return Ok(());
+        };
+        self.path = path;
         self.write_annotated_png()?;
-        self.set_outcome(AnnotateOutcome::Saved);
+        self.set_outcome(AnnotateOutcome::Saved(self.path.clone()));
         Ok(())
     }
 
-    /// Write PNG, show clipboard toast, then close after a short delay (no blank flash).
+    /// Enter: dialog → write → clipboard toast → close (forces clipboard). Cancel keeps open.
+    fn save_and_copy_close(&mut self) -> Result<()> {
+        if self.copy_toast_until.is_some() {
+            return Ok(());
+        }
+        let Some(path) = self.pick_save_path() else {
+            return Ok(());
+        };
+        self.path = path;
+        self.write_annotated_png()?;
+        if let Ok(mut slot) = self.outcome.lock() {
+            *slot = AnnotateOutcome::Copied(self.path.clone());
+        }
+        self.copy_toast_until =
+            Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
+        Ok(())
+    }
+
+    /// Write PNG to the current work path, show clipboard toast, then close.
     fn copy_with_toast(&mut self) -> Result<()> {
         if self.copy_toast_until.is_some() {
             return Ok(());
         }
         self.write_annotated_png()?;
         if let Ok(mut slot) = self.outcome.lock() {
-            *slot = AnnotateOutcome::Copied;
+            *slot = AnnotateOutcome::Copied(self.path.clone());
         }
         self.copy_toast_until =
             Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
@@ -459,23 +526,6 @@ impl AnnotateApp {
                 ui.spacing_mut().item_spacing.x = 8.0;
             } else {
                 ui.spacing_mut().item_spacing.y = 8.0;
-            }
-
-            // Mode label so the chrome reads as Annotate, not a mystery tool strip.
-            let label = egui::RichText::new("Annotate")
-                .color(if pal.dark {
-                    crate::ui::ICON_LIGHT
-                } else {
-                    crate::ui::ICON_DARK
-                })
-                .size(11.0)
-                .strong();
-            if horizontal {
-                ui.label(label);
-                ui.add_space(4.0);
-            } else {
-                ui.label(label);
-                ui.add_space(2.0);
             }
 
             if glass_icon_button(
@@ -556,7 +606,7 @@ impl AnnotateApp {
             if glass_icon_button(
                 ui,
                 false,
-                "Save and close (Enter)",
+                "Save (file dialog), then close",
                 Some(save_pair),
                 TOOL_BTN,
                 paint_icon_save,
@@ -786,8 +836,9 @@ impl eframe::App for AnnotateApp {
                     }
                 }
                 if !self.show_settings && i.key_pressed(egui::Key::Enter) {
-                    if let Err(err) = self.save_and_close() {
-                        eprintln!("annotate save failed: {err:#}");
+                    // Enter always save+copy (dialog → toast → close). Esc-to-exit affects Esc only.
+                    if let Err(err) = self.save_and_copy_close() {
+                        eprintln!("annotate save+copy failed: {err:#}");
                     }
                 }
                 if i.modifiers.command && i.key_pressed(egui::Key::Z) {
@@ -1158,6 +1209,24 @@ fn pixelate_region(img: &mut RgbaImage, a: Pos2, b: Pos2, block: u32) {
         return;
     }
 
+    // Primary coarse mosaic.
+    apply_mosaic(img, x0, y0, x1, y1, block);
+    // Second pass with half-block offset densifies the mosaic so residual
+    // letter edges from a single grid alignment are harder to read.
+    let half = (block / 2).max(1);
+    if half < block && x1.saturating_sub(x0) > half && y1.saturating_sub(y0) > half {
+        apply_mosaic(
+            img,
+            x0.saturating_add(half).min(x1),
+            y0.saturating_add(half).min(y1),
+            x1,
+            y1,
+            block,
+        );
+    }
+}
+
+fn apply_mosaic(img: &mut RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32, block: u32) {
     let mut y = y0;
     while y < y1 {
         let y_end = (y + block).min(y1);
@@ -1296,6 +1365,15 @@ mod tests {
     #[test]
     fn default_app_stroke_is_red() {
         assert_eq!(DEFAULT_STROKE, Color32::from_rgb(0xE2, 0x4A, 0x3B));
+    }
+
+    #[test]
+    fn pixelate_block_is_aggressive_enough() {
+        // v0.5: single-pass redaction must use a large mosaic (≥24).
+        assert!(
+            PIXELATE_BLOCK >= 24,
+            "PIXELATE_BLOCK={PIXELATE_BLOCK} too small to hide readable text"
+        );
     }
 
     #[test]
