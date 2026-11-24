@@ -1,12 +1,12 @@
-//! Floating annotate window (left Liquid Glass tool strip + image canvas).
+//! Floating annotate window (left pastel tool rail + image canvas).
 //!
-//! Layout matches KM sketch: vertical pill glass bar LEFT of the capture; not fullscreen.
-//! Glass is functional-layer only (HIG materials / liquid-glass). Esc cancels/discards;
-//! Save and Copy dismiss after a successful write.
+//! Layout: vertical tool strip LEFT of the capture, with even outer padding
+//! (`WINDOW_PAD`) on top / left / right / bottom so chrome is not flush to the
+//! window border. Not fullscreen. Esc cancels/discards; Save and Copy dismiss
+//! after a successful write.
 //!
-//! Transparency: window clear + frosted pad are alpha fills. egui cannot sample the desktop
-//! for true backdrop-blur. Many Wayland compositors also skip blur behind client windows
-//! (no portable blur protocol in this stack); you get see-through chrome, not OS frosted glass.
+//! Chrome: flat pastel (restrained purple / gray / white). egui on Wayland cannot
+//! deliver real liquid-glass backdrop-blur, so we avoid frosted imitation.
 //!
 //! Stay-on-top: `ViewportBuilder::with_always_on_top` via winit. On Wayland many
 //! compositors ignore or gate always-on-top (layer-shell / xdg-activation); X11 is
@@ -24,7 +24,7 @@ use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, glass_color_swatch, glass_icon_button, glass_toolbar_frame, paint_icon_arrow,
     paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate, paint_icon_save,
-    paint_icon_settings, paint_icon_undo, ACTION_FILL, ANNOTATE_BG, DEFAULT_STROKE, GLASS_PRIMARY,
+    paint_icon_settings, paint_icon_undo, ACTION_FILL, ANNOTATE_BG, DEFAULT_STROKE, PASTEL_PRIMARY,
     MUTED, TOOLBAR_GUTTER, TOOLBAR_WIDTH, WINDOW_PAD,
 };
 
@@ -106,7 +106,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
                 200.0,
             ])
             .with_decorations(true)
-            .with_transparent(true)
+            .with_transparent(false)
             .with_resizable(true)
             // Best-effort; Wayland compositors often ignore or restrict this.
             .with_always_on_top(),
@@ -337,7 +337,7 @@ impl AnnotateApp {
                 ui,
                 false,
                 "Save and close (Enter)",
-                Some(GLASS_PRIMARY),
+                Some(PASTEL_PRIMARY),
                 paint_icon_save,
             ) {
                 if let Err(err) = self.save_and_close() {
@@ -364,7 +364,7 @@ impl AnnotateApp {
 
 impl eframe::App for AnnotateApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Rgba::TRANSPARENT.to_array()
+        egui::Rgba::from(ANNOTATE_BG).to_array()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -404,12 +404,12 @@ impl eframe::App for AnnotateApp {
             .frame(
                 egui::Frame::NONE
                     .fill(ANNOTATE_BG)
-                    .inner_margin(WINDOW_PAD)
-                    .corner_radius(12.0),
+                    // Even inset on all sides so the left rail is never flush to the window.
+                    .inner_margin(egui::Margin::same(WINDOW_PAD as i8)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_top(|ui| {
-                    // Left: Liquid Glass vertical pill (functional layer).
+                    // Left: flat pastel tool rail (icons + color wheel).
                     let toolbar_height = ui.available_height().max(120.0);
                     glass_toolbar_frame().show(ui, |ui| {
                         ui.set_width(TOOLBAR_WIDTH - 12.0);
@@ -419,7 +419,7 @@ impl eframe::App for AnnotateApp {
 
                     ui.add_space(TOOLBAR_GUTTER);
 
-                    // Right: image canvas (content layer — opaque, no glass).
+                    // Right: image canvas.
                     let available = ui.available_size();
                     let img_size = Vec2::new(self.width as f32, self.height as f32);
                     let scale = (available.x / img_size.x)
@@ -436,8 +436,7 @@ impl eframe::App for AnnotateApp {
                         );
                     let image_rect = Rect::from_min_size(origin, display);
 
-                    // Opaque plate under the capture so transparency does not show through pixels.
-                    painter.rect_filled(image_rect, 4.0, Color32::from_rgb(0x10, 0x10, 0x12));
+                    painter.rect_filled(image_rect, 6.0, Color32::from_rgb(0xE0, 0xDC, 0xE8));
                     painter.image(
                         self.texture.id(),
                         image_rect,
@@ -833,6 +832,10 @@ mod tests {
         let (w, h) = floating_window_size(400, 300);
         assert!(w > 400.0 + TOOLBAR_WIDTH);
         assert!(h >= 300.0);
+        // Outer pad on every side so the left rail is not flush to the window.
+        assert!(WINDOW_PAD >= 12.0);
+        assert!(w >= 400.0 + TOOLBAR_WIDTH + TOOLBAR_GUTTER + WINDOW_PAD * 2.0);
+        assert!(h >= 300.0 + WINDOW_PAD * 2.0);
     }
 
     #[test]

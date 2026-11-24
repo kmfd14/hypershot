@@ -1,60 +1,77 @@
 //! Shared visuals for annotate + settings.
 //!
-//! Annotate: transparent floating window + one Liquid Glass functional strip (HIG materials /
-//! liquid-glass: glass only on chrome, never on the capture). Tool chips imitate
-//! liquid-glass-js circle buttons (translucent fill, hairline rim, soft depth) in egui — not a
-//! webview. Settings: Apple-inspired grouped light chrome (clarity, deference, depth) — no
-//! purple / glow / marketing pills.
+//! Annotate: flat pastel chrome (restrained purple / gray / white). egui on Wayland cannot
+//! deliver convincing liquid-glass (no desktop backdrop-blur), so we use opaque flat fills
+//! instead of frosted imitation. Toolbar sits to the RIGHT of the capture with even outer pad.
+//!
+//! Contrast: dark icons on light pastel wells. Soft feathering + thicker strokes for AA.
+//! One muted purple accent on Save only (not neon, no gradient, no glow).
 //!
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1. antislop active: during (project preference).
-//!
-//! Why glass here: one functional strip over the capture (R-10 dose cap; HIG functional layer).
-//! Why red stroke default: one deliberate accent on markup, not chrome (R-29 / Part 3).
+//! Palette note: KM requested restrained pastel purple/gray/white as the glass fallback
+//! (R-37 owner override of the purple-default caution).
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Margin, Pos2, Rect, Sense, Shadow, Stroke, Vec2,
+    self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Vec2,
 };
+use eframe::egui::color_picker::{color_picker_color32, Alpha};
+use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 
-// --- Annotate (content layer) -------------------------------------------------
+// --- Annotate (flat pastel) ---------------------------------------------------
 
-/// Soft frosted pad behind the capture (translucent; window clear is fully transparent).
-/// Premultiplied approx of unmultiplied (0x1C,0x1C,0x1E,0xB0).
-pub const ANNOTATE_BG: Color32 = Color32::from_rgba_premultiplied(0x14, 0x14, 0x15, 0xB0);
+/// Opaque window / panel fill (soft cool gray-lilac, not pure white).
+pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
 
-/// Regular Liquid Glass approximation: translucent fill (egui has no backdrop-filter).
-/// Premultiplied approx of unmultiplied (0xF2,0xF2,0xF7,0x38) over dark — light catch + tint.
-pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(0x3A, 0x3A, 0x3E, 0xA8);
+/// Vertical tool rail fill (flat pastel gray-lilac).
+pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
 
-/// Hairline light catch on glass (top/leading edge).
-pub const GLASS_STROKE: Color32 = Color32::from_rgba_premultiplied(0xFF, 0xFF, 0xFF, 0x2E);
+/// Soft rail edge (muted, not harsh white).
+pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD0, 0xCA, 0xD8);
 
-/// Selected tool chip on glass (slightly lifted fill; monochrome).
-pub const GLASS_SELECTED: Color32 = Color32::from_rgba_premultiplied(0xFF, 0xFF, 0xFF, 0x2A);
+/// Selected tool well (soft pastel purple tint — flat, no glow).
+pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xDD, 0xD4, 0xEC);
 
-/// Idle tool chip (nested glass button).
-pub const GLASS_IDLE: Color32 = Color32::from_rgba_premultiplied(0xFF, 0xFF, 0xFF, 0x12);
+/// Idle tool well (white).
+pub const BTN_IDLE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
 
-/// Hovered tool chip.
-pub const GLASS_HOVER: Color32 = Color32::from_rgba_premultiplied(0xFF, 0xFF, 0xFF, 0x1E);
+/// Hovered tool well.
+pub const BTN_HOVER: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xFB);
 
-/// Pill radius for the vertical glass strip only (KM sketch; intentional exception to
-/// flat chrome elsewhere).
-pub const GLASS_PILL_RADIUS: f32 = 22.0;
+/// Rail corner radius (moderate; not pill-everything).
+pub const TOOLBAR_RADIUS: f32 = 14.0;
 
-/// Circular glass tool button diameter (liquid-glass-js circle language; desktop ≥ 28 pt).
-pub const GLASS_BTN: f32 = 36.0;
+/// Circular tool button diameter (desktop ≥ 28 pt).
+pub const TOOL_BTN: f32 = 36.0;
 
-/// Toolbar strip width (button + inner margins).
+/// Toolbar strip width.
 pub const TOOLBAR_WIDTH: f32 = 56.0;
 
-/// Gutter between glass strip and image.
-pub const TOOLBAR_GUTTER: f32 = 12.0;
+/// Gutter between image and right tool rail.
+pub const TOOLBAR_GUTTER: f32 = 16.0;
 
-/// Outer padding inside the floating window.
-pub const WINDOW_PAD: f32 = 14.0;
+/// Outer padding inside the floating window (top / left / right / bottom).
+pub const WINDOW_PAD: f32 = 18.0;
 
-/// Default markup stroke (red). Accent lives on the image, not the chrome.
+/// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
+
+/// Dark icon ink on light pastel wells.
+pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
+
+/// Light icon ink on tinted / darker fills (Save / Copy).
+pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
+
+/// Soft contact shadow under tool wells only.
+pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(28);
+
+/// Muted pastel purple (Save primary — restrained, not neon).
+pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8B, 0x7C, 0xB6);
+
+/// Secondary action (Copy): muted gray-violet, flat.
+pub const ACTION_FILL: Color32 = Color32::from_rgb(0x6E, 0x68, 0x7A);
+
+/// Helper text on pastel chrome.
+pub const MUTED: Color32 = Color32::from_rgb(0x8A, 0x84, 0x94);
 
 // --- Settings (grouped light) -------------------------------------------------
 
@@ -64,48 +81,44 @@ pub const SETTINGS_SEPARATOR: Color32 = Color32::from_rgb(0xC6, 0xC6, 0xC8);
 pub const SETTINGS_LABEL: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
 pub const SETTINGS_SECONDARY: Color32 = Color32::from_rgb(0x6C, 0x6C, 0x70);
 pub const SETTINGS_FIELD: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xED);
-
-/// Muted helper text on dark annotate chrome.
-pub const MUTED: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
-
-/// Icon / label color on glass.
-pub const GLASS_ICON: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
-
-/// Soft depth under glass chips only (R-12: elevation for the control, not the page).
-pub const GLASS_BTN_SHADOW: Color32 = Color32::from_black_alpha(48);
-
-/// Primary action fill on dark chrome (lifted charcoal — not neon).
-pub const ACTION_FILL: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3C);
-
-/// Prominent Save on glass (one tinted primary per HIG buttons / liquid-glass color budget).
-pub const GLASS_PRIMARY: Color32 = Color32::from_rgb(0x0A, 0x84, 0xFF);
-
-/// Settings Save / primary on light surfaces (same accent family, no purple).
 pub const SETTINGS_PRIMARY: Color32 = Color32::from_rgb(0x00, 0x7A, 0xFF);
 
-/// Dark annotate + glass-friendly widgets.
+/// Approximate relative luminance of a Color32 (ignores alpha).
+pub fn approx_luminance(c: Color32) -> f32 {
+    0.2126 * (c.r() as f32) + 0.7152 * (c.g() as f32) + 0.0722 * (c.b() as f32)
+}
+
+/// Pick dark or light icon ink for contrast on `fill`.
+pub fn icon_color_for_fill(fill: Color32) -> Color32 {
+    if approx_luminance(fill) >= 140.0 {
+        ICON_DARK
+    } else {
+        ICON_LIGHT
+    }
+}
+
+/// Pastel annotate visuals; feathering on for soft circle/rail edges.
 pub fn apply_annotate_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = Color32::TRANSPARENT;
-    visuals.window_fill = Color32::from_rgba_premultiplied(0x2C, 0x2C, 0x2E, 0xE0);
-    visuals.extreme_bg_color = Color32::from_rgb(0x1A, 0x1A, 0x1C);
-    visuals.override_text_color = Some(Color32::from_rgb(0xF2, 0xF2, 0xF7));
-    visuals.widgets.noninteractive.bg_fill = Color32::TRANSPARENT;
-    visuals.widgets.noninteractive.weak_bg_fill = Color32::TRANSPARENT;
-    visuals.widgets.noninteractive.bg_stroke =
-        Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x3A, 0x3C));
-    visuals.widgets.inactive.bg_fill = GLASS_IDLE;
-    visuals.widgets.inactive.weak_bg_fill = GLASS_IDLE;
-    visuals.widgets.hovered.bg_fill = GLASS_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = GLASS_HOVER;
-    visuals.widgets.active.bg_fill = GLASS_SELECTED;
-    visuals.widgets.active.weak_bg_fill = GLASS_SELECTED;
-    visuals.widgets.open.bg_fill = GLASS_IDLE;
-    visuals.widgets.open.weak_bg_fill = GLASS_IDLE;
-    visuals.selection.bg_fill = Color32::from_rgb(0x3A, 0x3A, 0x3C);
-    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    visuals.text_cursor.stroke = Stroke::new(2.0_f32, Color32::from_rgb(0xD0, 0xD0, 0xD0));
-    visuals.hyperlink_color = Color32::from_rgb(0xB0, 0xB0, 0xB0);
+    let mut visuals = egui::Visuals::light();
+    visuals.panel_fill = ANNOTATE_BG;
+    visuals.window_fill = ANNOTATE_BG;
+    visuals.extreme_bg_color = Color32::from_rgb(0xE8, 0xE4, 0xEE);
+    visuals.override_text_color = Some(ICON_DARK);
+    visuals.widgets.noninteractive.bg_fill = ANNOTATE_BG;
+    visuals.widgets.noninteractive.weak_bg_fill = ANNOTATE_BG;
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
+    visuals.widgets.inactive.bg_fill = BTN_IDLE;
+    visuals.widgets.inactive.weak_bg_fill = BTN_IDLE;
+    visuals.widgets.hovered.bg_fill = BTN_HOVER;
+    visuals.widgets.hovered.weak_bg_fill = BTN_HOVER;
+    visuals.widgets.active.bg_fill = BTN_SELECTED;
+    visuals.widgets.active.weak_bg_fill = BTN_SELECTED;
+    visuals.widgets.open.bg_fill = BTN_IDLE;
+    visuals.widgets.open.weak_bg_fill = BTN_IDLE;
+    visuals.selection.bg_fill = BTN_SELECTED;
+    visuals.selection.stroke = Stroke::new(1.0_f32, PASTEL_PRIMARY);
+    visuals.text_cursor.stroke = Stroke::new(2.0_f32, PASTEL_PRIMARY);
+    visuals.hyperlink_color = PASTEL_PRIMARY;
     for w in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -113,21 +126,25 @@ pub fn apply_annotate_visuals(ctx: &egui::Context) {
         &mut visuals.widgets.active,
         &mut visuals.widgets.open,
     ] {
-        w.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0xF2, 0xF2, 0xF7));
+        w.fg_stroke = Stroke::new(1.0_f32, ICON_DARK);
         w.corner_radius = CornerRadius::same(8);
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x3A, 0x3C));
-    // Soft depth under the floating settings sheet only — not a page-wide glow.
+    visuals.window_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
     visuals.window_shadow = Shadow {
         offset: [0, 4],
         blur: 16,
         spread: 0,
-        color: Color32::from_black_alpha(80),
+        color: Color32::from_black_alpha(48),
     };
     visuals.popup_shadow = Shadow::NONE;
     ctx.set_visuals(visuals);
+
+    ctx.tessellation_options_mut(|opts| {
+        opts.feathering = true;
+        opts.feathering_size_in_pixels = 1.5;
+    });
 }
 
 /// Light Apple-inspired settings (grouped cards, deference to content).
@@ -153,7 +170,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
     visuals.widgets.open.bg_fill = SETTINGS_FIELD;
     visuals.widgets.open.weak_bg_fill = SETTINGS_FIELD;
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.selection.bg_fill = Color32::from_rgba_premultiplied(0x00, 0x1E, 0x40, 0x40);
+    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x40);
     visuals.selection.stroke = Stroke::new(1.0_f32, SETTINGS_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, SETTINGS_PRIMARY);
     visuals.hyperlink_color = SETTINGS_PRIMARY;
@@ -179,23 +196,23 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
     ctx.set_visuals(visuals);
 }
 
-/// Frame for the vertical Liquid Glass tool strip.
-pub fn glass_toolbar_frame() -> egui::Frame {
+/// Frame for the right-side pastel tool rail.
+pub fn toolbar_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(GLASS_FILL)
-        .stroke(Stroke::new(1.0_f32, GLASS_STROKE))
-        .corner_radius(CornerRadius::same(GLASS_PILL_RADIUS as u8))
-        .inner_margin(Margin::symmetric(6, 10))
+        .fill(TOOLBAR_FILL)
+        .stroke(Stroke::new(1.25_f32, TOOLBAR_STROKE))
+        .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
+        .inner_margin(Margin::symmetric(6, 12))
         .outer_margin(Margin::ZERO)
         .shadow(Shadow {
-            offset: [0, 8],
-            blur: 24,
+            offset: [0, 4],
+            blur: 14,
             spread: 0,
-            color: Color32::from_black_alpha(64),
+            color: Color32::from_black_alpha(28),
         })
 }
 
-/// Grouped settings card (HIG boxes: related options in one visual group).
+/// Grouped settings card.
 pub fn settings_group_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(SETTINGS_CARD)
@@ -204,69 +221,102 @@ pub fn settings_group_frame() -> egui::Frame {
         .inner_margin(Margin::symmetric(14, 12))
 }
 
-/// Circular glass tool button (liquid-glass-js circle language) with painted icon.
-pub fn glass_icon_button(
+fn paint_soft_circle(painter: &egui::Painter, center: Pos2, radius: f32, fill: Color32) {
+    painter.circle_filled(center + Vec2::new(0.0, 1.0), radius + 0.4, BTN_SHADOW);
+    painter.circle_filled(center, radius, fill);
+    // Soft muted rim (wide + low contrast → feathers; no harsh 1px white).
+    painter.circle_stroke(
+        center,
+        radius - 0.5,
+        Stroke::new(1.75_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x28)),
+    );
+}
+
+/// Circular pastel tool button with painted icon and auto-contrast ink.
+pub fn tool_icon_button(
     ui: &mut egui::Ui,
     selected: bool,
     tooltip: &str,
     fill_override: Option<Color32>,
     paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
 ) -> bool {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(GLASS_BTN), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
     let response = response.on_hover_text(tooltip);
 
     let fill = fill_override.unwrap_or(if selected {
-        GLASS_SELECTED
+        BTN_SELECTED
     } else if response.hovered() {
-        GLASS_HOVER
+        BTN_HOVER
     } else {
-        GLASS_IDLE
+        BTN_IDLE
     });
+    let icon = icon_color_for_fill(fill);
+    let radius = TOOL_BTN * 0.46;
 
     let painter = ui.painter_at(rect);
-    // Soft contact shadow under the chip (depth for the control only).
-    painter.circle_filled(
-        rect.center() + Vec2::new(0.0, 1.5),
-        GLASS_BTN * 0.48,
-        GLASS_BTN_SHADOW,
-    );
-    painter.circle_filled(rect.center(), GLASS_BTN * 0.48, fill);
-    painter.circle_stroke(
-        rect.center(),
-        GLASS_BTN * 0.48,
-        Stroke::new(1.0_f32, GLASS_STROKE),
-    );
-    // Top rim highlight (glass light catch).
-    let rim = Rect::from_center_size(
-        rect.center() - Vec2::new(0.0, GLASS_BTN * 0.18),
-        Vec2::new(GLASS_BTN * 0.55, GLASS_BTN * 0.22),
-    );
-    painter.rect_filled(
-        rim,
-        CornerRadius::same((GLASS_BTN * 0.2) as u8),
-        Color32::from_rgba_premultiplied(0xFF, 0xFF, 0xFF, 0x18),
-    );
+    paint_soft_circle(&painter, rect.center(), radius, fill);
 
-    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(GLASS_BTN * 0.48));
-    paint_icon(&painter, icon_rect, GLASS_ICON);
+    if selected && fill_override.is_none() {
+        painter.circle_stroke(
+            rect.center(),
+            radius - 0.2,
+            Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(0x8B, 0x7C, 0xB6, 0x90)),
+        );
+    }
+
+    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(TOOL_BTN * 0.50));
+    paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
 }
 
-/// Stroke-color swatch that opens egui's color wheel popup (opaque stroke).
-pub fn glass_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Response {
-    let response = ui
-        .color_edit_button_srgba(color)
-        .on_hover_text("Stroke color");
-    // Keep markup strokes fully opaque (alpha is for chrome, not arrows/boxes).
+/// Circular stroke-color swatch that opens egui's color wheel (opaque stroke).
+pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Response {
+    let popup_id = Id::new("lightsnip_stroke_color_popup");
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
+    let response = response.on_hover_text("Stroke color");
+
+    let painter = ui.painter_at(rect);
+    let radius = TOOL_BTN * 0.46;
+    paint_soft_circle(&painter, rect.center(), radius, BTN_IDLE);
+    painter.circle_filled(rect.center(), radius * 0.62, *color);
+    painter.circle_stroke(
+        rect.center(),
+        radius * 0.62,
+        Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x40)),
+    );
+
+    if response.clicked() {
+        ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+    }
+
+    popup_below_widget(
+        ui,
+        popup_id,
+        &response,
+        PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
+            ui.set_min_width(220.0);
+            ui.spacing_mut().slider_width = 180.0;
+            color_picker_color32(ui, color, Alpha::Opaque);
+        },
+    );
+
     *color = Color32::from_rgb(color.r(), color.g(), color.b());
     response
 }
 
-// --- Icon painters (tool-relevant glyphs; not Lucide clones) ------------------
+// Aliases so annotate can keep short call sites while names stay accurate.
+pub use tool_icon_button as glass_icon_button;
+pub use tool_color_swatch as glass_color_swatch;
+pub use toolbar_frame as glass_toolbar_frame;
+
+// --- Icon painters (thicker strokes for AA) -----------------------------------
+
+const ICON_STROKE: f32 = 2.25;
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(1.8_f32, color);
+    let stroke = Stroke::new(ICON_STROKE, color);
     let a = Pos2::new(rect.left() + rect.width() * 0.2, rect.bottom() - rect.height() * 0.25);
     let b = Pos2::new(rect.right() - rect.width() * 0.18, rect.top() + rect.height() * 0.22);
     painter.line_segment([a, b], stroke);
@@ -281,9 +331,9 @@ pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
     let inset = rect.shrink(rect.width() * 0.18);
     painter.rect_stroke(
         inset,
-        1.5,
-        Stroke::new(1.8_f32, color),
-        egui::StrokeKind::Outside,
+        2.0,
+        Stroke::new(ICON_STROKE, color),
+        egui::StrokeKind::Middle,
     );
 }
 
@@ -295,20 +345,19 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
             if (row + col) % 2 == 0 {
                 let c = Rect::from_min_size(
                     Pos2::new(inset.min.x + col as f32 * cell, inset.min.y + row as f32 * cell),
-                    Vec2::splat(cell * 0.92),
+                    Vec2::splat(cell * 0.88),
                 );
-                painter.rect_filled(c, 0.5, color.gamma_multiply(0.85));
+                painter.rect_filled(c, 1.5, color);
             }
         }
     }
 }
 
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(1.8_f32, color);
+    let stroke = Stroke::new(ICON_STROKE, color);
     let c = rect.center();
     let r = rect.width() * 0.28;
-    // Arc approximation (open circle segment).
-    let steps = 10;
+    let steps = 28;
     let mut prev = Pos2::new(c.x + r, c.y);
     for i in 1..=steps {
         let t = std::f32::consts::PI * (i as f32 / steps as f32);
@@ -328,7 +377,7 @@ pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(1.8_f32, color);
+    let stroke = Stroke::new(ICON_STROKE, color);
     let inset = rect.shrink(rect.width() * 0.28);
     painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
     painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
@@ -336,22 +385,21 @@ pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.28;
-    let inner = rect.width() * 0.12;
-    painter.circle_stroke(c, outer, Stroke::new(1.6_f32, color));
+    let outer = rect.width() * 0.26;
+    let inner = rect.width() * 0.11;
+    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
     painter.circle_filled(c, inner, color);
     for i in 0..6 {
         let a = (i as f32) * std::f32::consts::TAU / 6.0;
-        let p0 = c + Vec2::angled(a) * (outer * 0.85);
-        let p1 = c + Vec2::angled(a) * (outer * 1.25);
-        painter.line_segment([p0, p1], Stroke::new(2.0_f32, color));
+        let p0 = c + Vec2::angled(a) * (outer * 0.82);
+        let p1 = c + Vec2::angled(a) * (outer * 1.28);
+        painter.line_segment([p0, p1], Stroke::new(2.4_f32, color));
     }
 }
 
 pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(1.8_f32, color);
+    let stroke = Stroke::new(ICON_STROKE, color);
     let inset = rect.shrink(rect.width() * 0.22);
-    // Tray
     painter.line_segment(
         [
             Pos2::new(inset.left(), inset.bottom() - inset.height() * 0.15),
@@ -373,7 +421,6 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
         ],
         stroke,
     );
-    // Arrow down
     let top = Pos2::new(inset.center().x, inset.top());
     let mid = Pos2::new(inset.center().x, inset.bottom() - inset.height() * 0.28);
     painter.line_segment([top, mid], stroke);
@@ -388,7 +435,7 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(1.6_f32, color);
+    let stroke = Stroke::new(ICON_STROKE, color);
     let back = Rect::from_min_max(
         Pos2::new(rect.left() + rect.width() * 0.18, rect.top() + rect.height() * 0.18),
         Pos2::new(rect.right() - rect.width() * 0.32, rect.bottom() - rect.height() * 0.32),
@@ -397,8 +444,8 @@ pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
         Pos2::new(rect.left() + rect.width() * 0.32, rect.top() + rect.height() * 0.32),
         Pos2::new(rect.right() - rect.width() * 0.18, rect.bottom() - rect.height() * 0.18),
     );
-    painter.rect_stroke(back, 1.0, stroke, egui::StrokeKind::Outside);
-    painter.rect_stroke(front, 1.0, stroke, egui::StrokeKind::Outside);
+    painter.rect_stroke(back, 2.0, stroke, egui::StrokeKind::Middle);
+    painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
 }
 
 #[cfg(test)]
@@ -414,8 +461,34 @@ mod tests {
     }
 
     #[test]
-    fn glass_button_meets_desktop_target() {
-        assert!(GLASS_BTN >= 28.0);
-        assert!(TOOLBAR_WIDTH >= GLASS_BTN);
+    fn tool_button_meets_desktop_target() {
+        assert!(TOOL_BTN >= 28.0);
+        assert!(TOOLBAR_WIDTH >= TOOL_BTN);
+        assert!(WINDOW_PAD >= 12.0);
+        assert!(TOOLBAR_GUTTER >= 12.0);
+    }
+
+    #[test]
+    fn light_wells_get_dark_icons() {
+        assert_eq!(icon_color_for_fill(BTN_IDLE), ICON_DARK);
+        assert_eq!(icon_color_for_fill(BTN_SELECTED), ICON_DARK);
+        assert_eq!(icon_color_for_fill(BTN_HOVER), ICON_DARK);
+        assert!(approx_luminance(ICON_DARK) < 100.0);
+    }
+
+    #[test]
+    fn dark_and_primary_fills_get_light_icons() {
+        assert_eq!(icon_color_for_fill(ACTION_FILL), ICON_LIGHT);
+        assert_eq!(icon_color_for_fill(PASTEL_PRIMARY), ICON_LIGHT);
+        assert!(approx_luminance(ICON_LIGHT) > 200.0);
+    }
+
+    #[test]
+    fn pastel_primary_is_muted_not_neon() {
+        // Restrained purple: mid saturation / mid value — not electric neon.
+        assert!(PASTEL_PRIMARY.r() < 0xB0);
+        assert!(PASTEL_PRIMARY.b() < 0xD0);
+        assert!(approx_luminance(PASTEL_PRIMARY) > 100.0);
+        assert!(approx_luminance(PASTEL_PRIMARY) < 180.0);
     }
 }

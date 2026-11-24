@@ -7,7 +7,7 @@ cargo run --release -- region
 ```
 
 1. Select a region.
-2. Mark up in the floating window: left glass strip has icon tools (Arrow, Box, Pixelate), a stroke color picker (default red), Undo, Clear, Settings, Save, Copy.
+2. Mark up in the floating window: left pastel tool rail has icon tools (Arrow, Box, Pixelate), a stroke color picker (default red), Undo, Clear, Settings, Save, Copy.
 3. Press **Save** / Enter, or **Copy** (always clipboard). Escape clears a draft drag, then cancels and discards.
 
 PNG path prints to stdout. About 1–2 minutes for first capture after deps.
@@ -20,7 +20,7 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and off by default.
 
-Transparent floating annotate window (not fullscreen) with a vertical liquid-glass tool strip and icon tools. Settings uses light grouped cards. No purple / glow marketing chrome.
+Floating annotate window (not fullscreen) with a left pastel tool rail and icon tools. Settings uses light grouped cards. Flat pastel purple / gray / white (no neon / glow).
 
 ---
 
@@ -74,7 +74,7 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 
 After capture, a floating bordered window opens (sized to the image + left toolbar). You can also annotate a file you already have.
 
-1. Left glass strip (icons + hover tooltips): **Arrow**, **Box**, **Pixelate**, **color picker**, **Undo**, **Clear**, **Settings**, **Save**, **Copy**.
+1. Left pastel tool rail (icons + hover tooltips), inset from the window on all sides: **Arrow**, **Box**, **Pixelate**, **color picker**, **Undo**, **Clear**, **Settings**, **Save**, **Copy**.
 2. Stroke color defaults to red. Click the swatch for the color wheel; Arrow and Box use it. Pixelate ignores stroke color.
 3. Drag on the image (right) to draw or redact. Ctrl+Z undoes.
 4. **Settings** opens the settings sheet (same six fields as `lightsnip settings`).
@@ -86,7 +86,7 @@ After capture, a floating bordered window opens (sized to the image + left toolb
 
 **Display note:** annotate / settings need `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open those windows. On annotate failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
 
-**Transparency / glass:** the annotate window clears to transparent and paints frosted chrome fills. egui has no desktop backdrop-blur. Most Wayland compositors also do not blur behind ordinary client windows (no portable blur protocol here), so you get see-through alpha chrome, not OS-level frosted glass. The capture itself stays opaque.
+**Chrome:** flat pastel (restrained purple / gray / white). egui on Wayland cannot do real liquid-glass backdrop-blur, so annotate uses opaque flat fills with dark icons on light wells (readable contrast, soft feathering).
 
 **Stay on top:** annotate requests always-on-top through egui/winit. Wayland compositors often ignore or restrict this (no portable layer-shell API in this stack); X11 usually honors it. If the window goes under others, raise it from the task switcher.
 
