@@ -15,8 +15,9 @@ use crate::config::{
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
 use crate::ui::{
-    self, choice_button, contrast_checkbox, section_title_with_help, settings_group_frame,
-    SETTINGS_BG, SETTINGS_BG_DARK, SETTINGS_FIELD, SETTINGS_FIELD_DARK, SETTINGS_LABEL,
+    self, choice_button, contrast_checkbox, section_title_with_help, settings_button,
+    settings_group_frame, settings_text_edit, SETTINGS_BG, SETTINGS_BG_DARK,
+    SETTINGS_CONTROL_HEIGHT, SETTINGS_FIELD, SETTINGS_FIELD_DARK, SETTINGS_LABEL,
     SETTINGS_LABEL_DARK, SETTINGS_PRIMARY, SETTINGS_SECONDARY, SETTINGS_SECONDARY_DARK,
     SETTINGS_SEPARATOR, SETTINGS_SEPARATOR_DARK,
 };
@@ -248,8 +249,9 @@ impl SettingsApp {
                         },
                     ))
                     .corner_radius(egui::CornerRadius::same(6))
-                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .inner_margin(egui::Margin::symmetric(10, 4))
                     .show(ui, |ui| {
+                        ui.set_min_height(SETTINGS_CONTROL_HEIGHT - 8.0);
                         ui.label(
                             egui::RichText::new(chip_text)
                                 .color(chip_color)
@@ -264,37 +266,30 @@ impl SettingsApp {
                 } else {
                     "Assign…"
                 };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(assign_label)
-                                .color(egui::Color32::WHITE)
-                                .size(12.0),
-                        )
-                        .fill(SETTINGS_PRIMARY)
-                        .min_size(egui::vec2(96.0, 28.0)),
-                    )
-                    .clicked()
+                if settings_button(
+                    ui,
+                    egui::RichText::new(assign_label)
+                        .color(egui::Color32::WHITE)
+                        .size(12.0),
+                    Some(SETTINGS_PRIMARY),
+                    96.0,
+                )
+                .clicked()
                 {
                     self.capturing_shortcut = !self.capturing_shortcut;
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Reset")
-                            .min_size(egui::vec2(64.0, 28.0)),
-                    )
-                    .clicked()
-                {
+                if settings_button(ui, "Reset", None, 64.0).clicked() {
                     self.cfg.shortcut_keys = crate::config::default_shortcut_keys();
                     self.capturing_shortcut = false;
                 }
             });
             ui.add_space(8.0);
             ui.label(egui::RichText::new("Bind command").color(label).size(12.0));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.shortcut_text)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("path/to/lightsnip region"),
+            settings_text_edit(
+                ui,
+                &mut self.shortcut_text,
+                f32::INFINITY,
+                "path/to/lightsnip region",
             );
         });
         ui.add_space(10.0);
@@ -353,16 +348,13 @@ impl SettingsApp {
             ui.label(egui::RichText::new("Save directory").color(label).size(12.0));
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.save_dir_text)
-                        .desired_width(ui.available_width() - 108.0)
-                        .hint_text("~/Pictures/lightsnip"),
+                settings_text_edit(
+                    ui,
+                    &mut self.save_dir_text,
+                    ui.available_width() - 108.0,
+                    "~/Pictures/lightsnip",
                 );
-                if ui
-                    .add(
-                        egui::Button::new("Browse…")
-                            .min_size(egui::vec2(96.0, 28.0)),
-                    )
+                if settings_button(ui, "Browse…", None, 96.0)
                     .on_hover_text("Choose preferred folder")
                     .clicked()
                 {
@@ -386,7 +378,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "User Interface",
-                "Annotate chrome: toolbar position, theme, title bar, and window effects. Transparency is best-effort on Wayland; background blur is saved as a preference — egui cannot backdrop-blur the desktop today (flat pastel chrome instead).",
+                "Annotate chrome: toolbar position, theme, title bar, and window effects. Transparency lowers window/panel opacity (compositor-dependent on Wayland). Background blur cannot sample the desktop in egui; intensity drives a translucent frosted panel instead.",
                 label,
                 secondary,
             );
@@ -431,7 +423,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_transparency,
                 "Window transparency",
-                "Best-effort egui/winit alpha. Many Wayland compositors ignore it.",
+                "Applies window clear alpha + translucent panels. Many Wayland compositors ignore alpha.",
                 label,
                 secondary,
             );
@@ -453,7 +445,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_background_blur,
                 "Window background blur",
-                "Preference only: egui cannot backdrop-blur the desktop on Wayland. Annotate stays flat pastel.",
+                "No true desktop blur in egui/Wayland. Intensity frosts the annotate panel (translucent lift).",
                 label,
                 secondary,
             );
@@ -470,7 +462,7 @@ impl SettingsApp {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "Wayland / egui: transparency is compositor-dependent; blur is not available in this stack.",
+                    "Wayland / egui: transparency is compositor-dependent; blur is a frosted panel, not backdrop-blur.",
                 )
                 .color(secondary)
                 .size(10.5)
@@ -511,25 +503,19 @@ impl SettingsApp {
 
         ui.add_space(14.0);
         ui.horizontal(|ui| {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("Save")
-                            .color(egui::Color32::WHITE)
-                            .size(13.0),
-                    )
-                    .fill(SETTINGS_PRIMARY)
-                    .min_size(egui::vec2(88.0, 30.0)),
-                )
-                .clicked()
+            if settings_button(
+                ui,
+                egui::RichText::new("Save")
+                    .color(egui::Color32::WHITE)
+                    .size(13.0),
+                Some(SETTINGS_PRIMARY),
+                88.0,
+            )
+            .clicked()
             {
                 self.persist();
             }
-            if !compact
-                && ui
-                    .add(egui::Button::new("Close").min_size(egui::vec2(72.0, 30.0)))
-                    .clicked()
-            {
+            if !compact && settings_button(ui, "Close", None, 72.0).clicked() {
                 self.close_requested = true;
             }
         });
@@ -662,6 +648,7 @@ fn session_row(
     secondary: egui::Color32,
 ) {
     ui.horizontal(|ui| {
+        ui.set_min_height(SETTINGS_CONTROL_HEIGHT.max(36.0));
         ui.vertical(|ui| {
             ui.label(egui::RichText::new(title).color(label).size(12.5));
             ui.label(egui::RichText::new(hint).color(secondary).size(10.5));

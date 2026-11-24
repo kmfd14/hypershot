@@ -2,16 +2,19 @@
 //!
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
-//! settings. Esc cancels/discards; Save and Copy dismiss after a successful write.
+//! settings. Esc cancels/discards; Save dismisses after write. Copy shows a
+//! short clipboard toast, then closes without blanking the preview.
 //!
-//! Chrome: flat pastel purple / gray / white — no liquid-glass imitation
-//! (no frost, specular rim, or hover sheen). egui on Wayland cannot backdrop-blur.
+//! Chrome: flat pastel purple / gray / white. Transparency + blur settings
+//! apply window opacity and a translucent frosted panel (egui cannot sample
+//! the desktop for real compositor backdrop-blur on Wayland).
 //!
 //! Stay-on-top: `ViewportBuilder::with_always_on_top`. Many Wayland compositors
 //! ignore or gate always-on-top.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuilder};
@@ -23,10 +26,13 @@ use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate,
-    paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette, ACTION_FILL,
-    ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER, SETTINGS_BTN,
-    TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
+    paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette,
+    ACTION_FILL, ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER,
+    SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
+
+/// How long the “copied to clipboard” toast stays visible before close.
+const COPY_TOAST_SECS: f32 = 1.15;
 
 /// Result of the annotate session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,17 +80,19 @@ const MAX_DISPLAY_H: f32 = 800.0;
 
 /// Approximate content size of the floating rail (vertical).
 fn toolbar_content_height() -> f32 {
-    // 3 tools + color + undo + clear + settings + save + copy + gaps + margins
-    let n_btns = 8.0_f32;
-    let gaps = 7.0 * 8.0 + 24.0;
-    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+    // Annotate label + 3 tools + color + undo + redo + clear + settings + save + copy
+    let n_btns = 9.0_f32;
+    let label = 22.0;
+    let gaps = 9.0 * 8.0 + 28.0;
+    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
 }
 
 /// Approximate content size of the floating rail (horizontal).
 fn toolbar_content_width() -> f32 {
-    let n_btns = 8.0_f32;
-    let gaps = 7.0 * 8.0 + 24.0;
-    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+    let n_btns = 9.0_f32;
+    let label = 72.0;
+    let gaps = 9.0 * 8.0 + 28.0;
+    label + n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
 }
 
 /// Open a floating annotate window on an existing PNG.
@@ -206,6 +214,8 @@ struct AnnotateApp {
     height: u32,
     pixels: Vec<u8>,
     shapes: Vec<Shape>,
+    /// Shapes removed by Undo (newest at end); cleared on a new mark.
+    redo_stack: Vec<Shape>,
     tool: Tool,
     stroke_color: Color32,
     drag_start: Option<Pos2>,
@@ -213,6 +223,8 @@ struct AnnotateApp {
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
+    /// After Copy: keep painting preview + toast until this instant, then close.
+    copy_toast_until: Option<Instant>,
     show_settings: bool,
     settings: EmbeddedSettings,
     /// Last applied viewport decoration / transparency (to avoid spam).
@@ -243,6 +255,7 @@ impl AnnotateApp {
             height,
             pixels,
             shapes: Vec::new(),
+            redo_stack: Vec::new(),
             tool: Tool::Arrow,
             stroke_color: DEFAULT_STROKE,
             drag_start: None,
@@ -250,6 +263,7 @@ impl AnnotateApp {
             path,
             outcome,
             finished: false,
+            copy_toast_until: None,
             show_settings: false,
             applied_title_bar: cfg.show_title_bar,
             applied_transparency: cfg.window_transparency,
@@ -265,6 +279,9 @@ impl AnnotateApp {
     }
 
     fn cancel_draft_or_session(&mut self) {
+        if self.copy_toast_until.is_some() {
+            return;
+        }
         if self.draft.is_some() || self.drag_start.is_some() {
             self.draft = None;
             self.drag_start = None;
@@ -274,15 +291,31 @@ impl AnnotateApp {
     }
 
     fn undo(&mut self) {
-        self.shapes.pop();
+        if let Some(shape) = self.shapes.pop() {
+            self.redo_stack.push(shape);
+        }
+        self.draft = None;
+        self.drag_start = None;
+    }
+
+    fn redo(&mut self) {
+        if let Some(shape) = self.redo_stack.pop() {
+            self.shapes.push(shape);
+        }
         self.draft = None;
         self.drag_start = None;
     }
 
     fn clear_all(&mut self) {
         self.shapes.clear();
+        self.redo_stack.clear();
         self.draft = None;
         self.drag_start = None;
+    }
+
+    fn push_shape(&mut self, shape: Shape) {
+        self.shapes.push(shape);
+        self.redo_stack.clear();
     }
 
     fn write_annotated_png(&mut self) -> Result<()> {
@@ -297,15 +330,36 @@ impl AnnotateApp {
     }
 
     fn save_and_close(&mut self) -> Result<()> {
+        if self.copy_toast_until.is_some() {
+            return Ok(());
+        }
         self.write_annotated_png()?;
         self.set_outcome(AnnotateOutcome::Saved);
         Ok(())
     }
 
-    fn copy_and_close(&mut self) -> Result<()> {
+    /// Write PNG, show clipboard toast, then close after a short delay (no blank flash).
+    fn copy_with_toast(&mut self) -> Result<()> {
+        if self.copy_toast_until.is_some() {
+            return Ok(());
+        }
         self.write_annotated_png()?;
-        self.set_outcome(AnnotateOutcome::Copied);
+        if let Ok(mut slot) = self.outcome.lock() {
+            *slot = AnnotateOutcome::Copied;
+        }
+        self.copy_toast_until =
+            Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
         Ok(())
+    }
+
+    fn palette(&self, dark: bool) -> AnnotatePalette {
+        let cfg = self.settings.config();
+        AnnotatePalette::with_effects(
+            dark,
+            cfg.window_transparency,
+            cfg.effective_transparency_intensity(),
+            cfg.effective_blur_intensity(),
+        )
     }
 
     fn draft_from_drag(&self, start: Pos2, end: Pos2) -> Shape {
@@ -343,11 +397,30 @@ impl AnnotateApp {
         } else {
             egui::Layout::top_down(egui::Align::Center)
         };
+        let dark = ui.visuals().dark_mode;
+        let pal = self.palette(dark);
         ui.with_layout(layout, |ui| {
             if horizontal {
                 ui.spacing_mut().item_spacing.x = 8.0;
             } else {
                 ui.spacing_mut().item_spacing.y = 8.0;
+            }
+
+            // Mode label so the chrome reads as Annotate, not a mystery tool strip.
+            let label = egui::RichText::new("Annotate")
+                .color(if pal.dark {
+                    crate::ui::ICON_LIGHT
+                } else {
+                    crate::ui::ICON_DARK
+                })
+                .size(11.0)
+                .strong();
+            if horizontal {
+                ui.label(label);
+                ui.add_space(4.0);
+            } else {
+                ui.label(label);
+                ui.add_space(2.0);
             }
 
             if glass_icon_button(
@@ -386,6 +459,16 @@ impl AnnotateApp {
             if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, TOOL_BTN, paint_icon_undo) {
                 self.undo();
             }
+            if glass_icon_button(
+                ui,
+                false,
+                "Redo (Ctrl+Shift+Z)",
+                None,
+                TOOL_BTN,
+                paint_icon_redo,
+            ) {
+                self.redo();
+            }
             if glass_icon_button(ui, false, "Clear all marks", None, TOOL_BTN, paint_icon_clear)
             {
                 self.clear_all();
@@ -420,19 +503,17 @@ impl AnnotateApp {
             if glass_icon_button(
                 ui,
                 false,
-                "Save, copy to clipboard, and close",
+                "Copy to clipboard, then close",
                 Some(copy_pair),
                 TOOL_BTN,
                 paint_icon_copy,
             ) {
-                if let Err(err) = self.copy_and_close() {
+                if let Err(err) = self.copy_with_toast() {
                     eprintln!("annotate copy failed: {err:#}");
                 }
             }
 
-            let dark = ui.visuals().dark_mode;
-            let muted = AnnotatePalette::for_mode(dark, false).muted;
-            ui.label(egui::RichText::new("Esc").color(muted).size(10.0));
+            ui.label(egui::RichText::new("Esc").color(pal.muted).size(10.0));
         });
     }
 
@@ -478,11 +559,67 @@ impl AnnotateApp {
         if response.drag_stopped() {
             if let Some(shape) = self.draft.take() {
                 if shape_is_meaningful(shape) {
-                    self.shapes.push(shape);
+                    self.push_shape(shape);
                 }
             }
             self.drag_start = None;
         }
+    }
+
+    fn paint_copy_toast(&self, ctx: &egui::Context, pal: &AnnotatePalette) {
+        if self.copy_toast_until.is_none() {
+            return;
+        }
+        let screen = ctx.screen_rect();
+        let toast_size = Vec2::new(280.0, 56.0);
+        let pos = Pos2::new(
+            screen.center().x - toast_size.x * 0.5,
+            screen.center().y - toast_size.y * 0.5,
+        );
+        egui::Area::new(egui::Id::new("lightsnip_copy_toast"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                let fill = if pal.dark {
+                    Color32::from_rgba_unmultiplied(0x2A, 0x28, 0x30, 0xF0)
+                } else {
+                    Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2)
+                };
+                let stroke = pal.toolbar_stroke;
+                let text = if pal.dark {
+                    crate::ui::ICON_LIGHT
+                } else {
+                    crate::ui::ICON_DARK
+                };
+                egui::Frame::new()
+                    .fill(fill)
+                    .stroke(Stroke::new(1.0_f32, stroke))
+                    .corner_radius(egui::CornerRadius::same(10))
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .shadow(egui::Shadow {
+                        offset: [0, 2],
+                        blur: 8,
+                        spread: 0,
+                        color: Color32::from_black_alpha(40),
+                    })
+                    .show(ui, |ui| {
+                        ui.set_min_width(toast_size.x - 32.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("Copied to clipboard")
+                                    .color(text)
+                                    .size(14.0)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new("Closing…")
+                                    .color(pal.muted)
+                                    .size(11.0),
+                            );
+                        });
+                    });
+            });
     }
 }
 
@@ -496,56 +633,68 @@ impl eframe::App for AnnotateApp {
                 self.settings.config().theme,
                 crate::config::UiTheme::System
             ));
-        let cfg = self.settings.config();
-        let translucent = cfg.window_transparency;
-        let pal = AnnotatePalette::for_mode(dark || _visuals.dark_mode, translucent);
+        let pal = self.palette(dark || _visuals.dark_mode);
         let mut rgba = egui::Rgba::from(pal.bg).to_array();
         // Intensity scales window clear alpha when transparency is enabled.
         // Many Wayland compositors still ignore transparent viewports.
-        if translucent {
-            let intensity = cfg.effective_transparency_intensity();
-            // Keep some opacity so chrome stays readable (never fully invisible).
-            rgba[3] = (1.0 - intensity * 0.55).clamp(0.35, 1.0);
-        }
+        rgba[3] = pal.panel_opacity;
         rgba
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.finished {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
+        // Finish copy toast → close. Keep painting until then (no blank flash).
+        if let Some(until) = self.copy_toast_until {
+            if Instant::now() >= until {
+                self.copy_toast_until = None;
+                self.finished = true;
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(32));
+            }
         }
+
+        if self.finished {
+            // Close after this frame's paint so the last content frame is not blank.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        // While closing after Save (no toast), skip interaction but still paint once.
+        let interactive = !self.finished && self.copy_toast_until.is_none();
 
         self.sync_viewport_prefs(ctx);
 
-        ctx.input(|i| {
-            if i.key_pressed(egui::Key::Escape) {
-                if self.show_settings {
-                    self.show_settings = false;
-                } else {
-                    self.cancel_draft_or_session();
+        if interactive {
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::Escape) {
+                    if self.show_settings {
+                        self.show_settings = false;
+                    } else {
+                        self.cancel_draft_or_session();
+                    }
                 }
-            }
-            if !self.show_settings && i.key_pressed(egui::Key::Enter) {
-                if let Err(err) = self.save_and_close() {
-                    eprintln!("annotate save failed: {err:#}");
+                if !self.show_settings && i.key_pressed(egui::Key::Enter) {
+                    if let Err(err) = self.save_and_close() {
+                        eprintln!("annotate save failed: {err:#}");
+                    }
                 }
-            }
-            if i.modifiers.command && i.key_pressed(egui::Key::Z) {
-                self.undo();
-            }
-        });
-
-        if self.finished {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
+                if i.modifiers.command && i.key_pressed(egui::Key::Z) {
+                    if i.modifiers.shift {
+                        self.redo();
+                    } else {
+                        self.undo();
+                    }
+                }
+                if i.modifiers.command && i.key_pressed(egui::Key::Y) {
+                    self.redo();
+                }
+            });
         }
 
-        show_settings_window(ctx, &mut self.show_settings, &mut self.settings);
+        if interactive {
+            show_settings_window(ctx, &mut self.show_settings, &mut self.settings);
+        }
 
         let dark = ctx.theme() == egui::Theme::Dark;
-        let translucent = self.settings.config().window_transparency;
-        let pal = AnnotatePalette::for_mode(dark, translucent);
+        let pal = self.palette(dark);
         let toolbar_pos = self.settings.config().toolbar_position;
         let horizontal = toolbar_pos.is_horizontal();
 
@@ -619,7 +768,7 @@ impl eframe::App for AnnotateApp {
                     self.paint_canvas(ui, image_area, &pal);
                 });
 
-                // Floating glass rail — content-sized, attached to preview (not full height).
+                // Floating pastel rail — content-sized, attached to preview (not full height).
                 egui::Area::new(egui::Id::new("lightsnip_toolbar"))
                     .fixed_pos(toolbar_origin)
                     .order(egui::Order::Foreground)
@@ -634,6 +783,8 @@ impl eframe::App for AnnotateApp {
                         });
                     });
             });
+
+        self.paint_copy_toast(ctx, &pal);
 
         if self.finished {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1001,5 +1152,43 @@ mod tests {
     fn toolbar_does_not_force_full_window_height() {
         // Content-sized rail is shorter than a tall window's image area.
         assert!(toolbar_content_height() < MAX_DISPLAY_H);
+    }
+
+    #[test]
+    fn undo_redo_stack_mirrors() {
+        let mut shapes = vec![
+            Shape::Arrow {
+                from: Pos2::new(0.0, 0.0),
+                to: Pos2::new(20.0, 0.0),
+                color: DEFAULT_STROKE,
+            },
+            Shape::Rect {
+                a: Pos2::new(0.0, 0.0),
+                b: Pos2::new(10.0, 10.0),
+                color: DEFAULT_STROKE,
+            },
+        ];
+        let mut redo = Vec::new();
+        // undo
+        if let Some(s) = shapes.pop() {
+            redo.push(s);
+        }
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(redo.len(), 1);
+        // redo
+        if let Some(s) = redo.pop() {
+            shapes.push(s);
+        }
+        assert_eq!(shapes.len(), 2);
+        assert!(redo.is_empty());
+        // new mark clears redo
+        redo.push(shapes[0]);
+        shapes.push(Shape::Pixelate {
+            a: Pos2::new(0.0, 0.0),
+            b: Pos2::new(12.0, 12.0),
+        });
+        redo.clear();
+        assert!(redo.is_empty());
+        assert_eq!(shapes.len(), 3);
     }
 }
