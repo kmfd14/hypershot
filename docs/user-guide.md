@@ -75,21 +75,21 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 After capture, a floating bordered **Lightsnip** window opens (sized to the image + floating toolbar). You can also annotate a file you already have.
 
 1. Floating flat pastel tool rail with an **Annotate** label (icons + hover tooltips), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
-2. Tools: **Arrow**, **Box**, **Pixelate**, **color picker**, **Undo**, **Redo**, **Clear**, larger **Settings**, **Save**, **Copy** (hover fill).
-3. Stroke color defaults to red. Click the swatch for the color wheel; Arrow and Box use it. Pixelate ignores stroke color.
-4. Drag on the image to draw or redact. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes. The preview letterboxes and can upscale small captures when you enlarge the window (LINEAR filtering).
+2. Tools: **Arrow**, **Box**, **Pixelate**, **Step number**, **color picker**, **Undo**, **Redo**, **Clear**, larger **Settings**, **Save**, **Copy**, **Exit**.
+3. Stroke color defaults to red. Click the swatch for the color wheel; Arrow, Box, and Step use it. Pixelate ignores stroke color.
+4. Drag on the image to draw or redact. Click with **Step** to stamp an incrementing circle (1, 2, …). Undo / Clear reset the step counter. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes. The preview letterboxes and can upscale small captures when you enlarge the window (LINEAR filtering).
 5. **Settings** opens the settings sheet (shortcuts, session, output, User Interface).
 6. **Save** / Enter writes the PNG and dismisses; clipboard follows settings / CLI flags.
 7. **Copy** writes the PNG, shows a short “Copied to clipboard” toast, then closes cleanly (always forces clipboard after close).
-8. Escape first drops an in-progress drag (or closes Settings); Escape again cancels without keeping the capture (region/full) or without changing the file (`annotate`).
+8. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on). Escape first drops an in-progress drag (or closes Settings); Escape again cancels when the toggle is enabled.
 9. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
 10. Skip annotate: `cargo run --release -- region --no-annotate`.
 
 **Display note:** annotate / settings need `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open those windows. On annotate failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
 
-**Chrome:** flat pastel purple / gray / white (no specular / glow). Transparency intensity lowers window/panel opacity (compositor-dependent). Background blur cannot sample the desktop in egui/Wayland; intensity frosts the annotate panel instead.
+**Chrome:** flat pastel purple / gray / white (no specular / glow). Transparency / blur affect the window and preview area; the **toolbar stays fully opaque**. Background blur cannot sample the desktop in egui/Wayland.
 
-**Stay on top:** annotate requests always-on-top through egui/winit. Wayland compositors often ignore or restrict this (no portable layer-shell API in this stack); X11 usually honors it. If the window goes under others, raise it from the task switcher.
+**Window placement:** default floating mode centers annotate and requests always-on-top. **Follow window tiling** skips those hints. Wayland: winit always-on-top is a no-op; COSMIC may still tile. X11 usually honors always-on-top.
 
 ---
 
@@ -115,10 +115,10 @@ cargo run --release -- settings
 
 Or click **Settings** on the annotate bar. Persist with **Save** inside the window. Config path: `~/.config/lightsnip/config.toml`.
 
-1. **Shortcuts** — **Assign…** captures a key combination (chip + Reset); bind command field for compositor wiring. Wayland has no portable global hotkey API.
+1. **Shortcuts** — **Assign…** stores a suggested key **label only** (not a live global hotkey). Paste the bind command into your DE / compositor. Wayland has no portable global grab. **Replace default screenshot** does not activate these keys.
 2. **Session** — toggles: run at startup (XDG → tray), replace-default `.desktop` helper (does **not** steal PrintScreen), stay in tray (StatusNotifierItem; GNOME often needs AppIndicator). All off by default. Section help lives on the `?` control.
 3. **Output** — save directory (text + **Browse…** folder picker) + save to clipboard by default.
-4. **User Interface** — toolbar position and theme as buttons; title bar toggle; transparency and background blur with intensity sliders (buttons / fields / checkboxes share one control height). Wayland/egui: transparency is compositor-dependent; blur frosts the annotate panel (no true desktop backdrop-blur).
+4. **User Interface** — toolbar position and theme; title bar; **follow window tiling**; **Esc to exit**; transparency and background blur with intensity sliders (toolbar stays opaque). Wayland/egui: transparency is compositor-dependent; blur frosts the preview area (no true desktop backdrop-blur).
 5. **About** — app name + `x.y` version (semver-lite: `x` major, `y` fixes/polish).
 
 Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
@@ -137,21 +137,23 @@ Skip unless you want `lightsnip` on your `PATH`. Default stays `cargo run` from 
 
 ## Hotkeys (compositor binds)
 
-Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on every desktop.
+**Assign… is not a global hotkey.** It only remembers a label. Bind the command yourself.
 
-1. Bind a key to `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` (or `full`).
-2. Or bind `lightsnip region` / `lightsnip full` only after optional install.
-3. Or copy the command from Settings → Shortcuts.
-4. Sample primary command: `cargo run --release -- region`.
+**Replace default screenshot** only writes a `.desktop` helper. It does not steal PrintScreen and does not make Assign… live.
 
-| Desktop | Sample |
-| --- | --- |
-| Hyprland | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| Sway | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| GNOME | Settings → Keyboard → Custom Shortcut → same command (does not steal PrintScreen by itself) |
-| KDE | System Settings → Shortcuts → Custom → same command |
+1. Copy the bind command from Settings → Shortcuts (or use `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region`).
+2. Add a custom shortcut in your desktop that runs that command.
+3. After optional install, you can bind `lightsnip region` / `lightsnip full` instead.
 
-Inside annotate: Enter = Save, Copy = save + clipboard + dismiss, Escape = clear draft / close Settings then Cancel, Ctrl+Z = Undo.
+| Desktop | Where | Sample |
+| --- | --- | --- |
+| Fedora COSMIC | Settings → Input Devices → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
+| GNOME | Settings → Keyboard → Custom Shortcut | Same command (does not steal PrintScreen by itself) |
+| KDE | System Settings → Shortcuts → Custom | Same command |
+
+Inside annotate: Enter = Save, Copy = save + clipboard + dismiss, **Exit** = cancel, Escape = same when Esc-to-exit is on, Ctrl+Z = Undo.
 
 ---
 

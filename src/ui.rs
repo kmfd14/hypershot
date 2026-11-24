@@ -2,8 +2,9 @@
 //!
 //! Annotate: flat pastel chrome (restrained purple / gray / white). No liquid-glass
 //! imitation — no specular rims or glow. When Window Transparency / Background Blur
-//! are on, we apply real window opacity plus a translucent frosted panel (closest
-//! effect egui can do). True compositor backdrop-blur is unavailable on Wayland/egui.
+//! are on, we apply real window opacity plus a translucent frosted panel on the
+//! window/preview area (closest effect egui can do). The tool rail stays fully
+//! opaque. True compositor backdrop-blur is unavailable on Wayland/egui.
 //!
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
 //! Palette note: restrained pastel purple/gray/white is an owner override (R-37).
@@ -114,7 +115,9 @@ pub struct AnnotatePalette {
     pub dark: bool,
     /// Window / panel opacity from transparency intensity (`1.0` = fully opaque).
     pub panel_opacity: f32,
-    /// Frost strength from blur intensity (`0.0` = solid flat, higher = more translucent frost).
+    /// Frost strength from blur intensity (`0.0` = solid flat, higher = more frost on preview).
+    /// Retained for settings/debug; toolbar no longer samples it (stays opaque).
+    #[allow(dead_code)]
     pub frost: f32,
 }
 
@@ -145,13 +148,6 @@ impl AnnotatePalette {
         } else {
             1.0
         };
-        // Frost lightens/thins the toolbar fill further (simulated blur panel).
-        let frost_alpha = if frost > 0.0 {
-            (panel_opacity * (1.0 - frost * 0.35)).clamp(0.38, 1.0)
-        } else {
-            panel_opacity
-        };
-
         let mut pal = if dark {
             Self {
                 bg: ANNOTATE_BG_DARK,
@@ -182,21 +178,19 @@ impl AnnotatePalette {
             }
         };
 
+        // Transparency / frost affect the window clear color and preview matte only.
+        // The tool rail stays a solid pastel panel so intensity sliders never wash it out.
         if translucent || frost > 0.0 {
             pal.bg = with_alpha(pal.bg, panel_opacity);
-            pal.toolbar_fill = with_alpha(pal.toolbar_fill, frost_alpha);
-            // Soften stroke with frost so the rail edge is not a hard opaque rim.
-            let stroke_a = if frost > 0.0 {
-                (0.55 + (1.0 - frost) * 0.45).clamp(0.45, 1.0)
-            } else {
-                panel_opacity
-            };
-            pal.toolbar_stroke = with_alpha(pal.toolbar_stroke, stroke_a);
             if frost > 0.0 {
-                // Lift fill slightly toward white/gray for a frosted read.
-                pal.toolbar_fill = frost_lift(pal.toolbar_fill, frost, dark);
+                let matte_a = (panel_opacity * (1.0 - frost * 0.25)).clamp(0.45, 1.0);
+                pal.preview_matte = with_alpha(pal.preview_matte, matte_a);
+                pal.preview_matte = frost_lift(pal.preview_matte, frost * 0.5, dark);
             }
         }
+        // Toolbar fill/stroke remain fully opaque (alpha 255).
+        debug_assert_eq!(pal.toolbar_fill.a(), 255);
+        debug_assert_eq!(pal.toolbar_stroke.a(), 255);
         pal
     }
 }
@@ -394,18 +388,24 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
 }
 
 /// Frame for the floating pastel tool rail (content-sized, not full window).
+///
+/// Always uses a solid opaque fill — window transparency / blur never wash it out.
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
-    // Soften contact shadow when frosted so the rail does not look glued opaque.
-    let shadow_a = if pal.frost > 0.0 {
-        ((1.0 - pal.frost * 0.5) * if pal.dark { 40.0 } else { 22.0 }) as u8
-    } else if pal.dark {
-        40
-    } else {
-        22
-    };
+    let shadow_a = if pal.dark { 40 } else { 22 };
     egui::Frame::new()
-        .fill(pal.toolbar_fill)
-        .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
+        .fill(Color32::from_rgb(
+            pal.toolbar_fill.r(),
+            pal.toolbar_fill.g(),
+            pal.toolbar_fill.b(),
+        ))
+        .stroke(Stroke::new(
+            1.0_f32,
+            Color32::from_rgb(
+                pal.toolbar_stroke.r(),
+                pal.toolbar_stroke.g(),
+                pal.toolbar_stroke.b(),
+            ),
+        ))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
         .inner_margin(Margin::symmetric(6, 12))
         .outer_margin(Margin::ZERO)
@@ -770,6 +770,36 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
     }
 }
 
+/// Numbered step stamp icon: high-contrast circle with a “1”.
+pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let c = rect.center();
+    let r = rect.width() * 0.36;
+    painter.circle_filled(c, r, color);
+    painter.circle_stroke(
+        c,
+        r,
+        Stroke::new(ICON_STROKE * 0.85, Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+    );
+    // Simple “1” glyph (vertical stem + top serif + base).
+    let ink = Color32::WHITE;
+    let stem_x = c.x + r * 0.05;
+    let top = c.y - r * 0.42;
+    let bot = c.y + r * 0.42;
+    let stroke = Stroke::new(ICON_STROKE + 0.2, ink);
+    painter.line_segment(
+        [Pos2::new(stem_x - r * 0.28, top + r * 0.18), Pos2::new(stem_x, top)],
+        stroke,
+    );
+    painter.line_segment([Pos2::new(stem_x, top), Pos2::new(stem_x, bot)], stroke);
+    painter.line_segment(
+        [
+            Pos2::new(stem_x - r * 0.28, bot),
+            Pos2::new(stem_x + r * 0.28, bot),
+        ],
+        stroke,
+    );
+}
+
 /// Curved undo arrow with a filled arrowhead (readable at small sizes).
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_arc_arrow(painter, rect, color, 1.0);
@@ -969,7 +999,9 @@ mod tests {
         let clear = AnnotatePalette::with_effects(false, true, 1.0, 0.8);
         assert!(clear.panel_opacity < 1.0);
         assert!(clear.bg.a() < 255);
-        assert!(clear.toolbar_fill.a() < 255);
+        // Toolbar stays fully opaque even when transparency / blur are maxed.
+        assert_eq!(clear.toolbar_fill.a(), 255);
+        assert_eq!(clear.toolbar_stroke.a(), 255);
         assert!((clear.frost - 0.8).abs() < f32::EPSILON);
     }
 }

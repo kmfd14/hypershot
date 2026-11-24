@@ -110,6 +110,13 @@ pub struct Config {
     pub window_background_blur: bool,
     /// Frost intensity for the simulated blur panel (`0.0..=1.0`).
     pub window_background_blur_intensity: f32,
+    /// When true, annotate skips center + always-on-top so a tiling WM can place it.
+    /// When false (default), prefer a centered floating popup with always-on-top.
+    /// Wayland/COSMIC may still ignore always-on-top (winit no-op on Wayland).
+    pub follow_window_tiling: bool,
+    /// Escape dismisses annotate (after clearing an in-progress draft). Default on.
+    /// When false, only the Exit button closes without save/copy.
+    pub esc_to_exit: bool,
 }
 
 impl Default for Config {
@@ -129,6 +136,8 @@ impl Default for Config {
             window_transparency_intensity: 0.75,
             window_background_blur: false,
             window_background_blur_intensity: 0.50,
+            follow_window_tiling: false,
+            esc_to_exit: true,
         }
     }
 }
@@ -261,6 +270,8 @@ mod tests {
         assert!(!cfg.window_background_blur);
         assert!((cfg.window_transparency_intensity - 0.75).abs() < f32::EPSILON);
         assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
+        assert!(!cfg.follow_window_tiling);
+        assert!(cfg.esc_to_exit);
     }
 
     #[test]
@@ -291,6 +302,8 @@ mod tests {
         cfg.window_transparency_intensity = 0.4;
         cfg.window_background_blur = true;
         cfg.window_background_blur_intensity = 0.8;
+        cfg.follow_window_tiling = true;
+        cfg.esc_to_exit = false;
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -323,6 +336,8 @@ shortcut_bind_command = "lightsnip region"
         assert!(cfg.show_title_bar);
         assert!((cfg.window_transparency_intensity - 0.75).abs() < f32::EPSILON);
         assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
+        assert!(!cfg.follow_window_tiling);
+        assert!(cfg.esc_to_exit);
     }
 
     #[test]
