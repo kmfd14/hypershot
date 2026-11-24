@@ -1,14 +1,14 @@
 # lightsnip: user guide
 
-**Do this now** (from the repo checkout, on a Wayland desktop):
+**Do this now** (from the repo checkout, graphical desktop):
 
 ```bash
 cargo run --release -- region
 ```
 
-1. Select a region.
-2. Mark up in the **Lightsnip** window: floating flat pastel rail labeled **Annotate** (Arrow, Box, Pixelate, color, Undo, Redo, Clear, Settings, Save, Copy).
-3. Press **Save** / Enter, or **Copy** (toast, then clipboard + close). Escape clears a draft drag, then cancels and discards.
+1. Select a region (Linux portal / grim; macOS `screencapture`; Windows capture is WIP — use `annotate` on an existing PNG).
+2. Mark up in the **Lightsnip** window: floating flat pastel icon rail (Arrow, Box, Pixelate, Step, color, Undo, Redo, Clear, Settings, Save, Copy, Exit).
+3. **Save** → file dialog → close. **Enter** → file dialog + clipboard toast + close. **Copy** → toast + close. Cancel the dialog (or Exit) to keep the window open.
 
 PNG path prints to stdout. About 1–2 minutes for first capture after deps.
 
@@ -26,7 +26,8 @@ Floating annotate window (not fullscreen) with a content-sized flat pastel rail 
 
 ## Dependencies
 
-Portal first. `grim` / `slurp` when the portal fails. `wl-copy` for clipboard.
+Linux: portal first; `grim` / `slurp` fallback; `wl-clipboard` helps Wayland clipboard.
+macOS: `screencapture`. Windows capture: WIP (annotate still works). See README platform matrix.
 
 ### Fedora 44 COSMIC — install now
 
@@ -74,18 +75,19 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 
 After capture, a floating bordered **Lightsnip** window opens (sized to the image + floating toolbar). You can also annotate a file you already have.
 
-1. Floating flat pastel tool rail with an **Annotate** label (icons + hover tooltips), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
-2. Tools: **Arrow**, **Box**, **Pixelate**, **Step number**, **color picker**, **Undo**, **Redo**, **Clear**, larger **Settings**, **Save**, **Copy**, **Exit**.
+1. Floating flat pastel icon rail (no “Annotate” text label), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
+2. Tools: **Arrow**, **Box**, **Pixelate**, **Step number** (bold 1/2 icon), **color picker**, **Undo**, **Redo**, **Clear**, larger **Settings**, **Save**, **Copy**, **Exit**.
 3. Stroke color defaults to red. Click the swatch for the color wheel; Arrow, Box, and Step use it. Pixelate ignores stroke color.
-4. Drag on the image to draw or redact. Click with **Step** to stamp an incrementing circle (1, 2, …). Undo / Clear reset the step counter. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes. The preview letterboxes and can upscale small captures when you enlarge the window (LINEAR filtering).
+4. Drag on the image to draw or redact. Pixelate uses a strong mosaic (block size 28 + densify) so one pass hides readable text. Click with **Step** to stamp an incrementing circle (1, 2, …). Undo / Clear reset the step counter. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
 5. **Settings** opens the settings sheet (shortcuts, session, output, User Interface).
-6. **Save** / Enter writes the PNG and dismisses; clipboard follows settings / CLI flags.
-7. **Copy** writes the PNG, shows a short “Copied to clipboard” toast, then closes cleanly (always forces clipboard after close).
-8. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on). Escape first drops an in-progress drag (or closes Settings); Escape again cancels when the toggle is enabled.
-9. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
-10. Skip annotate: `cargo run --release -- region --no-annotate`.
+6. **Save** opens a save-file dialog (defaults under the configured save dir). Cancel leaves the window open. Success writes and closes; clipboard follows settings / CLI flags.
+7. **Enter** always runs save dialog + copy + toast + close (Esc-to-exit affects Esc only).
+8. **Copy** writes the current work path, shows a short “Copied to clipboard” toast, then closes (always forces clipboard after close).
+9. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on). Escape first drops an in-progress drag (or closes Settings); Escape again cancels when the toggle is enabled.
+10. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
+11. Skip annotate: `cargo run --release -- region --no-annotate`.
 
-**Display note:** annotate / settings need `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open those windows. On annotate failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
+**Display note:** Linux needs `WAYLAND_DISPLAY` or `DISPLAY` plus egui libs (for example `libxkbcommon`). Headless VMs can `cargo build` but usually cannot open those windows.
 
 **Chrome:** flat pastel purple / gray / white (no specular / glow). Transparency / blur affect the window and preview area; the **toolbar stays fully opaque**. Background blur cannot sample the desktop in egui/Wayland.
 
@@ -95,7 +97,7 @@ After capture, a floating bordered **Lightsnip** window opens (sized to the imag
 
 ## Save and clipboard
 
-After **Save** (or after capture when using `--no-annotate` / when the overlay cannot open), lightsnip writes a PNG and (by default) copies it to the Wayland clipboard.
+After **Save** (or after capture when using `--no-annotate` / when the overlay cannot open), lightsnip writes a PNG and (by default) copies it to the system clipboard (`arboard`).
 
 1. **Default save** — settings save directory, else `~/Pictures/lightsnip/lightsnip-<unix>.png` (directory is created if needed).
 2. **Custom file** — `cargo run --release -- region -o ~/Pictures/snip.png`.
@@ -153,7 +155,7 @@ Skip unless you want `lightsnip` on your `PATH`. Default stays `cargo run` from 
 | GNOME | Settings → Keyboard → Custom Shortcut | Same command (does not steal PrintScreen by itself) |
 | KDE | System Settings → Shortcuts → Custom | Same command |
 
-Inside annotate: Enter = Save, Copy = save + clipboard + dismiss, **Exit** = cancel, Escape = same when Esc-to-exit is on, Ctrl+Z = Undo.
+Inside annotate: Enter = save dialog + clipboard + toast + close, Save = dialog + close, Copy = write + clipboard toast + close, **Exit** = cancel, Escape = same when Esc-to-exit is on, Ctrl+Z = Undo.
 
 ---
 

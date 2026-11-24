@@ -1,4 +1,4 @@
-//! lightsnip - Wayland screenshot CLI with annotate + settings.
+//! lightsnip - Cross-platform screenshot CLI with annotate + settings.
 
 mod annotate;
 mod capture;
@@ -23,7 +23,7 @@ use settings::{resolve_save_dir, run_settings_window, want_clipboard};
 #[derive(Debug, Parser)]
 #[command(
     name = "lightsnip",
-    about = "Wayland screenshot tool with annotation + settings",
+    about = "Screenshot tool with annotation + settings",
     version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
@@ -36,7 +36,7 @@ struct Cli {
     #[arg(long, value_name = "DIR", global = true)]
     save_dir: Option<PathBuf>,
 
-    /// Copy PNG to the Wayland clipboard via wl-copy (overrides config).
+    /// Copy PNG to the clipboard (overrides config).
     #[arg(long, global = true, action = clap::ArgAction::SetTrue, conflicts_with = "no_clipboard")]
     clipboard: bool,
 
@@ -54,18 +54,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Capture a region (portal interactive picker, or slurp → grim), then annotate.
+    /// Capture a region, then annotate.
     Region,
     /// Capture the full / active output, then annotate.
     Full,
     /// Open the annotate overlay on an existing PNG.
     Annotate {
-        /// PNG to annotate (overwritten on Save).
+        /// PNG to annotate (written to the path chosen in the Save dialog).
         path: PathBuf,
     },
     /// Open the settings window (TOML config; no system install required).
     Settings,
-    /// Run the StatusNotifierItem tray (Region / Full / Settings / Quit).
+    /// Run the StatusNotifierItem tray (Linux; Region / Full / Settings / Quit).
     Tray,
 }
 
@@ -117,12 +117,14 @@ async fn main() -> Result<()> {
             };
 
             match run_annotate_overlay(&work_path)? {
-                AnnotateOutcome::Saved => {
-                    finish_output(&work_path, want_clipboard).await?;
+                AnnotateOutcome::Saved(saved) => {
+                    cleanup_replaced_capture(&work_path, &saved).await;
+                    finish_output(&saved, want_clipboard).await?;
                 }
-                AnnotateOutcome::Copied => {
-                    // Copy always forces clipboard, even if config/CLI preferred off.
-                    finish_output(&work_path, true).await?;
+                AnnotateOutcome::Copied(saved) => {
+                    cleanup_replaced_capture(&work_path, &saved).await;
+                    // Copy / Enter always forces clipboard, even if config/CLI preferred off.
+                    finish_output(&saved, true).await?;
                 }
                 AnnotateOutcome::Cancelled => {
                     eprintln!("annotate cancelled");
@@ -153,10 +155,16 @@ async fn run_capture(
     capture_to_png(mode, &output).await?;
 
     let mut force_clipboard = false;
+    let mut final_path = output.clone();
     if !no_annotate {
         match run_annotate_overlay(&output) {
-            Ok(AnnotateOutcome::Saved) => {}
-            Ok(AnnotateOutcome::Copied) => {
+            Ok(AnnotateOutcome::Saved(saved)) => {
+                cleanup_replaced_capture(&output, &saved).await;
+                final_path = saved;
+            }
+            Ok(AnnotateOutcome::Copied(saved)) => {
+                cleanup_replaced_capture(&output, &saved).await;
+                final_path = saved;
                 force_clipboard = true;
             }
             Ok(AnnotateOutcome::Cancelled) => {
@@ -170,7 +178,14 @@ async fn run_capture(
         }
     }
 
-    finish_output(&output, want_clipboard || force_clipboard).await
+    finish_output(&final_path, want_clipboard || force_clipboard).await
+}
+
+/// If the user saved to a different path than the capture temp file, remove the orphan.
+async fn cleanup_replaced_capture(original: &std::path::Path, saved: &std::path::Path) {
+    if original != saved && original.is_file() {
+        let _ = tokio::fs::remove_file(original).await;
+    }
 }
 
 async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<()> {
@@ -178,14 +193,14 @@ async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<(
         match copy_png_to_clipboard(path).await {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!(
-                    "clipboard skipped: wl-copy not found on PATH\n\
-                     See README.md → Runtime dependencies.\n\
-                     Fedora: sudo dnf install wl-clipboard"
-                );
+                eprintln!("clipboard skipped (unexpected)");
             }
             Err(err) => {
-                eprintln!("clipboard copy failed: {err}");
+                eprintln!(
+                    "clipboard copy failed: {err}\n\
+                     Linux Wayland: install wl-clipboard (`wl-copy`).\n\
+                     See README.md → Runtime dependencies / Platform support."
+                );
             }
         }
     }

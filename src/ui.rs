@@ -770,33 +770,41 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
     }
 }
 
-/// Numbered step stamp icon: high-contrast circle with a “1”.
+/// Numbered step stamp icon: bold circle with “1” + small “2” badge (sequence cue).
+///
+/// Digit ink flips for contrast against the toolbar glyph color (light/dark).
 pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let c = rect.center();
-    let r = rect.width() * 0.36;
-    painter.circle_filled(c, r, color);
-    painter.circle_stroke(
-        c,
-        r,
-        Stroke::new(ICON_STROKE * 0.85, Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+    let lum = (u16::from(color.r()) * 2 + u16::from(color.g()) * 5 + u16::from(color.b())) / 8;
+    let ink = if lum > 140 {
+        Color32::from_rgb(0x1A, 0x1A, 0x1E)
+    } else {
+        Color32::WHITE
+    };
+
+    // Primary stamp (large “1”).
+    let c1 = rect.center() - Vec2::new(rect.width() * 0.08, rect.height() * 0.06);
+    let r1 = rect.width() * 0.40;
+    painter.circle_filled(c1, r1, color);
+    painter.circle_stroke(c1, r1, Stroke::new(2.0_f32, ink));
+    painter.text(
+        c1,
+        egui::Align2::CENTER_CENTER,
+        "1",
+        egui::FontId::proportional((r1 * 1.25).clamp(12.0, 22.0)),
+        ink,
     );
-    // Simple “1” glyph (vertical stem + top serif + base).
-    let ink = Color32::WHITE;
-    let stem_x = c.x + r * 0.05;
-    let top = c.y - r * 0.42;
-    let bot = c.y + r * 0.42;
-    let stroke = Stroke::new(ICON_STROKE + 0.2, ink);
-    painter.line_segment(
-        [Pos2::new(stem_x - r * 0.28, top + r * 0.18), Pos2::new(stem_x, top)],
-        stroke,
-    );
-    painter.line_segment([Pos2::new(stem_x, top), Pos2::new(stem_x, bot)], stroke);
-    painter.line_segment(
-        [
-            Pos2::new(stem_x - r * 0.28, bot),
-            Pos2::new(stem_x + r * 0.28, bot),
-        ],
-        stroke,
+
+    // Secondary badge suggests numbered steps (1 → 2 → …).
+    let c2 = rect.center() + Vec2::new(rect.width() * 0.24, rect.height() * 0.22);
+    let r2 = rect.width() * 0.20;
+    painter.circle_filled(c2, r2, color);
+    painter.circle_stroke(c2, r2, Stroke::new(1.5_f32, ink));
+    painter.text(
+        c2,
+        egui::Align2::CENTER_CENTER,
+        "2",
+        egui::FontId::proportional((r2 * 1.2).clamp(8.0, 14.0)),
+        ink,
     );
 }
 
