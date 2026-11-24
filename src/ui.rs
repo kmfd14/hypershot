@@ -1,79 +1,82 @@
 //! Shared visuals for annotate + settings.
 //!
-//! Annotate: flat pastel chrome (restrained purple / gray / white). egui on Wayland cannot
-//! deliver convincing liquid-glass (no desktop backdrop-blur), so we use opaque flat fills
-//! instead of frosted imitation. Toolbar sits to the RIGHT of the capture with even outer pad.
+//! Annotate: flat pastel chrome (restrained purple / gray / white). No liquid-glass
+//! imitation — no frost fills, specular rims, or hover sheen. egui on Wayland
+//! cannot backdrop-blur the desktop; we stay opaque flat rather than fake glass.
 //!
-//! Contrast: dark icons on light pastel wells. Soft feathering + thicker strokes for AA.
-//! One muted purple accent on Save only (not neon, no gradient, no glow).
-//!
-//! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1. antislop active: during (project preference).
-//! Palette note: KM requested restrained pastel purple/gray/white as the glass fallback
-//! (R-37 owner override of the purple-default caution).
+//! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
+//! Palette note: restrained pastel purple/gray/white is an owner override (R-37).
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Vec2,
+    self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Theme,
+    ThemePreference, Vec2,
 };
 use eframe::egui::color_picker::{color_picker_color32, Alpha};
 use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 
-// --- Annotate (flat pastel) ---------------------------------------------------
+use crate::config::UiTheme;
 
-/// Opaque window / panel fill (soft cool gray-lilac, not pure white).
-pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
-
-/// Vertical tool rail fill (flat pastel gray-lilac).
-pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
-
-/// Soft rail edge (muted, not harsh white).
-pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD0, 0xCA, 0xD8);
-
-/// Selected tool well (soft pastel purple tint — flat, no glow).
-pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xDD, 0xD4, 0xEC);
-
-/// Idle tool well (white).
-pub const BTN_IDLE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-
-/// Hovered tool well.
-pub const BTN_HOVER: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xFB);
-
-/// Rail corner radius (moderate; not pill-everything).
-pub const TOOLBAR_RADIUS: f32 = 14.0;
+// --- Annotate sizes -----------------------------------------------------------
 
 /// Circular tool button diameter (desktop ≥ 28 pt).
 pub const TOOL_BTN: f32 = 36.0;
 
-/// Toolbar strip width.
+/// Settings gear is intentionally larger for discoverability.
+pub const SETTINGS_BTN: f32 = 42.0;
+
+/// Toolbar strip thickness (cross-axis).
 pub const TOOLBAR_WIDTH: f32 = 56.0;
 
-/// Gutter between image and right tool rail.
-pub const TOOLBAR_GUTTER: f32 = 16.0;
+/// Gutter between image and floating tool rail.
+pub const TOOLBAR_GUTTER: f32 = 12.0;
 
-/// Outer padding inside the floating window (top / left / right / bottom).
+/// Outer padding inside the floating window.
 pub const WINDOW_PAD: f32 = 18.0;
+
+/// Rail corner radius (moderate; not pill-everything).
+pub const TOOLBAR_RADIUS: f32 = 14.0;
 
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 
-/// Dark icon ink on light pastel wells.
-pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
-
-/// Light icon ink on tinted / darker fills (Save / Copy).
-pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
-
 /// Soft contact shadow under tool wells only.
 pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(28);
 
-/// Muted pastel purple (Save primary — restrained, not neon).
+// --- Annotate light palette ---------------------------------------------------
+
+pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
+pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
+pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD0, 0xCA, 0xD8);
+pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xDD, 0xD4, 0xEC);
+pub const BTN_IDLE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
+pub const BTN_HOVER: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xFB);
+
+pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
+pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
+
+/// Muted purple Save primary (restrained, not neon).
 pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8B, 0x7C, 0xB6);
+pub const PASTEL_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x9A, 0x8C, 0xC4);
 
 /// Secondary action (Copy): muted gray-violet, flat.
 pub const ACTION_FILL: Color32 = Color32::from_rgb(0x6E, 0x68, 0x7A);
+pub const ACTION_FILL_HOVER: Color32 = Color32::from_rgb(0x7E, 0x78, 0x8A);
 
-/// Helper text on pastel chrome.
 pub const MUTED: Color32 = Color32::from_rgb(0x8A, 0x84, 0x94);
+pub const PREVIEW_MATTE: Color32 = Color32::from_rgb(0xE0, 0xDC, 0xE8);
 
-// --- Settings (grouped light) -------------------------------------------------
+// --- Annotate dark palette ----------------------------------------------------
+
+pub const ANNOTATE_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1B, 0x20);
+pub const TOOLBAR_FILL_DARK: Color32 = Color32::from_rgb(0x2A, 0x28, 0x30);
+pub const TOOLBAR_STROKE_DARK: Color32 = Color32::from_rgb(0x48, 0x44, 0x52);
+pub const BTN_SELECTED_DARK: Color32 = Color32::from_rgb(0x4A, 0x42, 0x5C);
+pub const BTN_IDLE_DARK: Color32 = Color32::from_rgb(0x36, 0x34, 0x3E);
+pub const BTN_HOVER_DARK: Color32 = Color32::from_rgb(0x42, 0x3E, 0x4C);
+pub const MUTED_DARK: Color32 = Color32::from_rgb(0xA8, 0xA2, 0xB0);
+pub const PREVIEW_MATTE_DARK: Color32 = Color32::from_rgb(0x28, 0x26, 0x2E);
+
+// --- Settings -----------------------------------------------------------------
 
 pub const SETTINGS_BG: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
 pub const SETTINGS_CARD: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
@@ -82,6 +85,59 @@ pub const SETTINGS_LABEL: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
 pub const SETTINGS_SECONDARY: Color32 = Color32::from_rgb(0x6C, 0x6C, 0x70);
 pub const SETTINGS_FIELD: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xED);
 pub const SETTINGS_PRIMARY: Color32 = Color32::from_rgb(0x00, 0x7A, 0xFF);
+
+pub const SETTINGS_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
+pub const SETTINGS_CARD_DARK: Color32 = Color32::from_rgb(0x2C, 0x2C, 0x2E);
+pub const SETTINGS_SEPARATOR_DARK: Color32 = Color32::from_rgb(0x48, 0x48, 0x4A);
+pub const SETTINGS_LABEL_DARK: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
+pub const SETTINGS_SECONDARY_DARK: Color32 = Color32::from_rgb(0xA1, 0xA1, 0xA6);
+pub const SETTINGS_FIELD_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3C);
+
+/// Runtime annotate colors for the active theme.
+#[derive(Debug, Clone, Copy)]
+pub struct AnnotatePalette {
+    pub bg: Color32,
+    pub toolbar_fill: Color32,
+    pub toolbar_stroke: Color32,
+    pub btn_idle: Color32,
+    pub btn_hover: Color32,
+    pub btn_selected: Color32,
+    pub muted: Color32,
+    pub preview_matte: Color32,
+    pub dark: bool,
+}
+
+impl AnnotatePalette {
+    pub fn for_mode(dark: bool, _translucent: bool) -> Self {
+        // Flat pastel only — window transparency may clear the panel, but chrome
+        // stays opaque flat fills (no frost imitation).
+        if dark {
+            Self {
+                bg: ANNOTATE_BG_DARK,
+                toolbar_fill: TOOLBAR_FILL_DARK,
+                toolbar_stroke: TOOLBAR_STROKE_DARK,
+                btn_idle: BTN_IDLE_DARK,
+                btn_hover: BTN_HOVER_DARK,
+                btn_selected: BTN_SELECTED_DARK,
+                muted: MUTED_DARK,
+                preview_matte: PREVIEW_MATTE_DARK,
+                dark: true,
+            }
+        } else {
+            Self {
+                bg: ANNOTATE_BG,
+                toolbar_fill: TOOLBAR_FILL,
+                toolbar_stroke: TOOLBAR_STROKE,
+                btn_idle: BTN_IDLE,
+                btn_hover: BTN_HOVER,
+                btn_selected: BTN_SELECTED,
+                muted: MUTED,
+                preview_matte: PREVIEW_MATTE,
+                dark: false,
+            }
+        }
+    }
+}
 
 /// Approximate relative luminance of a Color32 (ignores alpha).
 pub fn approx_luminance(c: Color32) -> f32 {
@@ -97,28 +153,41 @@ pub fn icon_color_for_fill(fill: Color32) -> Color32 {
     }
 }
 
-/// Pastel annotate visuals; feathering on for soft circle/rail edges.
-pub fn apply_annotate_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::light();
-    visuals.panel_fill = ANNOTATE_BG;
-    visuals.window_fill = ANNOTATE_BG;
-    visuals.extreme_bg_color = Color32::from_rgb(0xE8, 0xE4, 0xEE);
-    visuals.override_text_color = Some(ICON_DARK);
-    visuals.widgets.noninteractive.bg_fill = ANNOTATE_BG;
-    visuals.widgets.noninteractive.weak_bg_fill = ANNOTATE_BG;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
-    visuals.widgets.inactive.bg_fill = BTN_IDLE;
-    visuals.widgets.inactive.weak_bg_fill = BTN_IDLE;
-    visuals.widgets.hovered.bg_fill = BTN_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = BTN_HOVER;
-    visuals.widgets.active.bg_fill = BTN_SELECTED;
-    visuals.widgets.active.weak_bg_fill = BTN_SELECTED;
-    visuals.widgets.open.bg_fill = BTN_IDLE;
-    visuals.widgets.open.weak_bg_fill = BTN_IDLE;
-    visuals.selection.bg_fill = BTN_SELECTED;
+pub fn theme_preference(theme: UiTheme) -> ThemePreference {
+    match theme {
+        UiTheme::Dark => ThemePreference::Dark,
+        UiTheme::Light => ThemePreference::Light,
+        UiTheme::System => ThemePreference::System,
+    }
+}
+
+fn annotate_visuals(dark: bool) -> egui::Visuals {
+    let pal = AnnotatePalette::for_mode(dark, false);
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    visuals.panel_fill = pal.bg;
+    visuals.window_fill = pal.bg;
+    visuals.extreme_bg_color = pal.toolbar_fill;
+    visuals.override_text_color = Some(if dark { ICON_LIGHT } else { ICON_DARK });
+    visuals.widgets.noninteractive.bg_fill = pal.bg;
+    visuals.widgets.noninteractive.weak_bg_fill = pal.bg;
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, pal.toolbar_stroke);
+    visuals.widgets.inactive.bg_fill = pal.btn_idle;
+    visuals.widgets.inactive.weak_bg_fill = pal.btn_idle;
+    visuals.widgets.hovered.bg_fill = pal.btn_hover;
+    visuals.widgets.hovered.weak_bg_fill = pal.btn_hover;
+    visuals.widgets.active.bg_fill = pal.btn_selected;
+    visuals.widgets.active.weak_bg_fill = pal.btn_selected;
+    visuals.widgets.open.bg_fill = pal.btn_idle;
+    visuals.widgets.open.weak_bg_fill = pal.btn_idle;
+    visuals.selection.bg_fill = pal.btn_selected;
     visuals.selection.stroke = Stroke::new(1.0_f32, PASTEL_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, PASTEL_PRIMARY);
     visuals.hyperlink_color = PASTEL_PRIMARY;
+    let fg = if dark { ICON_LIGHT } else { ICON_DARK };
     for w in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -126,50 +195,75 @@ pub fn apply_annotate_visuals(ctx: &egui::Context) {
         &mut visuals.widgets.active,
         &mut visuals.widgets.open,
     ] {
-        w.fg_stroke = Stroke::new(1.0_f32, ICON_DARK);
+        w.fg_stroke = Stroke::new(1.0_f32, fg);
         w.corner_radius = CornerRadius::same(8);
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0_f32, TOOLBAR_STROKE);
+    visuals.window_stroke = Stroke::new(1.0_f32, pal.toolbar_stroke);
     visuals.window_shadow = Shadow {
         offset: [0, 4],
         blur: 16,
         spread: 0,
-        color: Color32::from_black_alpha(48),
+        color: Color32::from_black_alpha(if dark { 80 } else { 48 }),
     };
     visuals.popup_shadow = Shadow::NONE;
-    ctx.set_visuals(visuals);
-
-    ctx.tessellation_options_mut(|opts| {
-        opts.feathering = true;
-        opts.feathering_size_in_pixels = 1.5;
-    });
+    visuals
 }
 
-/// Light Apple-inspired settings (grouped cards, deference to content).
-pub fn apply_settings_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::light();
-    visuals.panel_fill = SETTINGS_BG;
-    visuals.window_fill = SETTINGS_CARD;
-    visuals.extreme_bg_color = SETTINGS_FIELD;
-    visuals.override_text_color = Some(SETTINGS_LABEL);
-    visuals.widgets.noninteractive.bg_fill = SETTINGS_BG;
-    visuals.widgets.noninteractive.weak_bg_fill = SETTINGS_BG;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, SETTINGS_SEPARATOR);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, SETTINGS_SECONDARY);
-    visuals.widgets.inactive.bg_fill = SETTINGS_FIELD;
-    visuals.widgets.inactive.weak_bg_fill = SETTINGS_FIELD;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(0xDC, 0xDC, 0xE0);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xDC, 0xDC, 0xE0);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.active.bg_fill = Color32::from_rgb(0xD0, 0xD0, 0xD5);
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xD0, 0xD0, 0xD5);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
-    visuals.widgets.open.bg_fill = SETTINGS_FIELD;
-    visuals.widgets.open.weak_bg_fill = SETTINGS_FIELD;
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, SETTINGS_LABEL);
+fn settings_visuals(dark: bool) -> egui::Visuals {
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    let (bg, card, sep, label, secondary, field) = if dark {
+        (
+            SETTINGS_BG_DARK,
+            SETTINGS_CARD_DARK,
+            SETTINGS_SEPARATOR_DARK,
+            SETTINGS_LABEL_DARK,
+            SETTINGS_SECONDARY_DARK,
+            SETTINGS_FIELD_DARK,
+        )
+    } else {
+        (
+            SETTINGS_BG,
+            SETTINGS_CARD,
+            SETTINGS_SEPARATOR,
+            SETTINGS_LABEL,
+            SETTINGS_SECONDARY,
+            SETTINGS_FIELD,
+        )
+    };
+    visuals.panel_fill = bg;
+    visuals.window_fill = card;
+    visuals.extreme_bg_color = field;
+    visuals.override_text_color = Some(label);
+    visuals.widgets.noninteractive.bg_fill = bg;
+    visuals.widgets.noninteractive.weak_bg_fill = bg;
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, sep);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, secondary);
+    visuals.widgets.inactive.bg_fill = field;
+    visuals.widgets.inactive.weak_bg_fill = field;
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.hovered.bg_fill = if dark {
+        Color32::from_rgb(0x48, 0x48, 0x4A)
+    } else {
+        Color32::from_rgb(0xDC, 0xDC, 0xE0)
+    };
+    visuals.widgets.hovered.weak_bg_fill = visuals.widgets.hovered.bg_fill;
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.active.bg_fill = if dark {
+        Color32::from_rgb(0x54, 0x54, 0x56)
+    } else {
+        Color32::from_rgb(0xD0, 0xD0, 0xD5)
+    };
+    visuals.widgets.active.weak_bg_fill = visuals.widgets.active.bg_fill;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, label);
+    visuals.widgets.open.bg_fill = field;
+    visuals.widgets.open.weak_bg_fill = field;
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, label);
     visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x40);
     visuals.selection.stroke = Stroke::new(1.0_f32, SETTINGS_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, SETTINGS_PRIMARY);
@@ -185,7 +279,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(6);
-    visuals.window_stroke = Stroke::new(1.0_f32, SETTINGS_SEPARATOR);
+    visuals.window_stroke = Stroke::new(1.0_f32, sep);
     visuals.window_shadow = Shadow {
         offset: [0, 2],
         blur: 12,
@@ -193,14 +287,32 @@ pub fn apply_settings_visuals(ctx: &egui::Context) {
         color: Color32::from_black_alpha(40),
     };
     visuals.popup_shadow = Shadow::NONE;
-    ctx.set_visuals(visuals);
+    visuals
 }
 
-/// Frame for the right-side pastel tool rail.
-pub fn toolbar_frame() -> egui::Frame {
+/// Install light + dark annotate styles and select theme preference.
+pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
+    ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
+    ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
+    ctx.set_theme(theme_preference(theme));
+    ctx.tessellation_options_mut(|opts| {
+        opts.feathering = true;
+        opts.feathering_size_in_pixels = 1.5;
+    });
+}
+
+/// Install light + dark settings styles and select theme preference.
+pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
+    ctx.set_visuals_of(Theme::Light, settings_visuals(false));
+    ctx.set_visuals_of(Theme::Dark, settings_visuals(true));
+    ctx.set_theme(theme_preference(theme));
+}
+
+/// Frame for the floating pastel tool rail (content-sized, not full window).
+pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
     egui::Frame::new()
-        .fill(TOOLBAR_FILL)
-        .stroke(Stroke::new(1.25_f32, TOOLBAR_STROKE))
+        .fill(pal.toolbar_fill)
+        .stroke(Stroke::new(1.25_f32, pal.toolbar_stroke))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
         .inner_margin(Margin::symmetric(6, 12))
         .outer_margin(Margin::ZERO)
@@ -208,27 +320,32 @@ pub fn toolbar_frame() -> egui::Frame {
             offset: [0, 4],
             blur: 14,
             spread: 0,
-            color: Color32::from_black_alpha(28),
+            color: Color32::from_black_alpha(if pal.dark { 48 } else { 28 }),
         })
 }
 
 /// Grouped settings card.
-pub fn settings_group_frame() -> egui::Frame {
+pub fn settings_group_frame(dark: bool) -> egui::Frame {
+    let (fill, stroke) = if dark {
+        (SETTINGS_CARD_DARK, SETTINGS_SEPARATOR_DARK)
+    } else {
+        (SETTINGS_CARD, SETTINGS_SEPARATOR)
+    };
     egui::Frame::new()
-        .fill(SETTINGS_CARD)
-        .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR))
+        .fill(fill)
+        .stroke(Stroke::new(1.0_f32, stroke))
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::symmetric(14, 12))
+        .inner_margin(Margin::symmetric(12, 10))
 }
 
 fn paint_soft_circle(painter: &egui::Painter, center: Pos2, radius: f32, fill: Color32) {
     painter.circle_filled(center + Vec2::new(0.0, 1.0), radius + 0.4, BTN_SHADOW);
     painter.circle_filled(center, radius, fill);
-    // Soft muted rim (wide + low contrast → feathers; no harsh 1px white).
+    // Soft muted rim (wide + low contrast → feathers; no specular glass rim).
     painter.circle_stroke(
         center,
         radius - 0.5,
-        Stroke::new(1.75_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x28)),
+        Stroke::new(1.75_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x28)),
     );
 }
 
@@ -237,22 +354,31 @@ pub fn tool_icon_button(
     ui: &mut egui::Ui,
     selected: bool,
     tooltip: &str,
-    fill_override: Option<Color32>,
+    fill_override: Option<(Color32, Color32)>,
+    diameter: f32,
     paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
 ) -> bool {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::click());
     let response = response.on_hover_text(tooltip);
+    let hovered = response.hovered() || response.is_pointer_button_down_on();
 
-    let fill = fill_override.unwrap_or(if selected {
-        BTN_SELECTED
-    } else if response.hovered() {
-        BTN_HOVER
+    let dark = ui.visuals().dark_mode;
+    let pal = AnnotatePalette::for_mode(dark, false);
+    let fill = if let Some((idle, hover)) = fill_override {
+        if hovered {
+            hover
+        } else {
+            idle
+        }
+    } else if selected {
+        pal.btn_selected
+    } else if hovered {
+        pal.btn_hover
     } else {
-        BTN_IDLE
-    });
-    let icon = icon_color_for_fill(fill);
-    let radius = TOOL_BTN * 0.46;
+        pal.btn_idle
+    };
 
+    let radius = diameter * 0.46;
     let painter = ui.painter_at(rect);
     paint_soft_circle(&painter, rect.center(), radius, fill);
 
@@ -260,11 +386,12 @@ pub fn tool_icon_button(
         painter.circle_stroke(
             rect.center(),
             radius - 0.2,
-            Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(0x8B, 0x7C, 0xB6, 0x90)),
+            Stroke::new(2.0_f32, Color32::from_rgba_premultiplied(0x8B, 0x7C, 0xB6, 0x90)),
         );
     }
 
-    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(TOOL_BTN * 0.50));
+    let icon = icon_color_for_fill(fill);
+    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(diameter * 0.50));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
@@ -275,15 +402,19 @@ pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Respon
     let popup_id = Id::new("lightsnip_stroke_color_popup");
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
     let response = response.on_hover_text("Stroke color");
+    let hovered = response.hovered();
 
-    let painter = ui.painter_at(rect);
+    let dark = ui.visuals().dark_mode;
+    let pal = AnnotatePalette::for_mode(dark, false);
+    let fill = if hovered { pal.btn_hover } else { pal.btn_idle };
     let radius = TOOL_BTN * 0.46;
-    paint_soft_circle(&painter, rect.center(), radius, BTN_IDLE);
+    let painter = ui.painter_at(rect);
+    paint_soft_circle(&painter, rect.center(), radius, fill);
     painter.circle_filled(rect.center(), radius * 0.62, *color);
     painter.circle_stroke(
         rect.center(),
         radius * 0.62,
-        Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(0x3A, 0x36, 0x45, 0x40)),
+        Stroke::new(1.5_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x40)),
     );
 
     if response.clicked() {
@@ -306,14 +437,14 @@ pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Respon
     response
 }
 
-// Aliases so annotate can keep short call sites while names stay accurate.
+// Aliases so annotate can keep short call sites.
 pub use tool_icon_button as glass_icon_button;
 pub use tool_color_swatch as glass_color_swatch;
 pub use toolbar_frame as glass_toolbar_frame;
 
 // --- Icon painters (thicker strokes for AA) -----------------------------------
 
-const ICON_STROKE: f32 = 2.25;
+const ICON_STROKE: f32 = 2.35;
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
@@ -353,27 +484,29 @@ pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) 
     }
 }
 
+/// Clear curved undo arrow (readable at small sizes).
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE, color);
-    let c = rect.center();
-    let r = rect.width() * 0.28;
-    let steps = 28;
-    let mut prev = Pos2::new(c.x + r, c.y);
+    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
+    let c = rect.center() + Vec2::new(rect.width() * 0.04, rect.height() * 0.06);
+    let r = rect.width() * 0.30;
+    let start = -0.35_f32;
+    let sweep = std::f32::consts::PI * 1.35;
+    let steps = 36;
+    let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
-        let t = std::f32::consts::PI * (i as f32 / steps as f32);
-        let p = Pos2::new(c.x + r * t.cos(), c.y - r * t.sin());
+        let t = start - sweep * (i as f32 / steps as f32);
+        let p = Pos2::new(c.x + r * t.cos(), c.y + r * t.sin());
         painter.line_segment([prev, p], stroke);
         prev = p;
     }
-    let tip = Pos2::new(c.x - r, c.y);
-    painter.line_segment(
-        [tip, tip + Vec2::new(rect.width() * 0.14, -rect.height() * 0.12)],
-        stroke,
-    );
-    painter.line_segment(
-        [tip, tip + Vec2::new(rect.width() * 0.14, rect.height() * 0.12)],
-        stroke,
-    );
+    let tip_angle = start - sweep;
+    let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
+    let tangent = Vec2::new(tip_angle.sin(), -tip_angle.cos());
+    let wing = rect.width() * 0.16;
+    let left = tip + tangent * wing + Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
+    let right = tip + tangent * wing - Vec2::new(-tangent.y, tangent.x) * (wing * 0.55);
+    painter.line_segment([tip, left], stroke);
+    painter.line_segment([tip, right], stroke);
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
@@ -385,15 +518,15 @@ pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.26;
-    let inner = rect.width() * 0.11;
-    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
+    let outer = rect.width() * 0.28;
+    let inner = rect.width() * 0.12;
+    painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE + 0.2, color));
     painter.circle_filled(c, inner, color);
-    for i in 0..6 {
-        let a = (i as f32) * std::f32::consts::TAU / 6.0;
-        let p0 = c + Vec2::angled(a) * (outer * 0.82);
-        let p1 = c + Vec2::angled(a) * (outer * 1.28);
-        painter.line_segment([p0, p1], Stroke::new(2.4_f32, color));
+    for i in 0..8 {
+        let a = (i as f32) * std::f32::consts::TAU / 8.0;
+        let p0 = c + Vec2::angled(a) * (outer * 0.78);
+        let p1 = c + Vec2::angled(a) * (outer * 1.32);
+        painter.line_segment([p0, p1], Stroke::new(2.6_f32, color));
     }
 }
 
@@ -448,6 +581,19 @@ pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
 }
 
+/// Fit `img` into `area` (letterbox). Allows upscale so small captures stay sharp-ish when window is large.
+pub fn fit_image_rect(area: Rect, img_w: f32, img_h: f32) -> (Rect, f32) {
+    let img_size = Vec2::new(img_w.max(1.0), img_h.max(1.0));
+    let scale = (area.width() / img_size.x).min(area.height() / img_size.y);
+    let display = img_size * scale;
+    let origin = area.min
+        + Vec2::new(
+            (area.width() - display.x) * 0.5,
+            (area.height() - display.y) * 0.5,
+        );
+    (Rect::from_min_size(origin, display), scale)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,9 +609,17 @@ mod tests {
     #[test]
     fn tool_button_meets_desktop_target() {
         assert!(TOOL_BTN >= 28.0);
+        assert!(SETTINGS_BTN > TOOL_BTN);
         assert!(TOOLBAR_WIDTH >= TOOL_BTN);
         assert!(WINDOW_PAD >= 12.0);
         assert!(TOOLBAR_GUTTER >= 12.0);
+    }
+
+    #[test]
+    fn flat_pastel_keeps_lilac_not_pure_white() {
+        assert_eq!(TOOLBAR_FILL, Color32::from_rgb(0xE8, 0xE4, 0xEE));
+        assert!(BTN_SELECTED.b() > BTN_SELECTED.g());
+        assert_eq!(BTN_IDLE, Color32::WHITE);
     }
 
     #[test]
@@ -485,10 +639,25 @@ mod tests {
 
     #[test]
     fn pastel_primary_is_muted_not_neon() {
-        // Restrained purple: mid saturation / mid value — not electric neon.
         assert!(PASTEL_PRIMARY.r() < 0xB0);
         assert!(PASTEL_PRIMARY.b() < 0xD0);
         assert!(approx_luminance(PASTEL_PRIMARY) > 100.0);
         assert!(approx_luminance(PASTEL_PRIMARY) < 180.0);
+    }
+
+    #[test]
+    fn fit_image_upscales_small_captures() {
+        let area = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let (r, scale) = fit_image_rect(area, 200.0, 100.0);
+        assert!(scale > 1.0, "small images should scale up with the window");
+        assert!((r.width() - 800.0).abs() < 1.0 || (r.height() - 600.0).abs() < 1.0);
+        assert!((r.center() - area.center()).length() < 1.0);
+    }
+
+    #[test]
+    fn theme_preference_maps() {
+        assert_eq!(theme_preference(UiTheme::Dark), ThemePreference::Dark);
+        assert_eq!(theme_preference(UiTheme::Light), ThemePreference::Light);
+        assert_eq!(theme_preference(UiTheme::System), ThemePreference::System);
     }
 }

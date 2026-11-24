@@ -1,16 +1,14 @@
-//! Floating annotate window (left pastel tool rail + image canvas).
+//! Floating annotate window (flat pastel tool rail + image canvas).
 //!
-//! Layout: vertical tool strip LEFT of the capture, with even outer padding
-//! (`WINDOW_PAD`) on top / left / right / bottom so chrome is not flush to the
-//! window border. Not fullscreen. Esc cancels/discards; Save and Copy dismiss
-//! after a successful write.
+//! Layout: content-sized floating rail attached to the capture preview (not
+//! full window height). Position: left (default) / right / top / bottom via
+//! settings. Esc cancels/discards; Save and Copy dismiss after a successful write.
 //!
-//! Chrome: flat pastel (restrained purple / gray / white). egui on Wayland cannot
-//! deliver real liquid-glass backdrop-blur, so we avoid frosted imitation.
+//! Chrome: flat pastel purple / gray / white — no liquid-glass imitation
+//! (no frost, specular rim, or hover sheen). egui on Wayland cannot backdrop-blur.
 //!
-//! Stay-on-top: `ViewportBuilder::with_always_on_top` via winit. On Wayland many
-//! compositors ignore or gate always-on-top (layer-shell / xdg-activation); X11 is
-//! more reliable. Documented in README / user-guide.
+//! Stay-on-top: `ViewportBuilder::with_always_on_top`. Many Wayland compositors
+//! ignore or gate always-on-top.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -20,12 +18,14 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuild
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
+use crate::config::ToolbarPosition;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
-    self, glass_color_swatch, glass_icon_button, glass_toolbar_frame, paint_icon_arrow,
-    paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate, paint_icon_save,
-    paint_icon_settings, paint_icon_undo, ACTION_FILL, ANNOTATE_BG, DEFAULT_STROKE, PASTEL_PRIMARY,
-    MUTED, TOOLBAR_GUTTER, TOOLBAR_WIDTH, WINDOW_PAD,
+    self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
+    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate,
+    paint_icon_save, paint_icon_settings, paint_icon_undo, AnnotatePalette, ACTION_FILL,
+    ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER, SETTINGS_BTN,
+    TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
 
 /// Result of the annotate session.
@@ -72,14 +72,26 @@ const PIXELATE_BLOCK: u32 = 12;
 const MAX_DISPLAY_W: f32 = 1100.0;
 const MAX_DISPLAY_H: f32 = 800.0;
 
+/// Approximate content size of the floating rail (vertical).
+fn toolbar_content_height() -> f32 {
+    // 3 tools + color + undo + clear + settings + save + copy + gaps + margins
+    let n_btns = 8.0_f32;
+    let gaps = 7.0 * 8.0 + 24.0;
+    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+}
+
+/// Approximate content size of the floating rail (horizontal).
+fn toolbar_content_width() -> f32 {
+    let n_btns = 8.0_f32;
+    let gaps = 7.0 * 8.0 + 24.0;
+    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + gaps
+}
+
 /// Open a floating annotate window on an existing PNG.
 ///
 /// On Save / Enter / Copy: composites annotations onto the image and overwrites `path`.
 /// On Escape: clears an in-progress drag first; with no draft, returns
 /// [`AnnotateOutcome::Cancelled`] without modifying the file.
-///
-/// Needs a working Wayland (or X11) display plus egui/winit native libs
-/// (`libxkbcommon`, etc.). Cloud / headless VMs usually cannot run this.
 pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     ensure_display_available()?;
 
@@ -91,36 +103,39 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
         bail!("PNG has empty dimensions: {}", path.display());
     }
 
-    let (win_w, win_h) = floating_window_size(w, h);
+    let settings = EmbeddedSettings::load();
+    let cfg = settings.config().clone();
+    let (win_w, win_h) = floating_window_size(w, h, cfg.toolbar_position);
     let rgba_bytes = rgba.as_raw().clone();
     let path_buf = path.to_path_buf();
     let outcome = Arc::new(Mutex::new(AnnotateOutcome::Cancelled));
     let outcome_for_app = Arc::clone(&outcome);
 
+    let transparent = cfg.window_transparency;
+    let decorations = cfg.show_title_bar;
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_title("Annotate")
+            .with_title("Lightsnip")
             .with_inner_size([win_w, win_h])
             .with_min_inner_size([
                 TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
                 200.0,
             ])
-            .with_decorations(true)
-            .with_transparent(false)
+            .with_decorations(decorations)
+            .with_transparent(transparent)
             .with_resizable(true)
             // Best-effort; Wayland compositors often ignore or restrict this.
             .with_always_on_top(),
         ..Default::default()
     };
 
-    // winit can abort via panic when native libs are missing; catch so capture
-    // can keep the raw PNG instead of killing the process.
     let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         eframe::run_native(
-            "lightsnip annotate",
+            "Lightsnip",
             options,
             Box::new(move |cc| {
-                ui::apply_annotate_visuals(&cc.egui_ctx);
+                ui::apply_annotate_visuals(&cc.egui_ctx, cfg.theme);
                 Ok(Box::new(AnnotateApp::new(
                     &cc.egui_ctx,
                     rgba_bytes,
@@ -128,6 +143,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
                     h,
                     path_buf,
                     outcome_for_app,
+                    settings,
                 )))
             }),
         )
@@ -151,16 +167,22 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     Ok(result)
 }
 
-fn floating_window_size(img_w: u32, img_h: u32) -> (f32, f32) {
+fn floating_window_size(img_w: u32, img_h: u32, pos: ToolbarPosition) -> (f32, f32) {
     let scale = (MAX_DISPLAY_W / img_w as f32)
         .min(MAX_DISPLAY_H / img_h as f32)
         .min(1.0);
     let disp_w = img_w as f32 * scale;
     let disp_h = img_h as f32 * scale;
-    (
-        TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_w + WINDOW_PAD * 2.0,
-        disp_h + WINDOW_PAD * 2.0,
-    )
+    match pos {
+        ToolbarPosition::Left | ToolbarPosition::Right => (
+            TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_w + WINDOW_PAD * 2.0,
+            disp_h.max(toolbar_content_height()) + WINDOW_PAD * 2.0,
+        ),
+        ToolbarPosition::Top | ToolbarPosition::Bottom => (
+            disp_w.max(toolbar_content_width()) + WINDOW_PAD * 2.0,
+            TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_h + WINDOW_PAD * 2.0,
+        ),
+    }
 }
 
 fn ensure_display_available() -> Result<()> {
@@ -174,8 +196,6 @@ fn ensure_display_available() -> Result<()> {
 
 const STROKE_WIDTH: f32 = 3.0;
 
-/// Privacy region outline - muted, not the markup accent (R-31: redaction ≠ callout).
-/// Premultiplied approx of unmultiplied (0x28,0x28,0x2A,160).
 const PIXELATE_PREVIEW_FILL: Color32 =
     Color32::from_rgba_premultiplied(0x19, 0x19, 0x1A, 160);
 const PIXELATE_PREVIEW_STROKE: Color32 = Color32::from_rgb(0xC8, 0xC8, 0xC8);
@@ -184,7 +204,6 @@ struct AnnotateApp {
     texture: egui::TextureHandle,
     width: u32,
     height: u32,
-    /// Original pixels (RGBA8). Unchanged until Save/Copy.
     pixels: Vec<u8>,
     shapes: Vec<Shape>,
     tool: Tool,
@@ -196,6 +215,9 @@ struct AnnotateApp {
     finished: bool,
     show_settings: bool,
     settings: EmbeddedSettings,
+    /// Last applied viewport decoration / transparency (to avoid spam).
+    applied_title_bar: bool,
+    applied_transparency: bool,
 }
 
 impl AnnotateApp {
@@ -206,12 +228,15 @@ impl AnnotateApp {
         height: u32,
         path: std::path::PathBuf,
         outcome: Arc<Mutex<AnnotateOutcome>>,
+        settings: EmbeddedSettings,
     ) -> Self {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(
             [width as usize, height as usize],
             &pixels,
         );
+        // LINEAR so upscaled small captures stay as smooth as egui allows.
         let texture = ctx.load_texture("capture", color_image, egui::TextureOptions::LINEAR);
+        let cfg = settings.config();
         Self {
             texture,
             width,
@@ -226,7 +251,9 @@ impl AnnotateApp {
             outcome,
             finished: false,
             show_settings: false,
-            settings: EmbeddedSettings::load(),
+            applied_title_bar: cfg.show_title_bar,
+            applied_transparency: cfg.window_transparency,
+            settings,
         }
     }
 
@@ -297,15 +324,50 @@ impl AnnotateApp {
         }
     }
 
-    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 8.0;
+    fn sync_viewport_prefs(&mut self, ctx: &egui::Context) {
+        let cfg = self.settings.config();
+        ui::apply_annotate_visuals(ctx, cfg.theme);
+        if cfg.show_title_bar != self.applied_title_bar {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(cfg.show_title_bar));
+            self.applied_title_bar = cfg.show_title_bar;
+        }
+        if cfg.window_transparency != self.applied_transparency {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(cfg.window_transparency));
+            self.applied_transparency = cfg.window_transparency;
+        }
+    }
 
-            if glass_icon_button(ui, self.tool == Tool::Arrow, "Arrow", None, paint_icon_arrow)
-            {
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui, horizontal: bool) {
+        let layout = if horizontal {
+            egui::Layout::left_to_right(egui::Align::Center)
+        } else {
+            egui::Layout::top_down(egui::Align::Center)
+        };
+        ui.with_layout(layout, |ui| {
+            if horizontal {
+                ui.spacing_mut().item_spacing.x = 8.0;
+            } else {
+                ui.spacing_mut().item_spacing.y = 8.0;
+            }
+
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Arrow,
+                "Arrow",
+                None,
+                TOOL_BTN,
+                paint_icon_arrow,
+            ) {
                 self.tool = Tool::Arrow;
             }
-            if glass_icon_button(ui, self.tool == Tool::Rect, "Box", None, paint_icon_box) {
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Rect,
+                "Box",
+                None,
+                TOOL_BTN,
+                paint_icon_box,
+            ) {
                 self.tool = Tool::Rect;
             }
             if glass_icon_button(
@@ -313,31 +375,42 @@ impl AnnotateApp {
                 self.tool == Tool::Pixelate,
                 "Pixelate",
                 None,
+                TOOL_BTN,
                 paint_icon_pixelate,
             ) {
                 self.tool = Tool::Pixelate;
             }
 
-            ui.add_space(2.0);
             glass_color_swatch(ui, &mut self.stroke_color);
 
-            ui.add_space(4.0);
-            if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, paint_icon_undo) {
+            if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, TOOL_BTN, paint_icon_undo) {
                 self.undo();
             }
-            if glass_icon_button(ui, false, "Clear all marks", None, paint_icon_clear) {
+            if glass_icon_button(ui, false, "Clear all marks", None, TOOL_BTN, paint_icon_clear)
+            {
                 self.clear_all();
             }
-            if glass_icon_button(ui, false, "Settings", None, paint_icon_settings) {
+            if glass_icon_button(
+                ui,
+                false,
+                "Settings",
+                None,
+                SETTINGS_BTN,
+                paint_icon_settings,
+            ) {
                 self.show_settings = true;
             }
 
-            ui.add_space(8.0);
+            // Save / Copy: flat pastel fills with hover color change.
+            let save_pair = (PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER);
+            let copy_pair = (ACTION_FILL, ACTION_FILL_HOVER);
+
             if glass_icon_button(
                 ui,
                 false,
                 "Save and close (Enter)",
-                Some(PASTEL_PRIMARY),
+                Some(save_pair),
+                TOOL_BTN,
                 paint_icon_save,
             ) {
                 if let Err(err) = self.save_and_close() {
@@ -348,7 +421,8 @@ impl AnnotateApp {
                 ui,
                 false,
                 "Save, copy to clipboard, and close",
-                Some(ACTION_FILL),
+                Some(copy_pair),
+                TOOL_BTN,
                 paint_icon_copy,
             ) {
                 if let Err(err) = self.copy_and_close() {
@@ -356,15 +430,71 @@ impl AnnotateApp {
                 }
             }
 
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("Esc").color(MUTED).size(10.0));
+            let dark = ui.visuals().dark_mode;
+            let muted = AnnotatePalette::for_mode(dark, false).muted;
+            ui.label(egui::RichText::new("Esc").color(muted).size(10.0));
         });
+    }
+
+    fn paint_canvas(&mut self, ui: &mut egui::Ui, image_area: Rect, pal: &AnnotatePalette) {
+        let (image_rect, scale) =
+            fit_image_rect(image_area, self.width as f32, self.height as f32);
+        let response = ui.interact(image_area, ui.id().with("canvas"), Sense::click_and_drag());
+        let painter = ui.painter_at(image_area);
+
+        painter.rect_filled(image_rect, 8.0, pal.preview_matte);
+        painter.image(
+            self.texture.id(),
+            image_rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+
+        let origin = image_rect.min;
+        let to_screen = |p: Pos2| -> Pos2 {
+            Pos2::new(origin.x + p.x * scale, origin.y + p.y * scale)
+        };
+        let to_image = |p: Pos2| -> Pos2 {
+            Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
+        };
+
+        for shape in self.shapes.iter().chain(self.draft.iter()) {
+            paint_shape(&painter, *shape, to_screen, scale);
+        }
+
+        if response.drag_started() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                if image_rect.contains(pos) {
+                    self.drag_start = Some(to_image(pos));
+                }
+            }
+        }
+        if response.dragged() {
+            if let (Some(start), Some(pos)) = (self.drag_start, response.interact_pointer_pos()) {
+                let end = clamp_to_image(to_image(pos), self.width, self.height);
+                self.draft = Some(self.draft_from_drag(start, end));
+            }
+        }
+        if response.drag_stopped() {
+            if let Some(shape) = self.draft.take() {
+                if shape_is_meaningful(shape) {
+                    self.shapes.push(shape);
+                }
+            }
+            self.drag_start = None;
+        }
     }
 }
 
 impl eframe::App for AnnotateApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Rgba::from(ANNOTATE_BG).to_array()
+        let dark = matches!(
+            self.settings.config().theme,
+            crate::config::UiTheme::Dark
+        ) || (_visuals.dark_mode && matches!(self.settings.config().theme, crate::config::UiTheme::System));
+        let translucent = self.settings.config().window_transparency;
+        let pal = AnnotatePalette::for_mode(dark || _visuals.dark_mode, translucent);
+        egui::Rgba::from(pal.bg).to_array()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -373,8 +503,8 @@ impl eframe::App for AnnotateApp {
             return;
         }
 
-        // Escape clears draft then cancels; Enter saves; Ctrl+Z undoes.
-        // When Settings is open, Escape closes Settings first.
+        self.sync_viewport_prefs(ctx);
+
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
                 if self.show_settings {
@@ -400,85 +530,96 @@ impl eframe::App for AnnotateApp {
 
         show_settings_window(ctx, &mut self.show_settings, &mut self.settings);
 
+        let dark = ctx.theme() == egui::Theme::Dark;
+        let translucent = self.settings.config().window_transparency;
+        let pal = AnnotatePalette::for_mode(dark, translucent);
+        let toolbar_pos = self.settings.config().toolbar_position;
+        let horizontal = toolbar_pos.is_horizontal();
+
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::NONE
-                    .fill(ANNOTATE_BG)
-                    // Even inset on all sides so the left rail is never flush to the window.
+                    .fill(pal.bg)
                     .inner_margin(egui::Margin::same(WINDOW_PAD as i8)),
             )
             .show(ctx, |ui| {
-                ui.horizontal_top(|ui| {
-                    // Left: flat pastel tool rail (icons + color wheel).
-                    let toolbar_height = ui.available_height().max(120.0);
-                    glass_toolbar_frame().show(ui, |ui| {
-                        ui.set_width(TOOLBAR_WIDTH - 12.0);
-                        ui.set_min_height(toolbar_height - 8.0);
-                        self.draw_toolbar(ui);
-                    });
+                let available = ui.available_rect_before_wrap();
 
-                    ui.add_space(TOOLBAR_GUTTER);
-
-                    // Right: image canvas.
-                    let available = ui.available_size();
-                    let img_size = Vec2::new(self.width as f32, self.height as f32);
-                    let scale = (available.x / img_size.x)
-                        .min(available.y / img_size.y)
-                        .min(1.0);
-                    let display = img_size * scale;
-                    let (response, painter) =
-                        ui.allocate_painter(available, Sense::click_and_drag());
-
-                    let origin = response.rect.min
-                        + Vec2::new(
-                            (available.x - display.x) * 0.5,
-                            (available.y - display.y) * 0.5,
+                // Reserve a strip for the content-sized rail; image gets the rest.
+                let (image_area, toolbar_origin) = match toolbar_pos {
+                    ToolbarPosition::Left => {
+                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
+                        let img = Rect::from_min_max(
+                            Pos2::new(available.min.x + rail, available.min.y),
+                            available.max,
                         );
-                    let image_rect = Rect::from_min_size(origin, display);
-
-                    painter.rect_filled(image_rect, 6.0, Color32::from_rgb(0xE0, 0xDC, 0xE8));
-                    painter.image(
-                        self.texture.id(),
-                        image_rect,
-                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
-
-                    let to_screen = |p: Pos2| -> Pos2 {
-                        Pos2::new(origin.x + p.x * scale, origin.y + p.y * scale)
-                    };
-                    let to_image = |p: Pos2| -> Pos2 {
-                        Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
-                    };
-
-                    for shape in self.shapes.iter().chain(self.draft.iter()) {
-                        paint_shape(&painter, *shape, to_screen, scale);
+                        let (fitted, _) =
+                            fit_image_rect(img, self.width as f32, self.height as f32);
+                        let th = toolbar_content_height().min(available.height());
+                        let ty = (fitted.center().y - th * 0.5)
+                            .clamp(available.min.y, available.max.y - th);
+                        (img, Pos2::new(available.min.x, ty))
                     }
+                    ToolbarPosition::Right => {
+                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
+                        let img = Rect::from_min_max(
+                            available.min,
+                            Pos2::new(available.max.x - rail, available.max.y),
+                        );
+                        let (fitted, _) =
+                            fit_image_rect(img, self.width as f32, self.height as f32);
+                        let th = toolbar_content_height().min(available.height());
+                        let ty = (fitted.center().y - th * 0.5)
+                            .clamp(available.min.y, available.max.y - th);
+                        (img, Pos2::new(available.max.x - TOOLBAR_WIDTH, ty))
+                    }
+                    ToolbarPosition::Top => {
+                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
+                        let img = Rect::from_min_max(
+                            Pos2::new(available.min.x, available.min.y + rail),
+                            available.max,
+                        );
+                        let (fitted, _) =
+                            fit_image_rect(img, self.width as f32, self.height as f32);
+                        let tw = toolbar_content_width().min(available.width());
+                        let tx = (fitted.center().x - tw * 0.5)
+                            .clamp(available.min.x, available.max.x - tw);
+                        (img, Pos2::new(tx, available.min.y))
+                    }
+                    ToolbarPosition::Bottom => {
+                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
+                        let img = Rect::from_min_max(
+                            available.min,
+                            Pos2::new(available.max.x, available.max.y - rail),
+                        );
+                        let (fitted, _) =
+                            fit_image_rect(img, self.width as f32, self.height as f32);
+                        let tw = toolbar_content_width().min(available.width());
+                        let tx = (fitted.center().x - tw * 0.5)
+                            .clamp(available.min.x, available.max.x - tw);
+                        (img, Pos2::new(tx, available.max.y - TOOLBAR_WIDTH))
+                    }
+                };
 
-                    if response.drag_started() {
-                        if let Some(pos) = response.interact_pointer_pos() {
-                            if image_rect.contains(pos) {
-                                self.drag_start = Some(to_image(pos));
-                            }
-                        }
-                    }
-                    if response.dragged() {
-                        if let (Some(start), Some(pos)) =
-                            (self.drag_start, response.interact_pointer_pos())
-                        {
-                            let end = clamp_to_image(to_image(pos), self.width, self.height);
-                            self.draft = Some(self.draft_from_drag(start, end));
-                        }
-                    }
-                    if response.drag_stopped() {
-                        if let Some(shape) = self.draft.take() {
-                            if shape_is_meaningful(shape) {
-                                self.shapes.push(shape);
-                            }
-                        }
-                        self.drag_start = None;
-                    }
+                // Image canvas (letterbox / upscale with LINEAR).
+                ui.scope_builder(egui::UiBuilder::new().max_rect(image_area), |ui| {
+                    self.paint_canvas(ui, image_area, &pal);
                 });
+
+                // Floating glass rail — content-sized, attached to preview (not full height).
+                egui::Area::new(egui::Id::new("lightsnip_toolbar"))
+                    .fixed_pos(toolbar_origin)
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        glass_toolbar_frame(&pal).show(ui, |ui| {
+                            if horizontal {
+                                ui.set_height(TOOLBAR_WIDTH - 16.0);
+                            } else {
+                                ui.set_width(TOOLBAR_WIDTH - 16.0);
+                            }
+                            self.draw_toolbar(ui, horizontal);
+                        });
+                    });
             });
 
         if self.finished {
@@ -600,7 +741,6 @@ fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
     }
 }
 
-/// Coarse mosaic over `[a, b]` for privacy. Block size is in image pixels.
 fn pixelate_region(img: &mut RgbaImage, a: Pos2, b: Pos2, block: u32) {
     let block = block.max(1);
     let (w, h) = img.dimensions();
@@ -829,10 +969,9 @@ mod tests {
 
     #[test]
     fn floating_window_includes_toolbar_and_gutter() {
-        let (w, h) = floating_window_size(400, 300);
+        let (w, h) = floating_window_size(400, 300, ToolbarPosition::Left);
         assert!(w > 400.0 + TOOLBAR_WIDTH);
         assert!(h >= 300.0);
-        // Outer pad on every side so the left rail is not flush to the window.
         assert!(WINDOW_PAD >= 12.0);
         assert!(w >= 400.0 + TOOLBAR_WIDTH + TOOLBAR_GUTTER + WINDOW_PAD * 2.0);
         assert!(h >= 300.0 + WINDOW_PAD * 2.0);
@@ -840,8 +979,14 @@ mod tests {
 
     #[test]
     fn floating_window_clamps_huge_captures() {
-        let (w, h) = floating_window_size(4000, 3000);
+        let (w, h) = floating_window_size(4000, 3000, ToolbarPosition::Left);
         assert!(w <= TOOLBAR_WIDTH + TOOLBAR_GUTTER + MAX_DISPLAY_W + WINDOW_PAD * 2.0 + 1.0);
-        assert!(h <= MAX_DISPLAY_H + WINDOW_PAD * 2.0 + 1.0);
+        assert!(h <= MAX_DISPLAY_H + WINDOW_PAD * 2.0 + 1.0 + toolbar_content_height());
+    }
+
+    #[test]
+    fn toolbar_does_not_force_full_window_height() {
+        // Content-sized rail is shorter than a tall window's image area.
+        assert!(toolbar_content_height() < MAX_DISPLAY_H);
     }
 }

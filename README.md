@@ -59,12 +59,12 @@ It provides:
 ## Features
 
 1. **Capture** — `cargo run --release -- region` (primary) and `cargo run --release -- full`.
-2. **Annotate** — floating window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Left pastel tool rail (icons + tooltips), padded from the window edges: arrow, box, pixelate, color picker (default red), undo, clear, settings, **Save**, **Copy**. Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels.
+2. **Annotate** — floating **Lightsnip** window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Content-sized flat pastel tool rail attached to the preview (default **left**; settings: top/bottom/left/right): arrow, box, pixelate, color picker (default red), undo, clear, larger settings, **Save**, **Copy** (hover). Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels. Preview letterboxes and may upscale with LINEAR filtering.
 3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
-5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Six fields: shortcuts, run at startup, replace-default helper, stay in tray, save directory, save to clipboard.
+5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Shortcuts (press-keys assign), session toggles, output, and **User Interface** (toolbar position, theme dark/light/system, title bar, transparency, background blur preference).
 6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Floating UI** — annotate is a bordered window sized to the image; left pastel tool rail with even outer padding (not flush). Settings uses light grouped cards. Restrained pastel purple accent only on Save — no neon / glow.
+7. **Floating UI** — flat pastel purple / gray / white chrome (no frost / specular / sheen). egui/Wayland cannot backdrop-blur; transparency is best-effort; blur preference is saved and labeled honestly.
 
 <!-- VISUAL SUGGESTION [SCREENSHOT]:
 Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`
