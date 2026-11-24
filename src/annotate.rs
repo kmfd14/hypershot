@@ -1,7 +1,10 @@
-//! Fullscreen egui annotate overlay (Milestone 3).
+//! Fullscreen egui annotate overlay (Milestone 4).
 //!
 //! Quiet desktop chrome: neutral surfaces, small radius, no glow / pills / emoji.
 //! Design dials: ENERGY 1 / RHYTHM 1 / MOTION 1 (tool overlay, not marketing UI).
+//!
+//! Design reasons (R-31): charcoal chrome so the capture stays focal; one red accent
+//! for markup strokes only; pixelate preview uses muted fill (privacy, not decoration).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -24,18 +27,25 @@ pub enum AnnotateOutcome {
 enum Tool {
     Arrow,
     Rect,
+    /// Privacy redaction: coarse pixel blocks over a drag rect.
+    Pixelate,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Shape {
     Arrow { from: Pos2, to: Pos2 },
     Rect { a: Pos2, b: Pos2 },
+    Pixelate { a: Pos2, b: Pos2 },
 }
+
+/// Block size for privacy pixelation (image pixels per mosaic cell).
+const PIXELATE_BLOCK: u32 = 12;
 
 /// Open a fullscreen annotate overlay on an existing PNG.
 ///
 /// On Save / Enter: composites annotations onto the image and overwrites `path`.
-/// On Escape: returns [`AnnotateOutcome::Cancelled`] without modifying the file.
+/// On Escape: clears an in-progress drag first; with no draft, returns
+/// [`AnnotateOutcome::Cancelled`] without modifying the file.
 ///
 /// Needs a working Wayland (or X11) display plus egui/winit native libs
 /// (`libxkbcommon`, etc.). Cloud / headless VMs usually cannot run this.
@@ -147,11 +157,17 @@ fn apply_quiet_visuals(ctx: &egui::Context) {
 const STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 const STROKE_WIDTH: f32 = 3.0;
 
+/// Privacy region outline — muted, not the markup accent (R-31: redaction ≠ callout).
+/// Premultiplied approx of unmultiplied (0x28,0x28,0x2A,160).
+const PIXELATE_PREVIEW_FILL: Color32 =
+    Color32::from_rgba_premultiplied(0x19, 0x19, 0x1A, 160);
+const PIXELATE_PREVIEW_STROKE: Color32 = Color32::from_rgb(0xC8, 0xC8, 0xC8);
+
 struct AnnotateApp {
     texture: egui::TextureHandle,
     width: u32,
     height: u32,
-    /// Original pixels (RGBA8).
+    /// Original pixels (RGBA8). Unchanged until Save.
     pixels: Vec<u8>,
     shapes: Vec<Shape>,
     tool: Tool,
@@ -182,6 +198,7 @@ impl AnnotateApp {
             height,
             pixels,
             shapes: Vec::new(),
+            // Default: arrow for callouts; pick Pixelate when redacting.
             tool: Tool::Arrow,
             drag_start: None,
             draft: None,
@@ -196,6 +213,15 @@ impl AnnotateApp {
             *slot = outcome;
         }
         self.finished = true;
+    }
+
+    fn cancel_draft_or_session(&mut self) {
+        if self.draft.is_some() || self.drag_start.is_some() {
+            self.draft = None;
+            self.drag_start = None;
+        } else {
+            self.set_outcome(AnnotateOutcome::Cancelled);
+        }
     }
 
     fn undo(&mut self) {
@@ -221,6 +247,17 @@ impl AnnotateApp {
         self.set_outcome(AnnotateOutcome::Saved);
         Ok(())
     }
+
+    fn draft_from_drag(&self, start: Pos2, end: Pos2) -> Shape {
+        match self.tool {
+            Tool::Arrow => Shape::Arrow {
+                from: start,
+                to: end,
+            },
+            Tool::Rect => Shape::Rect { a: start, b: end },
+            Tool::Pixelate => Shape::Pixelate { a: start, b: end },
+        }
+    }
 }
 
 impl eframe::App for AnnotateApp {
@@ -230,10 +267,10 @@ impl eframe::App for AnnotateApp {
             return;
         }
 
-        // Keyboard: Escape cancel, Enter save, Ctrl+Z undo.
+        // Keyboard: Escape clears draft then cancels; Enter saves; Ctrl+Z undoes.
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
-                self.set_outcome(AnnotateOutcome::Cancelled);
+                self.cancel_draft_or_session();
             }
             if i.key_pressed(egui::Key::Enter) {
                 if let Err(err) = self.save_and_close() {
@@ -252,7 +289,11 @@ impl eframe::App for AnnotateApp {
 
         egui::TopBottomPanel::bottom("toolbar")
             .exact_height(44.0)
-            .frame(egui::Frame::new().fill(Color32::from_rgb(0x22, 0x22, 0x24)).inner_margin(8.0))
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(0x22, 0x22, 0x24))
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
@@ -262,6 +303,9 @@ impl eframe::App for AnnotateApp {
                     });
                     tool_button(ui, "Box", self.tool == Tool::Rect, || {
                         self.tool = Tool::Rect;
+                    });
+                    tool_button(ui, "Pixelate", self.tool == Tool::Pixelate, || {
+                        self.tool = Tool::Pixelate;
                     });
 
                     ui.add_space(8.0);
@@ -277,7 +321,10 @@ impl eframe::App for AnnotateApp {
                             self.set_outcome(AnnotateOutcome::Cancelled);
                         }
                         if ui
-                            .add(egui::Button::new("Save").fill(Color32::from_rgb(0x3A, 0x3A, 0x3C)))
+                            .add(
+                                egui::Button::new("Save")
+                                    .fill(Color32::from_rgb(0x3A, 0x3A, 0x3C)),
+                            )
                             .clicked()
                         {
                             if let Err(err) = self.save_and_close() {
@@ -321,10 +368,7 @@ impl eframe::App for AnnotateApp {
                 );
 
                 let to_screen = |p: Pos2| -> Pos2 {
-                    Pos2::new(
-                        origin.x + p.x * scale,
-                        origin.y + p.y * scale,
-                    )
+                    Pos2::new(origin.x + p.x * scale, origin.y + p.y * scale)
                 };
                 let to_image = |p: Pos2| -> Pos2 {
                     Pos2::new((p.x - origin.x) / scale, (p.y - origin.y) / scale)
@@ -332,7 +376,7 @@ impl eframe::App for AnnotateApp {
 
                 let stroke = Stroke::new(STROKE_WIDTH, STROKE);
                 for shape in self.shapes.iter().chain(self.draft.iter()) {
-                    paint_shape(&painter, *shape, to_screen, stroke);
+                    paint_shape(&painter, *shape, to_screen, stroke, scale);
                 }
 
                 if response.drag_started() {
@@ -347,13 +391,7 @@ impl eframe::App for AnnotateApp {
                         (self.drag_start, response.interact_pointer_pos())
                     {
                         let end = clamp_to_image(to_image(pos), self.width, self.height);
-                        self.draft = Some(match self.tool {
-                            Tool::Arrow => Shape::Arrow {
-                                from: start,
-                                to: end,
-                            },
-                            Tool::Rect => Shape::Rect { a: start, b: end },
-                        });
+                        self.draft = Some(self.draft_from_drag(start, end));
                     }
                 }
                 if response.drag_stopped() {
@@ -393,7 +431,9 @@ fn clamp_to_image(p: Pos2, w: u32, h: u32) -> Pos2 {
 fn shape_is_meaningful(shape: Shape) -> bool {
     match shape {
         Shape::Arrow { from, to } => from.distance(to) >= 4.0,
-        Shape::Rect { a, b } => (a.x - b.x).abs() >= 4.0 && (a.y - b.y).abs() >= 4.0,
+        Shape::Rect { a, b } | Shape::Pixelate { a, b } => {
+            (a.x - b.x).abs() >= 4.0 && (a.y - b.y).abs() >= 4.0
+        }
     }
 }
 
@@ -402,6 +442,7 @@ fn paint_shape(
     shape: Shape,
     to_screen: impl Fn(Pos2) -> Pos2,
     stroke: Stroke,
+    scale: f32,
 ) {
     match shape {
         Shape::Arrow { from, to } => {
@@ -415,6 +456,40 @@ fn paint_shape(
         Shape::Rect { a, b } => {
             let r = Rect::from_two_pos(to_screen(a), to_screen(b));
             painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Outside);
+        }
+        Shape::Pixelate { a, b } => {
+            let r = Rect::from_two_pos(to_screen(a), to_screen(b));
+            // Preview: muted fill + light outline (actual mosaic applied on Save).
+            painter.rect_filled(r, 0.0, PIXELATE_PREVIEW_FILL);
+            // Screen-space block hint so the region reads as redaction, not a box stroke.
+            let block_screen = (PIXELATE_BLOCK as f32 * scale).max(4.0);
+            let mut y = r.min.y;
+            while y < r.max.y {
+                let mut x = r.min.x;
+                while x < r.max.x {
+                    let cell = Rect::from_min_max(
+                        Pos2::new(x, y),
+                        Pos2::new((x + block_screen).min(r.max.x), (y + block_screen).min(r.max.y)),
+                    );
+                    painter.rect_stroke(
+                        cell,
+                        0.0,
+                        Stroke::new(
+                            1.0_f32,
+                            Color32::from_rgba_premultiplied(0x33, 0x33, 0x33, 90),
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                    x += block_screen;
+                }
+                y += block_screen;
+            }
+            painter.rect_stroke(
+                r,
+                0.0,
+                Stroke::new(1.5_f32, PIXELATE_PREVIEW_STROKE),
+                egui::StrokeKind::Outside,
+            );
         }
     }
 }
@@ -453,7 +528,68 @@ fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
             draw_thick_line(img, br, bl, color, STROKE_WIDTH);
             draw_thick_line(img, bl, tl, color, STROKE_WIDTH);
         }
+        Shape::Pixelate { a, b } => {
+            pixelate_region(img, a, b, PIXELATE_BLOCK);
+        }
     }
+}
+
+/// Coarse mosaic over `[a, b]` for privacy. Block size is in image pixels.
+fn pixelate_region(img: &mut RgbaImage, a: Pos2, b: Pos2, block: u32) {
+    let block = block.max(1);
+    let (w, h) = img.dimensions();
+    if w == 0 || h == 0 {
+        return;
+    }
+
+    let x0 = a.x.min(b.x).floor().max(0.0) as u32;
+    let y0 = a.y.min(b.y).floor().max(0.0) as u32;
+    let x1 = (a.x.max(b.x).ceil() as u32).min(w);
+    let y1 = (a.y.max(b.y).ceil() as u32).min(h);
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let mut y = y0;
+    while y < y1 {
+        let y_end = (y + block).min(y1);
+        let mut x = x0;
+        while x < x1 {
+            let x_end = (x + block).min(x1);
+            let avg = average_block(img, x, y, x_end, y_end);
+            for py in y..y_end {
+                for px in x..x_end {
+                    img.put_pixel(px, py, avg);
+                }
+            }
+            x = x_end;
+        }
+        y = y_end;
+    }
+}
+
+fn average_block(img: &RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32) -> Rgba<u8> {
+    let mut sum = [0u64; 4];
+    let mut count = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = img.get_pixel(x, y).0;
+            sum[0] += u64::from(p[0]);
+            sum[1] += u64::from(p[1]);
+            sum[2] += u64::from(p[2]);
+            sum[3] += u64::from(p[3]);
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Rgba([0, 0, 0, 255]);
+    }
+    Rgba([
+        (sum[0] / count) as u8,
+        (sum[1] / count) as u8,
+        (sum[2] / count) as u8,
+        (sum[3] / count) as u8,
+    ])
 }
 
 fn draw_thick_line(img: &mut RgbaImage, a: Pos2, b: Pos2, color: Rgba<u8>, width: f32) {
@@ -499,6 +635,11 @@ mod tests {
             b: Pos2::new(10.0, 10.0),
         };
         assert!(shape_is_meaningful(rect));
+        let tiny_pix = Shape::Pixelate {
+            a: Pos2::new(0.0, 0.0),
+            b: Pos2::new(2.0, 2.0),
+        };
+        assert!(!shape_is_meaningful(tiny_pix));
     }
 
     #[test]
@@ -522,5 +663,79 @@ mod tests {
         );
         let mid = img.get_pixel(32, 32);
         assert_ne!(mid.0[0], 0, "stroke should paint red channel");
+    }
+
+    #[test]
+    fn pixelate_flattens_checker_block() {
+        let mut img = RgbaImage::new(32, 32);
+        for y in 0..32 {
+            for x in 0..32 {
+                let on = (x + y) % 2 == 0;
+                let v = if on { 255 } else { 0 };
+                img.put_pixel(x, y, Rgba([v, v, v, 255]));
+            }
+        }
+        pixelate_region(
+            &mut img,
+            Pos2::new(0.0, 0.0),
+            Pos2::new(24.0, 24.0),
+            8,
+        );
+        // Within one mosaic cell, all pixels match.
+        let p00 = img.get_pixel(0, 0).0;
+        let p77 = img.get_pixel(7, 7).0;
+        assert_eq!(p00, p77);
+        // Outside the region stays checkerboard.
+        assert_ne!(
+            img.get_pixel(30, 30).0[0],
+            img.get_pixel(31, 30).0[0],
+            "untouched area should keep fine detail"
+        );
+    }
+
+    #[test]
+    fn rasterize_pixelate_shape_redacts() {
+        let mut img = RgbaImage::from_pixel(48, 48, Rgba([10, 20, 30, 255]));
+        img.put_pixel(8, 8, Rgba([255, 0, 0, 255]));
+        img.put_pixel(9, 9, Rgba([0, 255, 0, 255]));
+        rasterize_shape(
+            &mut img,
+            Shape::Pixelate {
+                a: Pos2::new(4.0, 4.0),
+                b: Pos2::new(20.0, 20.0),
+            },
+        );
+        let a = img.get_pixel(8, 8).0;
+        let b = img.get_pixel(9, 9).0;
+        assert_eq!(a, b, "pixelate should average neighbors in a block");
+        assert_ne!(a, [255, 0, 0, 255], "original bright pixel must not remain");
+    }
+
+    #[test]
+    fn escape_clears_draft_before_cancel() {
+        // Mirrors AnnotateApp::cancel_draft_or_session without needing a GPU texture.
+        fn step(
+            draft: &mut Option<Shape>,
+            drag_start: &mut Option<Pos2>,
+        ) -> bool /* session cancelled */ {
+            if draft.is_some() || drag_start.is_some() {
+                *draft = None;
+                *drag_start = None;
+                false
+            } else {
+                true
+            }
+        }
+
+        let mut draft = Some(Shape::Pixelate {
+            a: Pos2::new(0.0, 0.0),
+            b: Pos2::new(10.0, 10.0),
+        });
+        let mut drag_start = Some(Pos2::new(0.0, 0.0));
+
+        assert!(!step(&mut draft, &mut drag_start));
+        assert!(draft.is_none());
+        assert!(drag_start.is_none());
+        assert!(step(&mut draft, &mut drag_start));
     }
 }

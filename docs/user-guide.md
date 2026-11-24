@@ -7,14 +7,14 @@ cargo run --release -- region
 ```
 
 1. Select a region.
-2. Mark up with Arrow or Box.
-3. Press **Save** or Enter (Escape cancels and discards).
+2. Mark up with Arrow or Box, or drag **Pixelate** over private text.
+3. Press **Save** or Enter (Escape clears a draft drag, then cancels and discards).
 
-PNG path prints to stdout. Clipboard is on by default when `wl-copy` is installed. About 1–2 minutes for first capture after deps (Milestone 3).
+PNG path prints to stdout. Clipboard is on by default when `wl-copy` is installed. About 1–2 minutes for first capture after deps (Milestone 4).
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install and “replace default screenshot tool” are separate and off by default.
 
-Quiet annotate chrome: charcoal bar, small buttons, no decorative gradients or emoji controls. Blur/pixelate and the settings window land later.
+Quiet annotate chrome: charcoal bar, small buttons, no decorative gradients or emoji controls. Settings window lands later.
 
 ---
 
@@ -34,14 +34,12 @@ Portal capture is preferred. If the portal path fails, lightsnip uses `grim` + `
 
 After capture, a fullscreen overlay opens on the PNG. You can also annotate a file you already have.
 
-1. Tools: **Arrow**, **Box** (rectangle).
-2. Drag on the image to draw. **Undo** (or Ctrl+Z) / **Clear** as needed.
+1. Tools: **Arrow**, **Box** (rectangle), **Pixelate** (privacy mosaic).
+2. Drag on the image to draw or redact. **Undo** (or Ctrl+Z) / **Clear** as needed.
 3. **Save** or Enter writes the annotated PNG, then clipboard (unless `--no-clipboard`).
-4. **Cancel** or Escape exits without keeping the capture (region/full) or without changing the file (`annotate`).
+4. **Cancel** exits without keeping the capture (region/full) or without changing the file (`annotate`). Escape first drops an in-progress drag; Escape again cancels.
 5. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/….png`.
 6. Skip the overlay: `cargo run --release -- region --no-annotate`.
-
-Blur / pixelate for privacy redaction is Milestone 4.
 
 **Display note:** annotate needs `WAYLAND_DISPLAY` or `DISPLAY` and egui native libs (for example `libxkbcommon`). Headless / cloud VMs can `cargo build` but usually cannot open the overlay. On failure after capture, lightsnip keeps the raw PNG and continues to clipboard/save.
 
@@ -86,7 +84,7 @@ Global shortcuts are compositor-dependent. lightsnip cannot guarantee grabs on e
 | Sway / Hyprland | Bind a key to `exec` the `cargo run … region` command |
 | GNOME / KDE | Custom shortcut → same command |
 
-Inside the annotate overlay: Enter = Save, Escape = Cancel, Ctrl+Z = Undo.
+Inside the annotate overlay: Enter = Save, Escape = clear draft then Cancel, Ctrl+Z = Undo.
 
 ---
 

@@ -1,4 +1,4 @@
-//! lightsnip — Wayland screenshot CLI (Milestone 3: annotate overlay).
+//! lightsnip — Wayland screenshot CLI (Milestone 4: pixelate + UX polish).
 
 mod annotate;
 mod capture;
@@ -16,7 +16,7 @@ use output::{copy_png_to_clipboard, resolve_output_path};
 #[derive(Debug, Parser)]
 #[command(
     name = "lightsnip",
-    about = "Wayland screenshot tool with annotation (annotate overlay — Milestone 3)",
+    about = "Wayland screenshot tool with annotation (pixelate + overlay — Milestone 4)",
     version
 )]
 struct Cli {
