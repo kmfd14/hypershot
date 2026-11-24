@@ -8,13 +8,12 @@ use anyhow::{bail, Context, Result};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-/// Env var override for the default save directory (Milestone 2; settings later).
-pub const SAVE_DIR_ENV: &str = "LIGHTSNIP_SAVE_DIR";
+pub use crate::config::SAVE_DIR_ENV;
 
 /// Resolve where to write the PNG.
 ///
 /// Precedence: `--output PATH` → timestamped file under `--save-dir` /
-/// `LIGHTSNIP_SAVE_DIR` / `~/Pictures/lightsnip`.
+/// `LIGHTSNIP_SAVE_DIR` / config `save_directory` / `~/Pictures/lightsnip`.
 pub fn resolve_output_path(output: Option<PathBuf>, save_dir: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = output {
         return Ok(path);
@@ -23,8 +22,7 @@ pub fn resolve_output_path(output: Option<PathBuf>, save_dir: Option<PathBuf>) -
     Ok(dir.join(timestamped_filename()))
 }
 
-/// Default save directory: `$LIGHTSNIP_SAVE_DIR`, else `~/Pictures/lightsnip`
-/// (or `$HOME/Pictures/lightsnip` if picture dir lookup fails).
+/// Default save directory: `$LIGHTSNIP_SAVE_DIR`, else config, else Pictures/lightsnip.
 pub fn default_save_dir() -> PathBuf {
     if let Ok(dir) = std::env::var(SAVE_DIR_ENV) {
         let trimmed = dir.trim();
@@ -32,13 +30,12 @@ pub fn default_save_dir() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
-    if let Some(user_dirs) = directories::UserDirs::new() {
-        if let Some(pictures) = user_dirs.picture_dir() {
-            return pictures.join("lightsnip");
+    if let Ok(cfg) = crate::config::Config::load() {
+        if !cfg.save_directory.as_os_str().is_empty() {
+            return cfg.save_directory;
         }
-        return user_dirs.home_dir().join("Pictures").join("lightsnip");
     }
-    PathBuf::from("/tmp/lightsnip")
+    crate::config::default_pictures_lightsnip()
 }
 
 fn timestamped_filename() -> String {

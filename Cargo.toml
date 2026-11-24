@@ -18,5 +18,8 @@ eframe = "0.31"
 egui = "0.31"
 image = "0.25"
 imageproc = "0.25"
+ksni = "0.3"
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["full"] }
+toml = "0.8"
 url = "2.5.9"
