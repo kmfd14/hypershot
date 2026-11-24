@@ -1,9 +1,9 @@
-//! Settings window: Apple HIG–inspired grouped chrome, compact spacing.
+//! Settings window: grouped cards, `?` tooltips, clearer controls.
 //!
-//! Shortcuts: click “Press keys…”, then type a combination (stored as a label;
+//! Shortcuts: click “Assign…”, then type a combination (stored as a label;
 //! Wayland still needs a compositor bind — no portable global grab).
-//! User Interface: toolbar position, theme, title bar, transparency, blur
-//! (blur is honest about egui/Wayland limits).
+//! User Interface: toolbar position, theme, title bar, transparency / blur
+//! intensity (honest about egui/Wayland limits). About shows name + version.
 
 use std::path::PathBuf;
 
@@ -11,12 +11,14 @@ use anyhow::{bail, Result};
 use eframe::egui::{self, Key, Modifiers, ViewportBuilder};
 
 use crate::config::{
-    config_path, Config, ToolbarPosition, UiTheme,
+    clamp_intensity, config_path, Config, ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
 use crate::ui::{
-    self, settings_group_frame, SETTINGS_BG, SETTINGS_BG_DARK, SETTINGS_LABEL,
+    self, choice_button, contrast_checkbox, section_title_with_help, settings_group_frame,
+    SETTINGS_BG, SETTINGS_BG_DARK, SETTINGS_FIELD, SETTINGS_FIELD_DARK, SETTINGS_LABEL,
     SETTINGS_LABEL_DARK, SETTINGS_PRIMARY, SETTINGS_SECONDARY, SETTINGS_SECONDARY_DARK,
+    SETTINGS_SEPARATOR, SETTINGS_SEPARATOR_DARK,
 };
 
 /// Open the standalone settings window. Blocks until closed.
@@ -27,16 +29,17 @@ pub fn run_settings_window() -> Result<()> {
     let theme = cfg.theme;
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_title("Lightsnip Settings")
-            .with_inner_size([480.0, 640.0])
-            .with_min_inner_size([400.0, 480.0])
+            .with_title(format!("{APP_NAME} Settings"))
+            .with_inner_size([520.0, 560.0])
+            .with_min_inner_size([440.0, 420.0])
             .with_maximize_button(false),
+        centered: true,
         ..Default::default()
     };
 
     let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         eframe::run_native(
-            "Lightsnip Settings",
+            &format!("{APP_NAME} Settings"),
             options,
             Box::new(move |cc| {
                 ui::apply_settings_visuals(&cc.egui_ctx, theme);
@@ -69,7 +72,7 @@ struct SettingsApp {
     shortcut_text: String,
     status: String,
     close_requested: bool,
-    /// Listening for a key combination after “Press keys…”.
+    /// Listening for a key combination after “Assign…”.
     capturing_shortcut: bool,
 }
 
@@ -99,6 +102,10 @@ impl SettingsApp {
         if self.cfg.shortcut_keys.trim().is_empty() {
             self.cfg.shortcut_keys = crate::config::default_shortcut_keys();
         }
+        self.cfg.window_transparency_intensity =
+            clamp_intensity(self.cfg.window_transparency_intensity);
+        self.cfg.window_background_blur_intensity =
+            clamp_intensity(self.cfg.window_background_blur_intensity);
 
         match self.cfg.save() {
             Ok(path) => {
@@ -118,12 +125,25 @@ impl SettingsApp {
         }
     }
 
+    fn pick_save_directory(&mut self) {
+        let start = PathBuf::from(self.save_dir_text.trim());
+        let mut dialog = rfd::FileDialog::new().set_title("Choose save directory");
+        if start.is_dir() {
+            dialog = dialog.set_directory(&start);
+        } else if let Some(parent) = start.parent().filter(|p| p.is_dir()) {
+            dialog = dialog.set_directory(parent);
+        }
+        if let Some(folder) = dialog.pick_folder() {
+            self.save_dir_text = folder.display().to_string();
+            self.cfg.save_directory = folder;
+        }
+    }
+
     fn poll_shortcut_capture(&mut self, ui: &mut egui::Ui) {
         if !self.capturing_shortcut {
             return;
         }
         ui.ctx().input(|i| {
-            // Prefer a non-modifier key press with current modifiers.
             for event in &i.events {
                 if let egui::Event::Key {
                     key,
@@ -132,10 +152,7 @@ impl SettingsApp {
                     ..
                 } = event
                 {
-                    if matches!(
-                        key,
-                        Key::Escape
-                    ) {
+                    if matches!(key, Key::Escape) {
                         self.capturing_shortcut = false;
                         return;
                     }
@@ -152,14 +169,32 @@ impl SettingsApp {
 
     fn draw_form(&mut self, ui: &mut egui::Ui, compact: bool) {
         let dark = ui.visuals().dark_mode;
-        let label = if dark { SETTINGS_LABEL_DARK } else { SETTINGS_LABEL };
+        let label = if dark {
+            SETTINGS_LABEL_DARK
+        } else {
+            SETTINGS_LABEL
+        };
         let secondary = if dark {
             SETTINGS_SECONDARY_DARK
         } else {
             SETTINGS_SECONDARY
         };
+        let field = if dark {
+            SETTINGS_FIELD_DARK
+        } else {
+            SETTINGS_FIELD
+        };
+        let sep = if dark {
+            SETTINGS_SEPARATOR_DARK
+        } else {
+            SETTINGS_SEPARATOR
+        };
 
         ui::apply_settings_visuals(ui.ctx(), self.cfg.theme);
+
+        // Content column: justified width, left-aligned controls.
+        let max_w = ui.available_width().min(480.0);
+        ui.set_max_width(max_w);
 
         if !compact {
             ui.label(
@@ -174,54 +209,87 @@ impl SettingsApp {
                     .color(secondary)
                     .size(12.0),
             );
-            ui.add_space(10.0);
+            ui.add_space(12.0);
         }
 
         self.poll_shortcut_capture(ui);
 
-        // Shortcuts
+        // --- Shortcuts -------------------------------------------------------
         settings_group_frame(dark).show(ui, |ui| {
-            group_title(ui, "Shortcuts", label);
-            ui.label(
-                egui::RichText::new(
-                    "Wayland has no portable global hotkey API. Assign a combo here, then bind it to the command in your compositor (Sway/Hyprland) or DE keyboard settings.",
-                )
-                .color(secondary)
-                .size(11.0),
+            section_title_with_help(
+                ui,
+                "Shortcuts",
+                "Wayland has no portable global hotkey API. Assign a combo here, then bind the command in your compositor (Sway/Hyprland) or DE keyboard settings.",
+                label,
+                secondary,
             );
-            ui.add_space(6.0);
+
+            ui.label(egui::RichText::new("Key combination").color(label).size(12.0));
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Keys").color(label).size(12.0));
-                let display = if self.capturing_shortcut {
-                    "Press keys… (Esc cancel)".to_string()
+                let chip_text = if self.capturing_shortcut {
+                    "Listening… Esc to cancel".to_string()
                 } else {
                     self.cfg.shortcut_keys.clone()
                 };
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(display)
-                            .color(if self.capturing_shortcut {
-                                SETTINGS_PRIMARY
-                            } else {
-                                label
-                            })
-                            .strong(),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                let btn = if self.capturing_shortcut {
+                let chip_color = if self.capturing_shortcut {
+                    SETTINGS_PRIMARY
+                } else {
+                    label
+                };
+                egui::Frame::new()
+                    .fill(field)
+                    .stroke(egui::Stroke::new(
+                        1.0_f32,
+                        if self.capturing_shortcut {
+                            SETTINGS_PRIMARY
+                        } else {
+                            sep
+                        },
+                    ))
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(chip_text)
+                                .color(chip_color)
+                                .size(13.0)
+                                .strong()
+                                .monospace(),
+                        );
+                    });
+
+                let assign_label = if self.capturing_shortcut {
                     "Listening…"
                 } else {
-                    "Press keys…"
+                    "Assign…"
                 };
                 if ui
-                    .add(egui::Button::new(btn).min_size(egui::vec2(96.0, 24.0)))
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(assign_label)
+                                .color(egui::Color32::WHITE)
+                                .size(12.0),
+                        )
+                        .fill(SETTINGS_PRIMARY)
+                        .min_size(egui::vec2(96.0, 28.0)),
+                    )
                     .clicked()
                 {
                     self.capturing_shortcut = !self.capturing_shortcut;
                 }
+                if ui
+                    .add(
+                        egui::Button::new("Reset")
+                            .min_size(egui::vec2(64.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    self.cfg.shortcut_keys = crate::config::default_shortcut_keys();
+                    self.capturing_shortcut = false;
+                }
             });
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.label(egui::RichText::new("Bind command").color(label).size(12.0));
             ui.add(
                 egui::TextEdit::singleline(&mut self.shortcut_text)
@@ -229,16 +297,22 @@ impl SettingsApp {
                     .hint_text("path/to/lightsnip region"),
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        // Session — compact toggle rows
+        // --- Session ---------------------------------------------------------
         settings_group_frame(dark).show(ui, |ui| {
-            group_title(ui, "Session", label);
+            section_title_with_help(
+                ui,
+                "Session",
+                "Optional desktop helpers. All off by default. Autostart launches the tray; replace-default installs a user .desktop helper (does not steal PrintScreen); tray needs a StatusNotifier watcher.",
+                label,
+                secondary,
+            );
             session_row(
                 ui,
                 &mut self.cfg.run_at_startup,
                 "Run at startup",
-                "XDG autostart → tray. Off by default.",
+                "XDG autostart → tray.",
                 label,
                 secondary,
             );
@@ -249,7 +323,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.replace_default_screenshot,
                 "Replace default screenshot",
-                "User .desktop helper only — does not steal PrintScreen.",
+                "User .desktop helper only.",
                 label,
                 secondary,
             );
@@ -265,19 +339,37 @@ impl SettingsApp {
                 secondary,
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        // Output
+        // --- Output ----------------------------------------------------------
         settings_group_frame(dark).show(ui, |ui| {
-            group_title(ui, "Output", label);
-            ui.label(egui::RichText::new("Save directory").color(label).size(12.0));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.save_dir_text)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("~/Pictures/lightsnip"),
+            section_title_with_help(
+                ui,
+                "Output",
+                "Default PNG folder and clipboard behavior. CLI --save-dir / LIGHTSNIP_SAVE_DIR and --clipboard / --no-clipboard still override for a single run.",
+                label,
+                secondary,
             );
-            helper(ui, "CLI --save-dir and LIGHTSNIP_SAVE_DIR still override.", secondary);
+            ui.label(egui::RichText::new("Save directory").color(label).size(12.0));
             ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.save_dir_text)
+                        .desired_width(ui.available_width() - 108.0)
+                        .hint_text("~/Pictures/lightsnip"),
+                );
+                if ui
+                    .add(
+                        egui::Button::new("Browse…")
+                            .min_size(egui::vec2(96.0, 28.0)),
+                    )
+                    .on_hover_text("Choose preferred folder")
+                    .clicked()
+                {
+                    self.pick_save_directory();
+                }
+            });
+            ui.add_space(6.0);
             session_row(
                 ui,
                 &mut self.cfg.save_to_clipboard,
@@ -287,32 +379,41 @@ impl SettingsApp {
                 secondary,
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        // User Interface
+        // --- User Interface --------------------------------------------------
         settings_group_frame(dark).show(ui, |ui| {
-            group_title(ui, "User Interface", label);
-
-            ui.label(egui::RichText::new("Toolbar position").color(label).size(12.0));
-            ui.horizontal(|ui| {
-                for pos in ToolbarPosition::ALL {
-                    ui.selectable_value(&mut self.cfg.toolbar_position, pos, pos.label());
-                }
-            });
-            helper(
+            section_title_with_help(
                 ui,
-                "Floating rail attached to the preview (not full window height).",
+                "User Interface",
+                "Annotate chrome: toolbar position, theme, title bar, and window effects. Transparency is best-effort on Wayland; background blur is saved as a preference — egui cannot backdrop-blur the desktop today (flat pastel chrome instead).",
+                label,
                 secondary,
             );
-            ui.add_space(6.0);
 
-            ui.label(egui::RichText::new("Theme").color(label).size(12.0));
-            ui.horizontal(|ui| {
-                for theme in UiTheme::ALL {
-                    ui.selectable_value(&mut self.cfg.theme, theme, theme.label());
+            ui.label(egui::RichText::new("Toolbar position").color(label).size(12.0));
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for pos in ToolbarPosition::ALL {
+                    if choice_button(ui, self.cfg.toolbar_position == pos, pos.label()).clicked() {
+                        self.cfg.toolbar_position = pos;
+                    }
                 }
             });
-            ui.add_space(6.0);
+            ui.add_space(8.0);
+
+            ui.label(egui::RichText::new("Theme").color(label).size(12.0));
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for theme in UiTheme::ALL {
+                    if choice_button(ui, self.cfg.theme == theme, theme.label()).clicked() {
+                        self.cfg.theme = theme;
+                    }
+                }
+            });
+            ui.add_space(8.0);
 
             session_row(
                 ui,
@@ -322,9 +423,10 @@ impl SettingsApp {
                 label,
                 secondary,
             );
-            ui.add_space(2.0);
+            ui.add_space(4.0);
             ui.separator();
-            ui.add_space(2.0);
+            ui.add_space(6.0);
+
             session_row(
                 ui,
                 &mut self.cfg.window_transparency,
@@ -333,26 +435,91 @@ impl SettingsApp {
                 label,
                 secondary,
             );
-            ui.add_space(2.0);
+            ui.add_space(4.0);
+            ui.add_enabled_ui(self.cfg.window_transparency, |ui| {
+                intensity_slider(
+                    ui,
+                    "Intensity",
+                    &mut self.cfg.window_transparency_intensity,
+                    label,
+                    secondary,
+                );
+            });
+            ui.add_space(4.0);
             ui.separator();
-            ui.add_space(2.0);
+            ui.add_space(6.0);
+
             session_row(
                 ui,
                 &mut self.cfg.window_background_blur,
                 "Window background blur",
-                "Not available: egui cannot backdrop-blur the desktop on Wayland. Preference is saved; annotate stays flat pastel (no frosted imitation).",
+                "Preference only: egui cannot backdrop-blur the desktop on Wayland. Annotate stays flat pastel.",
                 label,
                 secondary,
             );
+            ui.add_space(4.0);
+            ui.add_enabled_ui(self.cfg.window_background_blur, |ui| {
+                intensity_slider(
+                    ui,
+                    "Intensity",
+                    &mut self.cfg.window_background_blur_intensity,
+                    label,
+                    secondary,
+                );
+            });
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "Wayland / egui: transparency is compositor-dependent; blur is not available in this stack.",
+                )
+                .color(secondary)
+                .size(10.5)
+                .italics(),
+            );
+        });
+        ui.add_space(10.0);
+
+        // --- About -----------------------------------------------------------
+        settings_group_frame(dark).show(ui, |ui| {
+            section_title_with_help(
+                ui,
+                "About",
+                "App identity. Version uses x.y semver-lite (x = major updates, y = fixes / polish).",
+                label,
+                secondary,
+            );
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(APP_NAME)
+                        .color(label)
+                        .size(15.0)
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new(format!("v{APP_VERSION}"))
+                        .color(secondary)
+                        .size(13.0),
+                );
+            });
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("Wayland screenshot tool with annotation.")
+                    .color(secondary)
+                    .size(11.0),
+            );
         });
 
-        ui.add_space(12.0);
+        ui.add_space(14.0);
         ui.horizontal(|ui| {
             if ui
                 .add(
-                    egui::Button::new("Save")
-                        .fill(SETTINGS_PRIMARY)
-                        .min_size(egui::vec2(80.0, 26.0)),
+                    egui::Button::new(
+                        egui::RichText::new("Save")
+                            .color(egui::Color32::WHITE)
+                            .size(13.0),
+                    )
+                    .fill(SETTINGS_PRIMARY)
+                    .min_size(egui::vec2(88.0, 30.0)),
                 )
                 .clicked()
             {
@@ -360,13 +527,13 @@ impl SettingsApp {
             }
             if !compact
                 && ui
-                    .add(egui::Button::new("Close").min_size(egui::vec2(64.0, 26.0)))
+                    .add(egui::Button::new("Close").min_size(egui::vec2(72.0, 30.0)))
                     .clicked()
             {
                 self.close_requested = true;
             }
         });
-        ui.add_space(6.0);
+        ui.add_space(8.0);
         ui.label(
             egui::RichText::new(&self.status)
                 .color(secondary)
@@ -463,18 +630,27 @@ fn key_name(key: Key) -> &'static str {
     }
 }
 
-fn group_title(ui: &mut egui::Ui, title: &str, color: egui::Color32) {
-    ui.label(
-        egui::RichText::new(title)
-            .color(color)
-            .size(13.0)
-            .strong(),
-    );
-    ui.add_space(4.0);
-}
-
-fn helper(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
-    ui.label(egui::RichText::new(text).color(color).size(11.0));
+fn intensity_slider(
+    ui: &mut egui::Ui,
+    caption: &str,
+    value: &mut f32,
+    label: egui::Color32,
+    secondary: egui::Color32,
+) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(caption).color(label).size(12.0));
+        ui.spacing_mut().slider_width = 160.0;
+        let resp = ui.add(egui::Slider::new(value, 0.0..=1.0).show_value(false));
+        if resp.changed() {
+            *value = clamp_intensity(*value);
+        }
+        ui.label(
+            egui::RichText::new(format!("{:.0}%", *value * 100.0))
+                .color(secondary)
+                .size(12.0)
+                .monospace(),
+        );
+    });
 }
 
 fn session_row(
@@ -491,7 +667,7 @@ fn session_row(
             ui.label(egui::RichText::new(hint).color(secondary).size(10.5));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.checkbox(value, "");
+            contrast_checkbox(ui, value);
         });
     });
 }
@@ -515,9 +691,23 @@ impl eframe::App for SettingsApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(bg).inner_margin(16.0))
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    self.draw_form(ui, false);
-                });
+                // ScrollArea with a slightly shorter default viewport makes
+                // overflow (and the scrollbar) obvious for the card stack.
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.with_layout(
+                            egui::Layout::top_down(egui::Align::Center),
+                            |ui| {
+                                ui.with_layout(
+                                    egui::Layout::top_down(egui::Align::Min).with_cross_justify(true),
+                                    |ui| {
+                                        self.draw_form(ui, false);
+                                    },
+                                );
+                            },
+                        );
+                    });
             });
     }
 }
@@ -529,19 +719,31 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
     }
     let dark = ctx.theme() == egui::Theme::Dark;
     let bg = if dark { SETTINGS_BG_DARK } else { SETTINGS_BG };
+    let screen = ctx.screen_rect();
+    let default_size = egui::vec2(480.0, 520.0);
+    let default_pos = egui::pos2(
+        (screen.width() - default_size.x) * 0.5,
+        (screen.height() - default_size.y) * 0.5,
+    );
     egui::Window::new("Settings")
         .open(open)
         .resizable(true)
-        .default_size([440.0, 560.0])
+        .collapsible(false)
+        .default_size(default_size)
+        .default_pos(default_pos)
+        .min_width(400.0)
+        .min_height(360.0)
         .frame(
             egui::Frame::window(&ctx.style())
                 .fill(bg)
-                .inner_margin(12.0),
+                .inner_margin(14.0),
         )
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                state.inner.draw_form(ui, true);
-            });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    state.inner.draw_form(ui, true);
+                });
         });
 }
 

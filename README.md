@@ -62,9 +62,9 @@ It provides:
 2. **Annotate** — floating **Lightsnip** window after capture (not fullscreen), or `cargo run --release -- annotate path.png`. Content-sized flat pastel tool rail attached to the preview (default **left**; settings: top/bottom/left/right): arrow, box, pixelate, color picker (default red), undo, clear, larger settings, **Save**, **Copy** (hover). Enter / Save commits; Copy writes + clipboard + dismisses; Escape clears a draft, then cancels. Preview letterboxes and may upscale with LINEAR filtering.
 3. **Save** — default from settings (else `~/Pictures/lightsnip/lightsnip-<unix>.png`); override with `-o` / `--output`, `--save-dir`, or `LIGHTSNIP_SAVE_DIR`.
 4. **Clipboard** — default from settings (`save_to_clipboard`, on by default); `--clipboard` / `--no-clipboard` override for one run.
-5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Shortcuts (press-keys assign), session toggles, output, and **User Interface** (toolbar position, theme dark/light/system, title bar, transparency, background blur preference).
+5. **Settings** — `cargo run --release -- settings` (or the annotate **Settings** control). Card sections with `?` tooltips: shortcuts (Assign…), session toggles, output (folder picker), **User Interface** (toolbar/theme buttons, transparency + blur intensity sliders), **About** (name + `x.y` version).
 6. **Tray** — `cargo run --release -- tray` (Region / Full / Settings / Quit). Needs a StatusNotifier watcher; GNOME often needs an AppIndicator extension.
-7. **Floating UI** — flat pastel purple / gray / white chrome (no frost / specular / sheen). egui/Wayland cannot backdrop-blur; transparency is best-effort; blur preference is saved and labeled honestly.
+7. **Floating UI** — flat pastel purple / gray / white chrome (no frost / specular / sheen). egui/Wayland cannot backdrop-blur; transparency intensity is best-effort; blur preference is saved and labeled honestly.
 
 <!-- VISUAL SUGGESTION [SCREENSHOT]:
 Recommended file (does not exist yet): `assets/screenshots/annotate-overlay.png`
@@ -211,14 +211,16 @@ Config file (created on Save): `~/.config/lightsnip/config.toml` (via the `direc
 
 Desktop / session:
 
-1. **Shortcuts** — editable bind hint; Wayland has no portable global hotkey API. Bind the command in your compositor or DE.
+1. **Shortcuts** — Assign… key chip + bind command; Wayland has no portable global hotkey API. Bind the command in your compositor or DE.
 2. **Run at startup** — opt-in XDG autostart (`~/.config/autostart/lightsnip.desktop` → `tray`). Off by default.
 3. **Replace default screenshot tool** — opt-in user `.desktop` helper under `~/.local/share/applications/`. Does **not** rebind PrintScreen on GNOME/KDE; assign a custom shortcut yourself. Off by default.
 4. **Stay in taskbar / tray** — prefer the StatusNotifierItem tray (`cargo run --release -- tray`). Needs a tray watcher; GNOME often needs an extension. Off by default.
+5. **User Interface** — toolbar position / theme buttons, title bar, transparency + blur intensity (Wayland/egui limits documented in-app).
+6. **About** — Lightsnip + version (`x.y` semver-lite).
 
 Output defaults:
 
-1. **Save directory** — default PNG folder (CLI / env still override).
+1. **Save directory** — default PNG folder with Browse… picker (CLI / env still override).
 2. **Save to clipboard** — default on/off after Save (CLI flags still override).
 
 Precedence for save path: `--output` → `--save-dir` → `LIGHTSNIP_SAVE_DIR` → config → `~/Pictures/lightsnip`.

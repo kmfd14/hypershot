@@ -1,4 +1,4 @@
-//! lightsnip - Wayland screenshot CLI (Milestone 5: settings window).
+//! lightsnip - Wayland screenshot CLI with annotate + settings.
 
 mod annotate;
 mod capture;
@@ -23,8 +23,8 @@ use settings::{resolve_save_dir, run_settings_window, want_clipboard};
 #[derive(Debug, Parser)]
 #[command(
     name = "lightsnip",
-    about = "Wayland screenshot tool with annotation + settings (Milestone 5)",
-    version
+    about = "Wayland screenshot tool with annotation + settings",
+    version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
     /// PNG output path (overrides --save-dir / default dir).

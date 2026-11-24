@@ -1,4 +1,7 @@
 //! TOML config under the user config directory (`directories` + `toml`).
+//!
+//! Versioning for the app itself is `x.y` (semver-lite): `x` = major product
+//! updates, `y` = fixes / polish. See `CARGO_PKG_VERSION` / About in Settings.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,6 +11,12 @@ use serde::{Deserialize, Serialize};
 
 /// Env var override for the default save directory (beats config TOML).
 pub const SAVE_DIR_ENV: &str = "LIGHTSNIP_SAVE_DIR";
+
+/// App display name (About + window titles).
+pub const APP_NAME: &str = "Lightsnip";
+
+/// Package version (`x.y` semver-lite from Cargo.toml).
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Where the annotate tool rail sits relative to the capture preview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -59,6 +68,14 @@ impl UiTheme {
     }
 }
 
+/// Clamp an intensity preference into `0.0..=1.0`.
+pub fn clamp_intensity(v: f32) -> f32 {
+    if !v.is_finite() {
+        return 0.0;
+    }
+    v.clamp(0.0, 1.0)
+}
+
 /// On-disk settings. Missing file → defaults.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -86,9 +103,13 @@ pub struct Config {
     pub show_title_bar: bool,
     /// Request a transparent annotate window clear color. Compositor / egui support varies.
     pub window_transparency: bool,
+    /// User-assignable transparency intensity (`0.0..=1.0`). Applied when transparency is on.
+    pub window_transparency_intensity: f32,
     /// Prefer window background blur when the platform supports it.
     /// egui/winit on Wayland cannot do real desktop backdrop-blur today; stored for honesty + future.
     pub window_background_blur: bool,
+    /// User-assignable blur intensity (`0.0..=1.0`). Preference only on Wayland/egui today.
+    pub window_background_blur_intensity: f32,
 }
 
 impl Default for Config {
@@ -105,7 +126,9 @@ impl Default for Config {
             theme: UiTheme::System,
             show_title_bar: true,
             window_transparency: false,
+            window_transparency_intensity: 0.75,
             window_background_blur: false,
+            window_background_blur_intensity: 0.50,
         }
     }
 }
@@ -119,8 +142,11 @@ impl Config {
         }
         let text = fs::read_to_string(&path)
             .with_context(|| format!("read config {}", path.display()))?;
-        let cfg: Config = toml::from_str(&text)
+        let mut cfg: Config = toml::from_str(&text)
             .with_context(|| format!("parse config {}", path.display()))?;
+        cfg.window_transparency_intensity = clamp_intensity(cfg.window_transparency_intensity);
+        cfg.window_background_blur_intensity =
+            clamp_intensity(cfg.window_background_blur_intensity);
         Ok(cfg)
     }
 
@@ -131,7 +157,11 @@ impl Config {
             fs::create_dir_all(parent)
                 .with_context(|| format!("create config dir {}", parent.display()))?;
         }
-        let text = toml::to_string_pretty(self).context("serialize config TOML")?;
+        let mut cfg = self.clone();
+        cfg.window_transparency_intensity = clamp_intensity(cfg.window_transparency_intensity);
+        cfg.window_background_blur_intensity =
+            clamp_intensity(cfg.window_background_blur_intensity);
+        let text = toml::to_string_pretty(&cfg).context("serialize config TOML")?;
         fs::write(&path, text).with_context(|| format!("write config {}", path.display()))?;
         Ok(path)
     }
@@ -148,6 +178,26 @@ impl Config {
             default_pictures_lightsnip()
         } else {
             self.save_directory.clone()
+        }
+    }
+
+    /// Effective transparency intensity when the feature is enabled (else `0.0`).
+    pub fn effective_transparency_intensity(&self) -> f32 {
+        if self.window_transparency {
+            clamp_intensity(self.window_transparency_intensity)
+        } else {
+            0.0
+        }
+    }
+
+    /// Effective blur intensity when the preference is enabled (else `0.0`).
+    /// Preference is stored for honesty / future compositors; egui cannot apply
+    /// desktop backdrop-blur on Wayland today.
+    pub fn effective_blur_intensity(&self) -> f32 {
+        if self.window_background_blur {
+            clamp_intensity(self.window_background_blur_intensity)
+        } else {
+            0.0
         }
     }
 }
@@ -209,6 +259,20 @@ mod tests {
         assert!(cfg.show_title_bar);
         assert!(!cfg.window_transparency);
         assert!(!cfg.window_background_blur);
+        assert!((cfg.window_transparency_intensity - 0.75).abs() < f32::EPSILON);
+        assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn app_version_is_xy_semver_lite() {
+        let parts: Vec<_> = APP_VERSION.split('.').collect();
+        assert!(
+            parts.len() >= 2,
+            "expected x.y version, got {APP_VERSION}"
+        );
+        assert!(parts[0].parse::<u32>().is_ok());
+        assert!(parts[1].parse::<u32>().is_ok());
+        assert_eq!(APP_NAME, "Lightsnip");
     }
 
     #[test]
@@ -224,7 +288,9 @@ mod tests {
         cfg.theme = UiTheme::Dark;
         cfg.show_title_bar = false;
         cfg.window_transparency = true;
+        cfg.window_transparency_intensity = 0.4;
         cfg.window_background_blur = true;
+        cfg.window_background_blur_intensity = 0.8;
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -255,5 +321,31 @@ shortcut_bind_command = "lightsnip region"
         assert_eq!(cfg.theme, UiTheme::System);
         assert_eq!(cfg.shortcut_keys, "Print");
         assert!(cfg.show_title_bar);
+        assert!((cfg.window_transparency_intensity - 0.75).abs() < f32::EPSILON);
+        assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn clamp_intensity_bounds() {
+        assert_eq!(clamp_intensity(-1.0), 0.0);
+        assert_eq!(clamp_intensity(2.0), 1.0);
+        assert_eq!(clamp_intensity(0.5), 0.5);
+        assert_eq!(clamp_intensity(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn effective_intensity_respects_toggle() {
+        let mut cfg = Config::default();
+        cfg.window_transparency = false;
+        cfg.window_transparency_intensity = 0.9;
+        assert_eq!(cfg.effective_transparency_intensity(), 0.0);
+        cfg.window_transparency = true;
+        assert!((cfg.effective_transparency_intensity() - 0.9).abs() < f32::EPSILON);
+
+        cfg.window_background_blur = false;
+        cfg.window_background_blur_intensity = 0.6;
+        assert_eq!(cfg.effective_blur_intensity(), 0.0);
+        cfg.window_background_blur = true;
+        assert!((cfg.effective_blur_intensity() - 0.6).abs() < f32::EPSILON);
     }
 }
