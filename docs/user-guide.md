@@ -77,9 +77,9 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 
 ### On-screen (default)
 
-After capture, HyperShot stays on a fullscreen overlay over the dimmed capture: selection rect with handles, resolution pill (`W x H` + origin), top Screenshot/Video mini-bar (Video is a stub), and a bottom pill toolbar. Tools draw on the selected region in place.
+After capture, HyperShot stays on a fullscreen overlay over the dimmed capture: selection rect with handles, resolution pill (`W x H` + origin), and a bottom pill toolbar. Tools draw on the selected region in place.
 
-1. Drag to select (or resize with handles). Live size text updates while selecting.
+1. Drag to select. Resize with the corner/edge dots (they highlight on hover). Hover the selection border for a move cursor and drag to reposition. Live size text updates while selecting.
 2. Tools: **Arrow**, **Box**, **Pixelate**, **Step**, **color**, **Undo**, **Redo**, **Clear**, **Settings**, **Open in preview**, **Save**, **Copy**, **Exit**. Only the active draw tool is purple-highlighted.
 3. **Open in preview** crops the current session into the floating HyperShot window.
 

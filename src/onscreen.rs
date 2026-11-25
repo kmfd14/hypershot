@@ -31,7 +31,10 @@ use crate::ui::{
 };
 
 const COPY_TOAST_SECS: f32 = 1.15;
-const HANDLE_R: f32 = 5.0;
+const HANDLE_R: f32 = 5.5;
+const HANDLE_HIT: f32 = 10.0;
+/// Border band (screen px) that affords move — not the interior (drawing).
+const EDGE_BAND: f32 = 12.0;
 const MIN_SEL: f32 = 8.0;
 
 /// Fullscreen on-screen annotate over a full-display capture PNG.
@@ -409,47 +412,59 @@ impl OnscreenApp {
 
         let pill_pos = Pos2::new(sel_screen.left(), sel_screen.top() - 36.0);
         paint_size_coord_pill(painter, pill_pos, w, h, x, y, pal);
-
-        // Mini mode bar: Screenshot (active) · Video (stub).
-        let bar_pos = Pos2::new(pill_pos.x + 168.0, pill_pos.y);
-        paint_mode_bar(painter, bar_pos, pal);
     }
 
-    fn draw_handles(&self, painter: &egui::Painter, sel_screen: Rect) {
-        let pts = handle_points(sel_screen);
-        for p in pts {
-            painter.circle_filled(p, HANDLE_R, Color32::WHITE);
-            painter.circle_stroke(
-                p,
-                HANDLE_R,
-                Stroke::new(1.25_f32, Color32::from_rgb(0x60, 0x60, 0x68)),
-            );
-        }
+    fn draw_handles(
+        &self,
+        painter: &egui::Painter,
+        sel_screen: Rect,
+        hover: Option<Handle>,
+        edge_hover: bool,
+    ) {
+        // Slightly brighter border when the edge affords move.
+        let border = if edge_hover {
+            Color32::from_rgb(0xF0, 0xEC, 0xFF)
+        } else {
+            Color32::WHITE
+        };
         painter.rect_stroke(
             sel_screen,
             0.0,
-            Stroke::new(1.5_f32, Color32::WHITE),
+            Stroke::new(if edge_hover { 2.0_f32 } else { 1.5_f32 }, border),
             egui::StrokeKind::Outside,
         );
+
+        let pts = handle_labeled_points(sel_screen);
+        for (h, p) in pts {
+            let hovered = hover == Some(h);
+            let r = if hovered { HANDLE_R + 2.0 } else { HANDLE_R };
+            let fill = if hovered {
+                Color32::from_rgb(0xED, 0xE7, 0xF6)
+            } else {
+                Color32::WHITE
+            };
+            let stroke = if hovered {
+                Stroke::new(2.0_f32, PASTEL_PRIMARY)
+            } else {
+                Stroke::new(1.35_f32, Color32::from_rgb(0x55, 0x55, 0x5C))
+            };
+            // Soft outer ring so the hit target reads as interactive before hover.
+            if hovered {
+                painter.circle_filled(p, r + 3.0, Color32::from_rgba_unmultiplied(0x8E, 0x74, 0xC2, 0x40));
+            }
+            painter.circle_filled(p, r, fill);
+            painter.circle_stroke(p, r, stroke);
+        }
     }
 
-    fn hit_handle(&self, screen_pos: Pos2, sel_screen: Rect) -> Option<Handle> {
-        let pts = [
-            (Handle::Nw, sel_screen.left_top()),
-            (Handle::N, Pos2::new(sel_screen.center().x, sel_screen.top())),
-            (Handle::Ne, sel_screen.right_top()),
-            (Handle::E, Pos2::new(sel_screen.right(), sel_screen.center().y)),
-            (Handle::Se, sel_screen.right_bottom()),
-            (Handle::S, Pos2::new(sel_screen.center().x, sel_screen.bottom())),
-            (Handle::Sw, sel_screen.left_bottom()),
-            (Handle::W, Pos2::new(sel_screen.left(), sel_screen.center().y)),
-        ];
-        for (h, p) in pts {
-            if p.distance(screen_pos) <= HANDLE_R + 4.0 {
+    /// Resize handles first, then edge-band move. Interior returns `None` (draw tools).
+    fn hit_selection(&self, screen_pos: Pos2, sel_screen: Rect) -> Option<Handle> {
+        for (h, p) in handle_labeled_points(sel_screen) {
+            if p.distance(screen_pos) <= HANDLE_HIT {
                 return Some(h);
             }
         }
-        if sel_screen.contains(screen_pos) {
+        if near_selection_edge(screen_pos, sel_screen, EDGE_BAND) {
             Some(Handle::Move)
         } else {
             None
@@ -696,32 +711,37 @@ impl eframe::App for OnscreenApp {
                     }
                 }
 
+                // Hover affordances: resize cursors on handles, move on edge band.
+                let hover_pos = ui.ctx().pointer_hover_pos().or(pointer_from_response(&response));
+                let hover_handle = sel_screen.and_then(|sel| {
+                    hover_pos.and_then(|pos| self.hit_selection(pos, sel))
+                });
+                let edge_hover = matches!(hover_handle, Some(Handle::Move));
+                if let Some(h) = hover_handle {
+                    ui.ctx().set_cursor_icon(cursor_for_handle(h));
+                }
+
                 if let Some(sel) = sel_screen {
-                    self.draw_handles(&painter, sel);
+                    self.draw_handles(&painter, sel, hover_handle.filter(|h| !matches!(h, Handle::Move)), edge_hover);
                     self.draw_top_chrome(&painter, sel, &pal);
                 }
 
-                // Interaction: resize / new select / draw inside selection.
+                // Interaction: resize / edge-move / new select / draw inside selection.
                 let pointer = response.interact_pointer_pos();
                 if response.drag_started() {
                     if let Some(pos) = pointer {
                         if let Some(sel) = sel_screen {
-                            if let Some(h) = self.hit_handle(pos, sel) {
-                                if matches!(h, Handle::Move) {
-                                    // Drawing or move: prefer drawing when a tool drag starts inside.
-                                    if sel.contains(pos) && !near_any_handle(pos, sel) {
-                                        self.drag_start = Some(to_image(pos));
-                                        self.resize_handle = None;
-                                    } else {
-                                        self.resize_handle = Some(Handle::Move);
-                                        self.drag_start = Some(to_image(pos));
-                                    }
-                                } else {
-                                    self.resize_handle = Some(h);
-                                    self.drag_start = None;
-                                }
+                            if let Some(h) = self.hit_selection(pos, sel) {
+                                // Edge or handle: move / resize the region.
+                                self.resize_handle = Some(h);
+                                self.drag_start = Some(to_image(pos));
+                                self.draft = None;
+                            } else if sel.contains(pos) {
+                                // Interior: draw with the active tool.
+                                self.drag_start = Some(to_image(pos));
+                                self.resize_handle = None;
                             } else if image_rect.contains(pos) {
-                                // New selection outside current rect.
+                                // Outside: start a new selection.
                                 let img = to_image(pos);
                                 self.sel_a = Some(img);
                                 self.sel_b = Some(img);
@@ -753,12 +773,19 @@ impl eframe::App for OnscreenApp {
                                     let min = Pos2::new(a.x.min(b.x), a.y.min(b.y));
                                     let max = Pos2::new(a.x.max(b.x), a.y.max(b.y));
                                     let w = max.x - min.x;
-                                    let h = max.y - min.y;
+                                    let hh = max.y - min.y;
                                     let mut nmin = min + delta;
                                     nmin.x = nmin.x.clamp(0.0, (self.img_w as f32) - w);
-                                    nmin.y = nmin.y.clamp(0.0, (self.img_h as f32) - h);
+                                    nmin.y = nmin.y.clamp(0.0, (self.img_h as f32) - hh);
+                                    let applied = nmin - min;
                                     self.sel_a = Some(nmin);
-                                    self.sel_b = Some(nmin + Vec2::new(w, h));
+                                    self.sel_b = Some(nmin + Vec2::new(w, hh));
+                                    if applied.length_sq() > 0.0 {
+                                        translate_shapes(&mut self.shapes, applied);
+                                        if let Some(d) = self.draft.as_mut() {
+                                            translate_shape(d, applied);
+                                        }
+                                    }
                                     self.drag_start = Some(img);
                                 }
                             } else {
@@ -814,8 +841,8 @@ impl eframe::App for OnscreenApp {
 
                 // Bottom pill toolbar (only once a region exists).
                 if let Some(sel) = sel_screen {
-                    let bar_w = 520.0_f32;
-                    let bar_h = 48.0_f32;
+                    let bar_w = 480.0_f32;
+                    let bar_h = 42.0_f32;
                     let bar_pos = Pos2::new(
                         (sel.center().x - bar_w * 0.5)
                             .clamp(area.left() + 8.0, area.right() - bar_w - 8.0),
@@ -912,23 +939,65 @@ pub fn take_preview_handoff(png: &Path) -> bool {
     }
 }
 
-fn handle_points(sel: Rect) -> [Pos2; 8] {
+fn handle_labeled_points(sel: Rect) -> [(Handle, Pos2); 8] {
     [
-        sel.left_top(),
-        Pos2::new(sel.center().x, sel.top()),
-        sel.right_top(),
-        Pos2::new(sel.right(), sel.center().y),
-        sel.right_bottom(),
-        Pos2::new(sel.center().x, sel.bottom()),
-        sel.left_bottom(),
-        Pos2::new(sel.left(), sel.center().y),
+        (Handle::Nw, sel.left_top()),
+        (Handle::N, Pos2::new(sel.center().x, sel.top())),
+        (Handle::Ne, sel.right_top()),
+        (Handle::E, Pos2::new(sel.right(), sel.center().y)),
+        (Handle::Se, sel.right_bottom()),
+        (Handle::S, Pos2::new(sel.center().x, sel.bottom())),
+        (Handle::Sw, sel.left_bottom()),
+        (Handle::W, Pos2::new(sel.left(), sel.center().y)),
     ]
 }
 
-fn near_any_handle(pos: Pos2, sel: Rect) -> bool {
-    handle_points(sel)
-        .iter()
-        .any(|p| p.distance(pos) <= HANDLE_R + 4.0)
+fn near_selection_edge(pos: Pos2, sel: Rect, band: f32) -> bool {
+    if !sel.expand(band * 0.35).contains(pos) {
+        return false;
+    }
+    // Inside the outer band of the rect (including just outside the stroke).
+    let inset = sel.shrink(band);
+    if inset.width() <= 0.0 || inset.height() <= 0.0 {
+        return sel.contains(pos);
+    }
+    !inset.contains(pos)
+}
+
+fn cursor_for_handle(h: Handle) -> egui::CursorIcon {
+    match h {
+        Handle::N | Handle::S => egui::CursorIcon::ResizeVertical,
+        Handle::E | Handle::W => egui::CursorIcon::ResizeHorizontal,
+        Handle::Nw | Handle::Se => egui::CursorIcon::ResizeNwSe,
+        Handle::Ne | Handle::Sw => egui::CursorIcon::ResizeNeSw,
+        Handle::Move => egui::CursorIcon::Move,
+    }
+}
+
+fn pointer_from_response(response: &egui::Response) -> Option<Pos2> {
+    response.hover_pos()
+}
+
+fn translate_shapes(shapes: &mut [Shape], delta: Vec2) {
+    for s in shapes.iter_mut() {
+        translate_shape(s, delta);
+    }
+}
+
+fn translate_shape(shape: &mut Shape, delta: Vec2) {
+    match shape {
+        Shape::Arrow { from, to, .. } => {
+            *from += delta;
+            *to += delta;
+        }
+        Shape::Rect { a, b, .. } | Shape::Pixelate { a, b } => {
+            *a += delta;
+            *b += delta;
+        }
+        Shape::Step { center, .. } => {
+            *center += delta;
+        }
+    }
 }
 
 fn paint_dim_around(painter: &egui::Painter, outer: Rect, hole: Rect, dim: Color32) {
@@ -1000,42 +1069,6 @@ fn paint_size_coord_pill(
     );
 }
 
-fn paint_mode_bar(painter: &egui::Painter, pos: Pos2, pal: &AnnotatePalette) {
-    let rect = Rect::from_min_size(pos, Vec2::new(168.0, 28.0));
-    painter.rect_filled(rect, 14.0, Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF5));
-    painter.rect_stroke(
-        rect,
-        14.0,
-        Stroke::new(1.0_f32, pal.toolbar_stroke),
-        egui::StrokeKind::Inside,
-    );
-    // Screenshot (active)
-    let shot = Rect::from_min_size(pos + Vec2::new(4.0, 3.0), Vec2::new(78.0, 22.0));
-    painter.rect_filled(shot, 8.0, pal.btn_selected);
-    painter.rect_stroke(
-        shot,
-        8.0,
-        Stroke::new(1.25_f32, PASTEL_PRIMARY),
-        egui::StrokeKind::Inside,
-    );
-    painter.text(
-        shot.center(),
-        egui::Align2::CENTER_CENTER,
-        "Screenshot",
-        egui::FontId::proportional(11.0),
-        PASTEL_PRIMARY,
-    );
-    // Video (inactive stub)
-    let vid = Rect::from_min_size(pos + Vec2::new(86.0, 3.0), Vec2::new(74.0, 22.0));
-    painter.text(
-        vid.center(),
-        egui::Align2::CENTER_CENTER,
-        "Video",
-        egui::FontId::proportional(11.0),
-        pal.muted,
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,5 +1082,13 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .ends_with(".preview-handoff"));
+    }
+
+    #[test]
+    fn edge_band_detects_border_not_interior() {
+        let sel = Rect::from_min_size(Pos2::new(100.0, 100.0), Vec2::new(200.0, 120.0));
+        assert!(near_selection_edge(Pos2::new(100.0, 160.0), sel, 12.0));
+        assert!(near_selection_edge(Pos2::new(200.0, 100.0), sel, 12.0));
+        assert!(!near_selection_edge(Pos2::new(200.0, 160.0), sel, 12.0));
     }
 }

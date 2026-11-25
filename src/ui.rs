@@ -22,13 +22,13 @@ use crate::config::UiTheme;
 // --- Annotate sizes -----------------------------------------------------------
 
 /// Tool button hit target (desktop ≥ 28 pt). Rounded square, not a circle.
-pub const TOOL_BTN: f32 = 32.0;
+pub const TOOL_BTN: f32 = 30.0;
 
 /// Settings gear matches other tools for compact pill chrome.
-pub const SETTINGS_BTN: f32 = 32.0;
+pub const SETTINGS_BTN: f32 = 30.0;
 
 /// Toolbar strip thickness (cross-axis).
-pub const TOOLBAR_WIDTH: f32 = 48.0;
+pub const TOOLBAR_WIDTH: f32 = 44.0;
 
 /// Gutter between image and floating tool rail.
 pub const TOOLBAR_GUTTER: f32 = 12.0;
@@ -37,10 +37,10 @@ pub const TOOLBAR_GUTTER: f32 = 12.0;
 pub const WINDOW_PAD: f32 = 18.0;
 
 /// Pill-ish rail corner radius (horizontal bars read as a capsule).
-pub const TOOLBAR_RADIUS: f32 = 22.0;
+pub const TOOLBAR_RADIUS: f32 = 18.0;
 
 /// Rounded-square highlight radius on tool wells.
-pub const TOOL_WELL_RADIUS: f32 = 8.0;
+pub const TOOL_WELL_RADIUS: f32 = 7.0;
 
 /// Universal settings control row height (buttons, text fields, checkbox wells).
 pub const SETTINGS_CONTROL_HEIGHT: f32 = 28.0;
@@ -378,10 +378,10 @@ pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
     ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
     ctx.set_theme(theme_preference(theme));
-    // Tighter feathering keeps vector icons crisp without jagged stair-steps.
+    // Low feathering keeps vector icons crisp (less soft/pixelated AA).
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.55;
+        opts.feathering_size_in_pixels = 0.28;
     });
 }
 
@@ -392,7 +392,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_theme(theme_preference(theme));
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.55;
+        opts.feathering_size_in_pixels = 0.28;
     });
 }
 
@@ -400,7 +400,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
 ///
 /// Always uses a solid opaque fill — window transparency / blur never wash it out.
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
-    let shadow_a = if pal.dark { 48 } else { 28 };
+    let shadow_a = if pal.dark { 36 } else { 20 };
     egui::Frame::new()
         .fill(Color32::from_rgb(
             pal.toolbar_fill.r(),
@@ -416,11 +416,11 @@ pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
             ),
         ))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
-        .inner_margin(Margin::symmetric(8, 8))
+        .inner_margin(Margin::symmetric(5, 5))
         .outer_margin(Margin::ZERO)
         .shadow(Shadow {
-            offset: [0, 2],
-            blur: 10,
+            offset: [0, 1],
+            blur: 6,
             spread: 0,
             color: Color32::from_black_alpha(shadow_a),
         })
@@ -500,7 +500,9 @@ pub fn tool_icon_button(
 
     let dark = ui.visuals().dark_mode;
     let pal = AnnotatePalette::for_mode(dark, false);
-    let well = Rect::from_center_size(rect.center(), Vec2::splat(diameter - 4.0));
+    // Snap wells/icons to half-pixels for cleaner stroke AA.
+    let center = Pos2::new(rect.center().x.round() + 0.5, rect.center().y.round() + 0.5);
+    let well = Rect::from_center_size(center, Vec2::splat(diameter - 6.0));
     let radius = TOOL_WELL_RADIUS;
 
     let painter = ui.painter_at(rect);
@@ -511,7 +513,7 @@ pub fn tool_icon_button(
         painter.rect_stroke(
             well,
             radius,
-            Stroke::new(1.5_f32, PASTEL_PRIMARY),
+            Stroke::new(1.25_f32, PASTEL_PRIMARY),
             egui::StrokeKind::Inside,
         );
     } else if let Some((idle, hover)) = fill_override {
@@ -530,7 +532,7 @@ pub fn tool_icon_button(
     } else {
         ICON_DARK
     };
-    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(diameter * 0.48));
+    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.52));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
@@ -723,22 +725,22 @@ pub fn section_title_with_help(
     ui.add_space(6.0);
 }
 
-// --- Icon painters (vector strokes; keep AA feathering low in apply_*_visuals) ---
+// --- Icon painters (crisp thin vectors; low feathering in apply_*_visuals) ---
 
-const ICON_STROKE: f32 = 2.35;
+const ICON_STROKE: f32 = 1.65;
 
 /// `direction`: +1 = undo (opens left), -1 = redo (opens right).
 fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, direction: f32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
-    let c = rect.center() + Vec2::new(-direction * rect.width() * 0.06, rect.height() * 0.04);
-    let r = rect.width() * 0.32;
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let c = rect.center() + Vec2::new(-direction * rect.width() * 0.05, rect.height() * 0.02);
+    let r = rect.width() * 0.30;
     let start = if direction > 0.0 {
-        std::f32::consts::FRAC_PI_4 * 0.35
+        std::f32::consts::FRAC_PI_4 * 0.25
     } else {
-        std::f32::consts::PI - std::f32::consts::FRAC_PI_4 * 0.35
+        std::f32::consts::PI - std::f32::consts::FRAC_PI_4 * 0.25
     };
-    let sweep = direction * std::f32::consts::PI * 1.45;
-    let steps = 32;
+    let sweep = direction * std::f32::consts::PI * 1.40;
+    let steps = 40;
     let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
         let t = start - sweep * (i as f32 / steps as f32);
@@ -748,17 +750,18 @@ fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, directio
     }
     let tip_angle = start - sweep;
     let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
-    // Unit tangent at tip, oriented toward the arc travel end.
     let travel = -sweep.signum();
     let tangent = Vec2::new(-travel * tip_angle.sin(), travel * tip_angle.cos()).normalized();
     let normal = Vec2::new(-tangent.y, tangent.x);
-    let head = rect.width() * 0.22;
-    let wing = rect.width() * 0.16;
-    let base = tip + tangent * head;
-    let left = tip - tangent * (head * 0.15) + normal * wing;
-    let right = tip - tangent * (head * 0.15) - normal * wing;
+    let head = rect.width() * 0.20;
+    let wing = rect.width() * 0.14;
     painter.add(egui::Shape::convex_polygon(
-        vec![tip, left, base, right],
+        vec![
+            tip,
+            tip - tangent * (head * 0.15) + normal * wing,
+            tip + tangent * head,
+            tip - tangent * (head * 0.15) - normal * wing,
+        ],
         color,
         Stroke::NONE,
     ));
@@ -766,15 +769,14 @@ fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, directio
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let a = Pos2::new(rect.left() + rect.width() * 0.18, rect.bottom() - rect.height() * 0.22);
-    let b = Pos2::new(rect.right() - rect.width() * 0.16, rect.top() + rect.height() * 0.20);
+    let a = Pos2::new(rect.left() + rect.width() * 0.20, rect.bottom() - rect.height() * 0.22);
+    let b = Pos2::new(rect.right() - rect.width() * 0.18, rect.top() + rect.height() * 0.22);
     painter.line_segment([a, b], stroke);
     let dir = (b - a).normalized();
     let perp = Vec2::new(-dir.y, dir.x);
-    let head = rect.width() * 0.30;
-    let wing = rect.width() * 0.17;
+    let head = rect.width() * 0.28;
+    let wing = rect.width() * 0.15;
     let back = b - dir * head;
-    // Filled head reads sharper than two thin strokes at 36px.
     painter.add(egui::Shape::convex_polygon(
         vec![b, back + perp * wing, back - perp * wing],
         color,
@@ -783,38 +785,40 @@ pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.20);
+    let inset = rect.shrink(rect.width() * 0.22);
     painter.rect_stroke(
         inset,
-        2.5,
+        2.0,
         Stroke::new(ICON_STROKE, color),
         egui::StrokeKind::Middle,
     );
 }
 
 pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.18);
-    let cell = inset.width() / 3.0;
-    let gap = cell * 0.12;
+    let inset = rect.shrink(rect.width() * 0.20);
+    let cell = (inset.width() / 3.0).floor().max(1.0);
+    let gap = 1.0_f32;
+    let origin = Pos2::new(
+        (inset.center().x - cell * 1.5 - gap).round(),
+        (inset.center().y - cell * 1.5 - gap).round(),
+    );
     for row in 0..3 {
         for col in 0..3 {
             if (row + col) % 2 == 0 {
                 let c = Rect::from_min_size(
                     Pos2::new(
-                        inset.min.x + col as f32 * cell + gap * 0.5,
-                        inset.min.y + row as f32 * cell + gap * 0.5,
+                        origin.x + col as f32 * (cell + gap),
+                        origin.y + row as f32 * (cell + gap),
                     ),
-                    Vec2::splat(cell - gap),
+                    Vec2::splat(cell),
                 );
-                painter.rect_filled(c, 1.0, color);
+                painter.rect_filled(c, 0.5, color);
             }
         }
     }
 }
 
-/// Numbered step stamp icon: bold circle with “1” + small “2” badge (sequence cue).
-///
-/// Digit ink flips for contrast against the toolbar glyph color (light/dark).
+/// Numbered step stamp: filled circle + vector “1” (no text glyphs — stays sharp).
 pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
     let lum = (u16::from(color.r()) * 2 + u16::from(color.g()) * 5 + u16::from(color.b())) / 8;
     let ink = if lum > 140 {
@@ -823,30 +827,54 @@ pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
         Color32::WHITE
     };
 
-    // Primary stamp (large “1”).
-    let c1 = rect.center() - Vec2::new(rect.width() * 0.08, rect.height() * 0.06);
-    let r1 = rect.width() * 0.40;
+    let c1 = rect.center() - Vec2::new(rect.width() * 0.06, rect.height() * 0.04);
+    let r1 = rect.width() * 0.36;
     painter.circle_filled(c1, r1, color);
-    painter.circle_stroke(c1, r1, Stroke::new(2.0_f32, ink));
-    painter.text(
-        c1,
-        egui::Align2::CENTER_CENTER,
-        "1",
-        egui::FontId::proportional((r1 * 1.25).clamp(12.0, 22.0)),
-        ink,
+    painter.circle_stroke(c1, r1, Stroke::new(1.5_f32, ink));
+    // Vector “1”: stem + serif top + base.
+    let stem_x = c1.x;
+    let top = c1.y - r1 * 0.42;
+    let bot = c1.y + r1 * 0.42;
+    let stroke = Stroke::new(1.7_f32, ink);
+    painter.line_segment([Pos2::new(stem_x, top), Pos2::new(stem_x, bot)], stroke);
+    painter.line_segment(
+        [Pos2::new(stem_x - r1 * 0.18, top + r1 * 0.12), Pos2::new(stem_x, top)],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            Pos2::new(stem_x - r1 * 0.22, bot),
+            Pos2::new(stem_x + r1 * 0.22, bot),
+        ],
+        stroke,
     );
 
-    // Secondary badge suggests numbered steps (1 → 2 → …).
-    let c2 = rect.center() + Vec2::new(rect.width() * 0.24, rect.height() * 0.22);
-    let r2 = rect.width() * 0.20;
+    let c2 = rect.center() + Vec2::new(rect.width() * 0.26, rect.height() * 0.24);
+    let r2 = rect.width() * 0.18;
     painter.circle_filled(c2, r2, color);
-    painter.circle_stroke(c2, r2, Stroke::new(1.5_f32, ink));
-    painter.text(
-        c2,
-        egui::Align2::CENTER_CENTER,
-        "2",
-        egui::FontId::proportional((r2 * 1.2).clamp(8.0, 14.0)),
-        ink,
+    painter.circle_stroke(c2, r2, Stroke::new(1.25_f32, ink));
+    // Tiny vector “2” cue (chevron + base).
+    let s = Stroke::new(1.35_f32, ink);
+    painter.line_segment(
+        [
+            c2 + Vec2::new(-r2 * 0.35, -r2 * 0.15),
+            c2 + Vec2::new(r2 * 0.25, -r2 * 0.35),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c2 + Vec2::new(r2 * 0.25, -r2 * 0.35),
+            c2 + Vec2::new(-r2 * 0.15, r2 * 0.05),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c2 + Vec2::new(-r2 * 0.35, r2 * 0.35),
+            c2 + Vec2::new(r2 * 0.35, r2 * 0.35),
+        ],
+        s,
     );
 }
 
@@ -861,34 +889,32 @@ pub fn paint_icon_redo(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
-    let inset = rect.shrink(rect.width() * 0.26);
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let inset = rect.shrink(rect.width() * 0.28);
     painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
     painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
 }
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.26;
-    let hub = rect.width() * 0.11;
-    let tooth_len = rect.width() * 0.16;
-    let tooth_w = rect.width() * 0.11;
-    // Hub ring + filled center.
+    let outer = rect.width() * 0.24;
+    let hub = rect.width() * 0.09;
+    let tooth_len = rect.width() * 0.14;
+    let tooth_w = rect.width() * 0.095;
     painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
     painter.circle_filled(c, hub, color);
-    // Six trapezoid teeth (sharper than stubby spokes).
     for i in 0..6 {
         let a = (i as f32) * std::f32::consts::TAU / 6.0;
         let dir = Vec2::angled(a);
         let perp = Vec2::new(-dir.y, dir.x);
-        let base = c + dir * (outer * 0.72);
+        let base = c + dir * (outer * 0.78);
         let tip = c + dir * (outer + tooth_len);
         let half = tooth_w * 0.5;
         painter.add(egui::Shape::convex_polygon(
             vec![
                 base + perp * half,
-                tip + perp * (half * 0.55),
-                tip - perp * (half * 0.55),
+                tip + perp * (half * 0.5),
+                tip - perp * (half * 0.5),
                 base - perp * half,
             ],
             color,
@@ -899,12 +925,11 @@ pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) 
 
 pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let inset = rect.shrink(rect.width() * 0.20);
-    // Tray
-    let tray_y = inset.bottom() - inset.height() * 0.08;
+    let inset = rect.shrink(rect.width() * 0.22);
+    let tray_y = inset.bottom() - inset.height() * 0.06;
     painter.line_segment(
         [
-            Pos2::new(inset.left(), tray_y - inset.height() * 0.18),
+            Pos2::new(inset.left(), tray_y - inset.height() * 0.16),
             Pos2::new(inset.left(), tray_y),
         ],
         stroke,
@@ -916,20 +941,19 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.line_segment(
         [
             Pos2::new(inset.right(), tray_y),
-            Pos2::new(inset.right(), tray_y - inset.height() * 0.18),
+            Pos2::new(inset.right(), tray_y - inset.height() * 0.16),
         ],
         stroke,
     );
-    // Down arrow
-    let tip = Pos2::new(inset.center().x, tray_y - inset.height() * 0.12);
-    let top = Pos2::new(inset.center().x, inset.top() + inset.height() * 0.05);
+    let tip = Pos2::new(inset.center().x, tray_y - inset.height() * 0.10);
+    let top = Pos2::new(inset.center().x, inset.top() + inset.height() * 0.06);
     painter.line_segment([top, tip], stroke);
-    let wing = inset.width() * 0.22;
+    let wing = inset.width() * 0.20;
     painter.add(egui::Shape::convex_polygon(
         vec![
             tip,
-            tip + Vec2::new(-wing, -wing * 0.95),
-            tip + Vec2::new(wing, -wing * 0.95),
+            tip + Vec2::new(-wing, -wing * 0.9),
+            tip + Vec2::new(wing, -wing * 0.9),
         ],
         color,
         Stroke::NONE,
@@ -939,23 +963,21 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
 pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
     let back = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.16, rect.top() + rect.height() * 0.16),
-        Pos2::new(rect.right() - rect.width() * 0.34, rect.bottom() - rect.height() * 0.34),
+        Pos2::new(rect.left() + rect.width() * 0.18, rect.top() + rect.height() * 0.16),
+        Pos2::new(rect.right() - rect.width() * 0.36, rect.bottom() - rect.height() * 0.36),
     );
     let front = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.34),
-        Pos2::new(rect.right() - rect.width() * 0.16, rect.bottom() - rect.height() * 0.16),
+        Pos2::new(rect.left() + rect.width() * 0.36, rect.top() + rect.height() * 0.34),
+        Pos2::new(rect.right() - rect.width() * 0.18, rect.bottom() - rect.height() * 0.16),
     );
-    // Fill front sheet so the glyph reads as two pages, not two empty frames.
-    painter.rect_filled(front, 2.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 28));
-    painter.rect_stroke(back, 2.0, stroke, egui::StrokeKind::Middle);
-    painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
+    painter.rect_stroke(back, 1.5, stroke, egui::StrokeKind::Middle);
+    painter.rect_stroke(front, 1.5, stroke, egui::StrokeKind::Middle);
 }
 
 /// Exit / dismiss (X) — charcoal stroke matching other toolbar glyphs.
 pub fn paint_icon_exit(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.2, color);
-    let inset = rect.shrink(rect.width() * 0.28);
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let inset = rect.shrink(rect.width() * 0.30);
     painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
     painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
 }
@@ -963,9 +985,8 @@ pub fn paint_icon_exit(painter: &egui::Painter, rect: Rect, color: Color32) {
 /// Open in preview window (floating pane glyph).
 pub fn paint_icon_preview(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let outer = rect.shrink(rect.width() * 0.18);
-    painter.rect_stroke(outer, 2.0, stroke, egui::StrokeKind::Middle);
-    // Title bar line
+    let outer = rect.shrink(rect.width() * 0.20);
+    painter.rect_stroke(outer, 1.5, stroke, egui::StrokeKind::Middle);
     let bar_y = outer.top() + outer.height() * 0.28;
     painter.line_segment(
         [Pos2::new(outer.left(), bar_y), Pos2::new(outer.right(), bar_y)],
@@ -1005,7 +1026,7 @@ mod tests {
         assert!(TOOLBAR_WIDTH >= TOOL_BTN);
         assert!(WINDOW_PAD >= 12.0);
         assert!(TOOLBAR_GUTTER >= 12.0);
-        assert!(TOOLBAR_RADIUS >= 18.0);
+        assert!(TOOLBAR_RADIUS >= 16.0);
         assert!(TOOL_WELL_RADIUS >= 6.0);
     }
 
