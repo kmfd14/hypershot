@@ -26,8 +26,12 @@ pub const ICON_SUPERSAMPLE: f32 = 2.0;
 pub enum IconId {
     Arrow,
     Box,
+    Highlighter,
+    Line,
     Pixelate,
     Step,
+    Text,
+    Magnify,
     Undo,
     Redo,
     Clear,
@@ -43,8 +47,12 @@ impl IconId {
         match self {
             Self::Arrow => "arrow-up-right",
             Self::Box => "square",
+            Self::Highlighter => "design-nib",
+            Self::Line => "slash",
             Self::Pixelate => "dots-grid-3x3",
             Self::Step => "number-1-square",
+            Self::Text => "text",
+            Self::Magnify => "search",
             Self::Undo => "undo",
             Self::Redo => "redo",
             Self::Clear => "erase",
@@ -60,8 +68,12 @@ impl IconId {
         match self {
             Self::Arrow => include_str!("../assets/icons/arrow-up-right.svg"),
             Self::Box => include_str!("../assets/icons/square.svg"),
+            Self::Highlighter => include_str!("../assets/icons/design-nib.svg"),
+            Self::Line => include_str!("../assets/icons/slash.svg"),
             Self::Pixelate => include_str!("../assets/icons/dots-grid-3x3.svg"),
             Self::Step => include_str!("../assets/icons/number-1-square.svg"),
+            Self::Text => include_str!("../assets/icons/text.svg"),
+            Self::Magnify => include_str!("../assets/icons/search.svg"),
             Self::Undo => include_str!("../assets/icons/undo.svg"),
             Self::Redo => include_str!("../assets/icons/redo.svg"),
             Self::Clear => include_str!("../assets/icons/erase.svg"),
@@ -215,12 +227,28 @@ pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Box);
 }
 
+pub fn paint_icon_highlighter(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Highlighter);
+}
+
+pub fn paint_icon_line(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Line);
+}
+
 pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Pixelate);
 }
 
 pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Step);
+}
+
+pub fn paint_icon_text(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Text);
+}
+
+pub fn paint_icon_magnify(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Magnify);
 }
 
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
@@ -262,8 +290,12 @@ mod tests {
     const ALL: &[IconId] = &[
         IconId::Arrow,
         IconId::Box,
+        IconId::Highlighter,
+        IconId::Line,
         IconId::Pixelate,
         IconId::Step,
+        IconId::Text,
+        IconId::Magnify,
         IconId::Undo,
         IconId::Redo,
         IconId::Clear,
@@ -277,8 +309,12 @@ mod tests {
     #[test]
     fn iconoir_names_are_stable() {
         assert_eq!(IconId::Arrow.iconoir_name(), "arrow-up-right");
+        assert_eq!(IconId::Highlighter.iconoir_name(), "design-nib");
+        assert_eq!(IconId::Line.iconoir_name(), "slash");
         assert_eq!(IconId::Pixelate.iconoir_name(), "dots-grid-3x3");
         assert_eq!(IconId::Step.iconoir_name(), "number-1-square");
+        assert_eq!(IconId::Text.iconoir_name(), "text");
+        assert_eq!(IconId::Magnify.iconoir_name(), "search");
         assert_eq!(IconId::Preview.iconoir_name(), "app-window");
         assert_eq!(IconId::Clear.iconoir_name(), "erase");
         assert_eq!(IconId::Exit.iconoir_name(), "xmark");

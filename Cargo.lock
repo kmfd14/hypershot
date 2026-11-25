@@ -2223,8 +2223,9 @@ dependencies = [
 
 [[package]]
 name = "lightsnip"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
+ "ab_glyph",
  "anyhow",
  "arboard",
  "ashpd 0.14.3",

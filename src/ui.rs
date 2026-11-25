@@ -542,11 +542,11 @@ pub fn tool_icon_button(
     response.clicked()
 }
 
-/// Stroke-color swatch that opens egui's color wheel (opaque stroke).
+/// Stroke-color swatch that opens egui's color wheel (alpha supported for highlighter).
 pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Response {
     let popup_id = Id::new("hypershot_stroke_color_popup");
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
-    let response = response.on_hover_text("Stroke color");
+    let response = response.on_hover_text("Stroke color (alpha for highlighter)");
     let hovered = response.hovered();
 
     let dark = ui.visuals().dark_mode;
@@ -557,6 +557,17 @@ pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Respon
         painter.rect_filled(well, TOOL_WELL_RADIUS, pal.btn_hover);
     }
     let swatch_r = TOOL_BTN * 0.28;
+    // Checker under translucent swatches so alpha is visible.
+    if color.a() < 255 {
+        let c0 = Color32::from_rgb(0xE8, 0xE8, 0xEC);
+        let c1 = Color32::from_rgb(0xC8, 0xC8, 0xD0);
+        painter.circle_filled(rect.center(), swatch_r, c0);
+        painter.circle_filled(
+            rect.center() + Vec2::new(swatch_r * 0.35, -swatch_r * 0.35),
+            swatch_r * 0.45,
+            c1,
+        );
+    }
     painter.circle_filled(rect.center(), swatch_r, *color);
     painter.circle_stroke(
         rect.center(),
@@ -576,11 +587,10 @@ pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Respon
         |ui| {
             ui.set_min_width(220.0);
             ui.spacing_mut().slider_width = 180.0;
-            color_picker_color32(ui, color, Alpha::Opaque);
+            color_picker_color32(ui, color, Alpha::OnlyBlend);
         },
     );
 
-    *color = Color32::from_rgb(color.r(), color.g(), color.b());
     response
 }
 
@@ -733,8 +743,9 @@ pub fn section_title_with_help(
 
 pub use crate::icons::{
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
-    paint_icon_pixelate, paint_icon_preview, paint_icon_redo, paint_icon_save,
-    paint_icon_settings, paint_icon_step, paint_icon_undo,
+    paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
+    paint_icon_preview, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
+    paint_icon_text, paint_icon_undo,
 };
 
 /// Fit `img` into `area` (letterbox). Allows upscale so small captures stay sharp-ish when window is large.

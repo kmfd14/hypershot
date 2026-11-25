@@ -19,15 +19,17 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuild
 use crate::annotate::{
     clamp_to_image, compose_selection_png, draft_region_corners, draft_shape_for_tool,
     paint_resolution_label, paint_shape, shape_is_meaningful, AnnotateOutcome, Shape, Tool,
+    MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
 };
 use crate::config::APP_NAME;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
-    paint_icon_pixelate, paint_icon_preview, paint_icon_redo, paint_icon_save,
-    paint_icon_settings, paint_icon_step, paint_icon_undo, toolbar_separator, AnnotatePalette,
-    DEFAULT_STROKE, PASTEL_PRIMARY, TOOL_BTN,
+    paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
+    paint_icon_preview, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
+    paint_icon_text, paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE,
+    PASTEL_PRIMARY, TOOL_BTN,
 };
 
 const COPY_TOAST_SECS: f32 = 1.15;
@@ -154,15 +156,24 @@ struct OnscreenApp {
     redo_stack: Vec<Shape>,
     tool: Tool,
     stroke_color: Color32,
+    stroke_width: f32,
     next_step_number: u32,
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
+    text_edit: Option<OnscreenTextEdit>,
     path: PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
     copy_toast_until: Option<Instant>,
+    thickness_hud_until: Option<Instant>,
     show_settings: bool,
     settings: EmbeddedSettings,
+}
+
+#[derive(Debug, Clone)]
+struct OnscreenTextEdit {
+    pos: Pos2,
+    buffer: String,
 }
 
 impl OnscreenApp {
@@ -202,16 +213,57 @@ impl OnscreenApp {
             redo_stack: Vec::new(),
             tool: Tool::Arrow,
             stroke_color: DEFAULT_STROKE,
+            stroke_width: STROKE_WIDTH,
             next_step_number: 1,
             drag_start: None,
             draft: None,
+            text_edit: None,
             path,
             outcome,
             finished: false,
             copy_toast_until: None,
+            thickness_hud_until: None,
             show_settings: false,
             settings,
         }
+    }
+
+    fn adjust_stroke_width(&mut self, delta: f32) {
+        let before = self.stroke_width;
+        self.stroke_width = (self.stroke_width + delta).clamp(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH);
+        if (self.stroke_width - before).abs() > 0.01 {
+            self.thickness_hud_until =
+                Some(Instant::now() + Duration::from_secs_f32(THICKNESS_HUD_SECS));
+        }
+    }
+
+    fn text_size_for_width(&self) -> f32 {
+        (self.stroke_width * 6.0).clamp(10.0, 72.0)
+    }
+
+    fn highlighter_color(&self) -> Color32 {
+        let c = self.stroke_color;
+        if c.a() < 255 {
+            c
+        } else {
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 96)
+        }
+    }
+
+    fn commit_text_edit(&mut self) {
+        let Some(edit) = self.text_edit.take() else {
+            return;
+        };
+        let text = edit.buffer.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.push_shape(Shape::Text {
+            pos: edit.pos,
+            text,
+            color: self.stroke_color,
+            size: self.text_size_for_width(),
+        });
     }
 
     fn selection_rect(&self) -> Option<Rect> {
@@ -270,6 +322,7 @@ impl OnscreenApp {
         self.redo_stack.clear();
         self.draft = None;
         self.drag_start = None;
+        self.text_edit = None;
         self.next_step_number = 1;
     }
 
@@ -524,6 +577,20 @@ impl OnscreenApp {
             {
                 self.tool = Tool::Arrow;
             }
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Highlighter,
+                "Highlighter",
+                None,
+                TOOL_BTN,
+                paint_icon_highlighter,
+            ) {
+                self.tool = Tool::Highlighter;
+            }
+            if glass_icon_button(ui, self.tool == Tool::Line, "Line", None, TOOL_BTN, paint_icon_line)
+            {
+                self.tool = Tool::Line;
+            }
             if glass_icon_button(ui, self.tool == Tool::Rect, "Box", None, TOOL_BTN, paint_icon_box) {
                 self.tool = Tool::Rect;
             }
@@ -547,7 +614,38 @@ impl OnscreenApp {
             ) {
                 self.tool = Tool::Step;
             }
+            if glass_icon_button(ui, self.tool == Tool::Text, "Text", None, TOOL_BTN, paint_icon_text)
+            {
+                self.tool = Tool::Text;
+            }
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Magnify,
+                "Magnify",
+                None,
+                TOOL_BTN,
+                paint_icon_magnify,
+            ) {
+                self.tool = Tool::Magnify;
+            }
             glass_color_swatch(ui, &mut self.stroke_color);
+            // Thickness readout (Ctrl+scroll).
+            {
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(28.0, TOOL_BTN), Sense::hover());
+                let _ = response.on_hover_text(format!(
+                    "Thickness {:.0}px (Ctrl+scroll)",
+                    self.stroke_width
+                ));
+                let painter = ui.painter_at(rect);
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{:.0}", self.stroke_width),
+                    egui::FontId::proportional(11.0),
+                    crate::ui::ICON_DARK,
+                );
+            }
 
             toolbar_separator(ui, true);
 
@@ -689,7 +787,7 @@ impl eframe::App for OnscreenApp {
                 for shape in self.shapes.iter().chain(self.draft.iter()) {
                     paint_shape(
                         &painter,
-                        *shape,
+                        shape,
                         to_screen,
                         scale,
                         &self.pixels,
@@ -697,8 +795,28 @@ impl eframe::App for OnscreenApp {
                         self.img_h,
                     );
                 }
-                if let Some(draft) = self.draft {
-                    if let Some((a, b)) = draft_region_corners(draft) {
+                if let Some(edit) = &self.text_edit {
+                    paint_shape(
+                        &painter,
+                        &Shape::Text {
+                            pos: edit.pos,
+                            text: if edit.buffer.is_empty() {
+                                "Text".into()
+                            } else {
+                                edit.buffer.clone()
+                            },
+                            color: self.stroke_color,
+                            size: self.text_size_for_width(),
+                        },
+                        to_screen,
+                        scale,
+                        &self.pixels,
+                        self.img_w,
+                        self.img_h,
+                    );
+                }
+                if let Some(draft) = self.draft.clone() {
+                    if let Some((a, b)) = draft_region_corners(&draft) {
                         let w = (a.x - b.x).abs().round() as u32;
                         let h = (a.y - b.y).abs().round() as u32;
                         if w > 0 && h > 0 {
@@ -748,6 +866,7 @@ impl eframe::App for OnscreenApp {
                                 self.selecting = true;
                                 self.shapes.clear();
                                 self.redo_stack.clear();
+                                self.text_edit = None;
                                 self.next_step_number = 1;
                             }
                         } else if image_rect.contains(pos) {
@@ -792,14 +911,16 @@ impl eframe::App for OnscreenApp {
                                 self.apply_handle_drag(h, img);
                             }
                         } else if let Some(start) = self.drag_start {
-                            if self.tool == Tool::Step {
-                                // Step uses click, not drag.
+                            if self.tool == Tool::Step || self.tool == Tool::Text {
+                                // Click tools — ignore drag.
                             } else {
                                 self.draft = draft_shape_for_tool(
                                     self.tool,
                                     start,
                                     img,
                                     self.stroke_color,
+                                    self.stroke_width,
+                                    self.highlighter_color(),
                                 );
                             }
                         }
@@ -812,10 +933,10 @@ impl eframe::App for OnscreenApp {
                     } else if self.resize_handle.is_some() {
                         self.resize_handle = None;
                         self.drag_start = None;
-                    } else if self.tool == Tool::Step {
+                    } else if self.tool == Tool::Step || self.tool == Tool::Text {
                         // handled on click
                     } else if let Some(shape) = self.draft.take() {
-                        if shape_is_meaningful(shape) {
+                        if shape_is_meaningful(&shape) {
                             self.push_shape(shape);
                         }
                         self.drag_start = None;
@@ -839,9 +960,22 @@ impl eframe::App for OnscreenApp {
                     }
                 }
 
+                if self.tool == Tool::Text && response.clicked() {
+                    if let (Some(pos), Some(sel)) = (pointer, sel_img) {
+                        let img = to_image(pos);
+                        if sel.contains(img) {
+                            self.commit_text_edit();
+                            self.text_edit = Some(OnscreenTextEdit {
+                                pos: img,
+                                buffer: String::new(),
+                            });
+                        }
+                    }
+                }
+
                 // Bottom flat toolbar (only once a region exists).
                 if let Some(sel) = sel_screen {
-                    let bar_w = 480.0_f32;
+                    let bar_w = 620.0_f32;
                     let bar_h = 42.0_f32;
                     let bar_pos = Pos2::new(
                         (sel.center().x - bar_w * 0.5)
@@ -889,14 +1023,100 @@ impl eframe::App for OnscreenApp {
                 });
         }
 
-        let esc_exit = self.settings.config().esc_to_exit;
+        // Text editor overlay
+        if let Some(edit) = self.text_edit.as_ref() {
+            if let Some(sel) = self.selection_rect() {
+                // Position roughly; full mapping uses last frame geometry via screen rect.
+                let _ = sel;
+                let screen = ctx.screen_rect();
+                let mut buffer = edit.buffer.clone();
+                let font_px = self.text_size_for_width();
+                let color = self.stroke_color;
+                let mut commit = false;
+                let mut cancel = false;
+                egui::Area::new(egui::Id::new("hypershot_onscreen_text_edit"))
+                    .fixed_pos(Pos2::new(screen.center().x - 80.0, screen.center().y))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        ui.set_min_width(160.0);
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut buffer)
+                                .hint_text("Text")
+                                .font(egui::FontId::proportional(font_px.clamp(12.0, 36.0)))
+                                .text_color(color)
+                                .frame(true),
+                        );
+                        resp.request_focus();
+                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            commit = true;
+                        }
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            cancel = true;
+                        }
+                    });
+                if let Some(edit) = self.text_edit.as_mut() {
+                    edit.buffer = buffer;
+                }
+                if cancel {
+                    self.text_edit = None;
+                } else if commit {
+                    self.commit_text_edit();
+                }
+            }
+        }
+
+        if let Some(until) = self.thickness_hud_until {
+            if Instant::now() >= until {
+                self.thickness_hud_until = None;
+            } else {
+                let screen = ctx.screen_rect();
+                let label = format!("{:.0} px", self.stroke_width);
+                egui::Area::new(egui::Id::new("hypershot_onscreen_thickness_hud"))
+                    .fixed_pos(Pos2::new(screen.center().x - 36.0, screen.top() + 24.0))
+                    .order(egui::Order::Foreground)
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        egui::Frame::new()
+                            .fill(Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2))
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .inner_margin(egui::Margin::symmetric(12, 6))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(label)
+                                        .color(crate::ui::ICON_DARK)
+                                        .size(13.0)
+                                        .strong(),
+                                );
+                            });
+                    });
+                ctx.request_repaint_after(Duration::from_millis(32));
+            }
+        }
+
+        let (ctrl_scroll, esc_exit) = ctx.input(|i| {
+            let scroll = if i.modifiers.command {
+                i.raw_scroll_delta.y
+            } else {
+                0.0
+            };
+            (scroll, self.settings.config().esc_to_exit)
+        });
+        if ctrl_scroll.abs() > 0.0 {
+            self.adjust_stroke_width(if ctrl_scroll > 0.0 { 1.0 } else { -1.0 });
+        }
+
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
-                if self.draft.is_some() || self.drag_start.is_some() || self.selecting {
+                if self.draft.is_some()
+                    || self.drag_start.is_some()
+                    || self.selecting
+                    || self.text_edit.is_some()
+                {
                     self.draft = None;
                     self.drag_start = None;
                     self.selecting = false;
                     self.resize_handle = None;
+                    self.text_edit = None;
                 } else if esc_exit {
                     self.set_outcome(AnnotateOutcome::Cancelled);
                 }
@@ -986,7 +1206,9 @@ fn translate_shapes(shapes: &mut [Shape], delta: Vec2) {
 
 fn translate_shape(shape: &mut Shape, delta: Vec2) {
     match shape {
-        Shape::Arrow { from, to, .. } => {
+        Shape::Arrow { from, to, .. }
+        | Shape::Highlighter { from, to, .. }
+        | Shape::Line { from, to, .. } => {
             *from += delta;
             *to += delta;
         }
@@ -994,8 +1216,11 @@ fn translate_shape(shape: &mut Shape, delta: Vec2) {
             *a += delta;
             *b += delta;
         }
-        Shape::Step { center, .. } => {
+        Shape::Step { center, .. } | Shape::Magnify { center, .. } => {
             *center += delta;
+        }
+        Shape::Text { pos, .. } => {
+            *pos += delta;
         }
     }
 }
