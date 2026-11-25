@@ -1828,6 +1828,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hypershot"
+version = "1.2.0"
+dependencies = [
+ "ab_glyph",
+ "anyhow",
+ "arboard",
+ "ashpd 0.14.3",
+ "clap",
+ "directories",
+ "eframe",
+ "egui",
+ "image",
+ "imageproc",
+ "ksni",
+ "resvg",
+ "rfd",
+ "serde",
+ "tokio",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2219,29 +2242,6 @@ dependencies = [
  "libc",
  "plain",
  "redox_syscall 0.9.5",
-]
-
-[[package]]
-name = "lightsnip"
-version = "1.1.0"
-dependencies = [
- "ab_glyph",
- "anyhow",
- "arboard",
- "ashpd 0.14.3",
- "clap",
- "directories",
- "eframe",
- "egui",
- "image",
- "imageproc",
- "ksni",
- "resvg",
- "rfd",
- "serde",
- "tokio",
- "toml",
- "url",
 ]
 
 [[package]]

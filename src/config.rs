@@ -10,9 +10,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// Env var override for the default save directory (beats config TOML).
-pub const SAVE_DIR_ENV: &str = "LIGHTSNIP_SAVE_DIR";
+pub const SAVE_DIR_ENV: &str = "HYPERSHOT_SAVE_DIR";
 
-/// App display name (About + window titles). Crate/binary remain `lightsnip`.
+/// Legacy env var still honored for upgrades from the lightsnip package name.
+pub const SAVE_DIR_ENV_LEGACY: &str = "LIGHTSNIP_SAVE_DIR";
+
+/// App display name (About + window titles). Crate/binary: `hypershot`.
 pub const APP_NAME: &str = "HyperShot";
 
 /// Package version (`x.y` semver-lite from Cargo.toml).
@@ -72,7 +75,7 @@ impl UiTheme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AnnotateSessionMode {
-    /// Flameshot-style fullscreen overlay on the capture (default).
+    /// Fullscreen overlay on the capture (default).
     #[default]
     OnScreen,
     /// Floating HyperShot preview window (annotate later / larger chrome).
@@ -102,7 +105,7 @@ pub fn clamp_intensity(v: f32) -> f32 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Default PNG folder when `--save-dir` / env are unset. Empty → Pictures/lightsnip.
+    /// Default PNG folder when `--save-dir` / env are unset. Empty → Pictures/hypershot.
     pub save_directory: PathBuf,
     /// Copy to clipboard after Save when neither `--clipboard` nor `--no-clipboard` is set.
     pub save_to_clipboard: bool,
@@ -113,28 +116,26 @@ pub struct Config {
     pub replace_default_screenshot: bool,
     /// Keep a StatusNotifierItem tray icon when the tray command is running.
     pub stay_in_tray: bool,
-    /// Suggested compositor bind command (docs only; Wayland has no portable global grab).
+    /// Suggested desktop bind command (docs only; not a live global grab).
     pub shortcut_bind_command: String,
-    /// Human-readable key combination to bind in the compositor (e.g. `Super+Shift+S`).
+    /// Human-readable key combination to bind in your desktop (e.g. `Super+Shift+S`).
     pub shortcut_keys: String,
     /// Annotate tool rail position relative to the preview.
     pub toolbar_position: ToolbarPosition,
     /// Dark / light / follow OS appearance.
     pub theme: UiTheme,
-    /// Show native window decorations (title bar). Off → borderless; Wayland support varies.
+    /// Show native window decorations (title bar). Off → borderless.
     pub show_title_bar: bool,
-    /// Request a transparent annotate window clear color. Compositor / egui support varies.
+    /// Request a transparent annotate window clear color. Desktop support varies.
     pub window_transparency: bool,
     /// User-assignable transparency intensity (`0.0..=1.0`). Applied when transparency is on.
     pub window_transparency_intensity: f32,
     /// Prefer a frosted translucent annotate panel (closest to background blur in egui).
-    /// True compositor backdrop-blur is unavailable on Wayland/egui; intensity still applies.
     pub window_background_blur: bool,
     /// Frost intensity for the simulated blur panel (`0.0..=1.0`).
     pub window_background_blur_intensity: f32,
     /// When true, annotate skips center + always-on-top so a tiling WM can place it.
     /// When false (default), prefer a centered floating popup with always-on-top.
-    /// Wayland/COSMIC may still ignore always-on-top (winit no-op on Wayland).
     pub follow_window_tiling: bool,
     /// Escape dismisses annotate (after clearing an in-progress draft). Default on.
     /// When false, only the Exit button closes without save/copy.
@@ -146,7 +147,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            save_directory: default_pictures_lightsnip(),
+            save_directory: default_pictures_hypershot(),
             save_to_clipboard: true,
             run_at_startup: false,
             replace_default_screenshot: false,
@@ -200,16 +201,14 @@ impl Config {
         Ok(path)
     }
 
-    /// Save directory after env override: `LIGHTSNIP_SAVE_DIR` wins over config.
+    /// Save directory after env override: `HYPERSHOT_SAVE_DIR` (or legacy
+    /// `LIGHTSNIP_SAVE_DIR`) wins over config.
     pub fn effective_save_dir(&self) -> PathBuf {
-        if let Ok(dir) = std::env::var(SAVE_DIR_ENV) {
-            let trimmed = dir.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed);
-            }
+        if let Some(dir) = env_save_dir() {
+            return dir;
         }
         if self.save_directory.as_os_str().is_empty() {
-            default_pictures_lightsnip()
+            default_pictures_hypershot()
         } else {
             self.save_directory.clone()
         }
@@ -225,8 +224,7 @@ impl Config {
     }
 
     /// Effective frost/blur intensity when the preference is enabled (else `0.0`).
-    /// Drives a translucent frosted panel; egui cannot sample the desktop for
-    /// real compositor backdrop-blur on Wayland.
+    /// Drives a translucent frosted panel (not a true desktop backdrop blur).
     pub fn effective_blur_intensity(&self) -> f32 {
         if self.window_background_blur {
             clamp_intensity(self.window_background_blur_intensity)
@@ -236,22 +234,35 @@ impl Config {
     }
 }
 
-/// `~/.config/lightsnip/config.toml` (or platform equivalent via `ProjectDirs`).
+/// `~/.config/hypershot/config.toml` (or platform equivalent via `ProjectDirs`).
 pub fn config_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("dev", "kmfd14", "lightsnip")
+    let dirs = directories::ProjectDirs::from("dev", "kmfd14", "hypershot")
         .context("resolve config directory (HOME unset?)")?;
     Ok(dirs.config_dir().join("config.toml"))
 }
 
-/// `~/Pictures/lightsnip` (or `/tmp/lightsnip` if home lookup fails).
-pub fn default_pictures_lightsnip() -> PathBuf {
+/// `~/Pictures/hypershot` (or `/tmp/hypershot` if home lookup fails).
+pub fn default_pictures_hypershot() -> PathBuf {
     if let Some(user_dirs) = directories::UserDirs::new() {
         if let Some(pictures) = user_dirs.picture_dir() {
-            return pictures.join("lightsnip");
+            return pictures.join("hypershot");
         }
-        return user_dirs.home_dir().join("Pictures").join("lightsnip");
+        return user_dirs.home_dir().join("Pictures").join("hypershot");
     }
-    PathBuf::from("/tmp/lightsnip")
+    PathBuf::from("/tmp/hypershot")
+}
+
+/// Resolve `HYPERSHOT_SAVE_DIR`, then legacy `LIGHTSNIP_SAVE_DIR`.
+pub fn env_save_dir() -> Option<PathBuf> {
+    for key in [SAVE_DIR_ENV, SAVE_DIR_ENV_LEGACY] {
+        if let Ok(dir) = std::env::var(key) {
+            let trimmed = dir.trim();
+            if !trimmed.is_empty() {
+                return Some(PathBuf::from(trimmed));
+            }
+        }
+    }
+    None
 }
 
 /// Suggested bind using the running binary when possible.
@@ -262,7 +273,7 @@ pub fn default_shortcut_bind_command() -> String {
     }
 }
 
-/// Suggested Print-style combo label (compositor still does the real bind).
+/// Suggested Print-style combo label (you still bind it in your desktop).
 pub fn default_shortcut_keys() -> String {
     "Print".to_string()
 }
@@ -319,7 +330,7 @@ mod tests {
         cfg.run_at_startup = true;
         cfg.stay_in_tray = true;
         cfg.save_directory = PathBuf::from("/tmp/snips");
-        cfg.shortcut_bind_command = "lightsnip region".into();
+        cfg.shortcut_bind_command = "hypershot region".into();
         cfg.shortcut_keys = "Super+Shift+S".into();
         cfg.toolbar_position = ToolbarPosition::Right;
         cfg.theme = UiTheme::Dark;
@@ -354,7 +365,7 @@ save_to_clipboard = true
 run_at_startup = false
 replace_default_screenshot = false
 stay_in_tray = false
-shortcut_bind_command = "lightsnip region"
+shortcut_bind_command = "hypershot region"
 "#;
         let cfg: Config = toml::from_str(legacy).unwrap();
         assert_eq!(cfg.toolbar_position, ToolbarPosition::Left);

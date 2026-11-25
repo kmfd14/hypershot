@@ -40,6 +40,7 @@ pub enum IconId {
     Copy,
     Exit,
     Preview,
+    Help,
 }
 
 impl IconId {
@@ -47,9 +48,8 @@ impl IconId {
         match self {
             Self::Arrow => "arrow-up-right",
             Self::Box => "square",
-            // Iconoir has no dedicated highlighter/marker glyph; fill-color
-            // (ink well + drop) reads clearly as translucent marker ink.
-            Self::Highlighter => "fill-color",
+            // Iconoir has no plain `pen`; `edit-pencil` is the clearest pen glyph.
+            Self::Highlighter => "edit-pencil",
             Self::Line => "slash",
             Self::Pixelate => "dots-grid-3x3",
             Self::Step => "number-1-square",
@@ -63,6 +63,7 @@ impl IconId {
             Self::Copy => "copy",
             Self::Exit => "xmark",
             Self::Preview => "app-window",
+            Self::Help => "question-mark",
         }
     }
 
@@ -70,7 +71,7 @@ impl IconId {
         match self {
             Self::Arrow => include_str!("../assets/icons/arrow-up-right.svg"),
             Self::Box => include_str!("../assets/icons/square.svg"),
-            Self::Highlighter => include_str!("../assets/icons/fill-color.svg"),
+            Self::Highlighter => include_str!("../assets/icons/edit-pencil.svg"),
             Self::Line => include_str!("../assets/icons/slash.svg"),
             Self::Pixelate => include_str!("../assets/icons/dots-grid-3x3.svg"),
             Self::Step => include_str!("../assets/icons/number-1-square.svg"),
@@ -84,6 +85,7 @@ impl IconId {
             Self::Copy => include_str!("../assets/icons/copy.svg"),
             Self::Exit => include_str!("../assets/icons/xmark.svg"),
             Self::Preview => include_str!("../assets/icons/app-window.svg"),
+            Self::Help => include_str!("../assets/icons/question-mark.svg"),
         }
     }
 }
@@ -285,6 +287,10 @@ pub fn paint_icon_preview(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Preview);
 }
 
+pub fn paint_icon_help(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Help);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,12 +312,13 @@ mod tests {
         IconId::Copy,
         IconId::Exit,
         IconId::Preview,
+        IconId::Help,
     ];
 
     #[test]
     fn iconoir_names_are_stable() {
         assert_eq!(IconId::Arrow.iconoir_name(), "arrow-up-right");
-        assert_eq!(IconId::Highlighter.iconoir_name(), "fill-color");
+        assert_eq!(IconId::Highlighter.iconoir_name(), "edit-pencil");
         assert_eq!(IconId::Line.iconoir_name(), "slash");
         assert_eq!(IconId::Pixelate.iconoir_name(), "dots-grid-3x3");
         assert_eq!(IconId::Step.iconoir_name(), "number-1-square");
@@ -321,6 +328,7 @@ mod tests {
         assert_eq!(IconId::Clear.iconoir_name(), "erase");
         assert_eq!(IconId::Exit.iconoir_name(), "xmark");
         assert_eq!(IconId::Save.iconoir_name(), "download");
+        assert_eq!(IconId::Help.iconoir_name(), "question-mark");
     }
 
     #[test]

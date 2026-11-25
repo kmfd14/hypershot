@@ -1,4 +1,4 @@
-//! HyperShot (crate/binary: `lightsnip`) — cross-platform screenshot CLI
+//! HyperShot (crate/binary: `hypershot`) — cross-platform screenshot CLI
 //! with annotate + settings.
 
 mod annotate;
@@ -28,8 +28,8 @@ use settings::{resolve_save_dir, run_settings_window, want_clipboard};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "lightsnip",
-    about = "HyperShot — screenshot tool with annotation + settings (binary: lightsnip)",
+    name = "hypershot",
+    about = "HyperShot — screenshot tool with annotation + settings",
     version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
@@ -38,7 +38,7 @@ struct Cli {
     output: Option<PathBuf>,
 
     /// Directory for timestamped PNGs when --output is omitted
-    /// (default: config, else $LIGHTSNIP_SAVE_DIR, else ~/Pictures/lightsnip).
+    /// (default: config, else $HYPERSHOT_SAVE_DIR, else ~/Pictures/hypershot).
     #[arg(long, value_name = "DIR", global = true)]
     save_dir: Option<PathBuf>,
 
@@ -317,7 +317,7 @@ async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<(
             Err(err) => {
                 eprintln!(
                     "clipboard copy failed: {err}\n\
-                     Linux Wayland: install wl-clipboard (`wl-copy`).\n\
+                     On Linux, install wl-clipboard (`wl-copy`) if copy keeps failing.\n\
                      See README.md → Runtime dependencies / Platform support."
                 );
             }

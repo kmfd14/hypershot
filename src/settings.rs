@@ -1,13 +1,12 @@
-//! Settings window: grouped cards, `?` tooltips, clearer controls.
+//! Settings window: grouped cards, Iconoir help tooltips, clearer controls.
 //!
 //! Shortcuts: click “Assign…”, then type a combination. That stores a *label*
-//! and suggested bind command only — lightsnip does **not** register a global
-//! hotkey on Wayland. Bind the command in your compositor / DE (COSMIC,
-//! GNOME, Hyprland, …). “Replace default screenshot” only installs a user
-//! `.desktop` helper; it does not make Assign… live and does not steal Print.
-//! User Interface: toolbar position, theme, title bar, tiling vs floating,
-//! Esc-to-exit, transparency / blur intensity (honest about egui/Wayland
-//! limits). About shows name + version.
+//! and suggested bind command only — HyperShot does **not** register a global
+//! hotkey. Bind the command in your desktop keyboard settings. “Replace default
+//! screenshot” only installs a user `.desktop` helper; it does not make Assign…
+//! live and does not steal Print. User Interface: toolbar position, theme, title
+//! bar, tiling vs floating, Esc-to-exit, transparency / blur intensity. About
+//! shows name + version.
 
 use std::path::PathBuf;
 
@@ -225,7 +224,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "Shortcuts",
-                "Assign… only stores a suggested key label — it does not register a global hotkey. Wayland has no portable global grab. Copy the bind command below into your compositor or DE keyboard settings (Fedora COSMIC: Settings → Input Devices → Keyboard → Custom shortcuts). Replace default screenshot is unrelated: it only installs a user .desktop helper and never steals PrintScreen.",
+                "Assign… saves a suggested key label only — it does not create a live system shortcut. Paste the bind command below into your desktop keyboard settings (for example Settings → Keyboard → Custom shortcuts). Replace default screenshot is separate: it only adds a launcher helper and never steals Print Screen.",
                 label,
                 secondary,
             );
@@ -302,17 +301,17 @@ impl SettingsApp {
                 }
             });
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("Bind command (paste into DE / compositor)").color(label).size(12.0));
+            ui.label(egui::RichText::new("Bind command (paste into keyboard settings)").color(label).size(12.0));
             settings_text_edit(
                 ui,
                 &mut self.shortcut_text,
                 f32::INFINITY,
-                "path/to/lightsnip region",
+                "path/to/hypershot region",
             );
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "COSMIC: Settings → Input Devices → Keyboard → Custom shortcuts → add this command.",
+                    "Example: Settings → Keyboard → Custom shortcuts → add this command.",
                 )
                 .color(secondary)
                 .size(10.5),
@@ -325,7 +324,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "Session",
-                "Optional desktop helpers. All off by default. Autostart launches the tray; replace-default installs a user .desktop helper (does not steal PrintScreen); tray needs a StatusNotifier watcher.",
+                "Optional desktop helpers. All off by default. Autostart opens the tray on login; replace-default adds a launcher helper (does not steal Print Screen); tray keeps an icon in the system tray.",
                 label,
                 secondary,
             );
@@ -333,7 +332,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.run_at_startup,
                 "Run at startup",
-                "XDG autostart → tray.",
+                "Start the tray when you log in.",
                 label,
                 secondary,
             );
@@ -344,7 +343,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.replace_default_screenshot,
                 "Replace default screenshot",
-                "User .desktop helper only — does not bind keys or steal PrintScreen.",
+                "Adds a launcher helper only — does not bind keys or steal Print Screen.",
                 label,
                 secondary,
             );
@@ -355,7 +354,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.stay_in_tray,
                 "Stay in tray",
-                "StatusNotifierItem. GNOME often needs AppIndicator.",
+                "Keep a tray icon while HyperShot is running.",
                 label,
                 secondary,
             );
@@ -367,7 +366,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "Output",
-                "Default PNG folder and clipboard behavior. CLI --save-dir / LIGHTSNIP_SAVE_DIR and --clipboard / --no-clipboard still override for a single run.",
+                "Default PNG folder and clipboard behavior. For a single run you can still override with --save-dir / HYPERSHOT_SAVE_DIR and --clipboard / --no-clipboard.",
                 label,
                 secondary,
             );
@@ -378,7 +377,7 @@ impl SettingsApp {
                     ui,
                     &mut self.save_dir_text,
                     ui.available_width() - 108.0,
-                    "~/Pictures/lightsnip",
+                    "~/Pictures/hypershot",
                 );
                 if settings_button(ui, "Browse…", None, 96.0)
                     .on_hover_text("Choose preferred folder")
@@ -392,7 +391,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.save_to_clipboard,
                 "Save to clipboard by default",
-                "When neither --clipboard nor --no-clipboard is passed.",
+                "Copy each save unless you pass --clipboard or --no-clipboard.",
                 label,
                 secondary,
             );
@@ -404,7 +403,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "User Interface",
-                "Annotate mode (on-screen overlay vs preview window), toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. On-screen is Flameshot-style at the capture; Wayland overlay is best-effort. Transparency / blur affect the preview window; the tool rail stays opaque.",
+                "Annotate mode, toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. On-screen marks up right on the capture; Preview opens a floating window. Transparency and blur affect the preview window; the tool rail stays solid.",
                 label,
                 secondary,
             );
@@ -423,7 +422,7 @@ impl SettingsApp {
             });
             ui.label(
                 egui::RichText::new(
-                    "On-screen (default): Flameshot-style overlay on the capture. Preview window: floating HyperShot annotate. Wayland: fullscreen overlay is best-effort after a full capture; compositors may ignore always-on-top.",
+                    "On-screen (default): mark up right on the capture. Preview window: floating HyperShot annotate.",
                 )
                 .color(secondary)
                 .size(10.5)
@@ -459,7 +458,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.show_title_bar,
                 "Show window title bar",
-                "Native decorations. Off → borderless (Wayland support varies).",
+                "Show the normal window title bar. Off makes the window borderless.",
                 label,
                 secondary,
             );
@@ -471,7 +470,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.follow_window_tiling,
                 "Follow window tiling",
-                "On: skip center + always-on-top so a tiling WM can place annotate. Off (default): center + always-on-top. Wayland/COSMIC may still ignore always-on-top.",
+                "On: let your window manager place annotate. Off (default): center the window and keep it on top when the desktop allows.",
                 label,
                 secondary,
             );
@@ -483,7 +482,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.esc_to_exit,
                 "Esc to exit",
-                "When on (default), Escape dismisses annotate without save/copy (after clearing a draft). Exit button always works.",
+                "When on (default), Escape closes annotate without save/copy (after clearing a draft). Exit always works.",
                 label,
                 secondary,
             );
@@ -495,7 +494,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_transparency,
                 "Window transparency",
-                "Applies window clear alpha + translucent preview area. Toolbar stays opaque. Many Wayland compositors ignore alpha.",
+                "Softens the preview window. The toolbar stays solid. Some desktops ignore transparency.",
                 label,
                 secondary,
             );
@@ -517,7 +516,7 @@ impl SettingsApp {
                 ui,
                 &mut self.cfg.window_background_blur,
                 "Window background blur",
-                "No true desktop blur in egui/Wayland. Intensity frosts the preview area; toolbar stays a solid pastel panel.",
+                "Frosts the preview area. The toolbar stays a solid pastel panel.",
                 label,
                 secondary,
             );
@@ -534,7 +533,7 @@ impl SettingsApp {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "Wayland / egui: transparency is compositor-dependent; blur is a frosted panel, not backdrop-blur. Always-on-top is a no-op on Wayland (winit).",
+                    "Transparency and blur depend on your desktop. Blur frosts the preview; it does not sample the desktop behind the window.",
                 )
                 .color(secondary)
                 .size(10.5)
@@ -548,7 +547,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "About",
-                "App identity. Version uses x.y semver-lite (x = major updates, y = fixes / polish).",
+                "App name and version. Version is x.y (x = major updates, y = fixes and polish).",
                 label,
                 secondary,
             );
@@ -567,7 +566,7 @@ impl SettingsApp {
             });
             ui.add_space(2.0);
             ui.label(
-                egui::RichText::new("Wayland screenshot tool with annotation.")
+                egui::RichText::new("Screenshot tool with annotation.")
                     .color(secondary)
                     .size(11.0),
             );

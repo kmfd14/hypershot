@@ -13,11 +13,11 @@ mod linux {
     use crate::desktop::spawn_self;
 
     #[derive(Debug)]
-    struct LightsnipTray;
+    struct HypershotTray;
 
-    impl ksni::Tray for LightsnipTray {
+    impl ksni::Tray for HypershotTray {
         fn id(&self) -> String {
-            "lightsnip".into()
+            "hypershot".into()
         }
 
         fn title(&self) -> String {
@@ -77,7 +77,7 @@ mod linux {
     }
 
     pub async fn run_tray() -> Result<()> {
-        let tray = LightsnipTray;
+        let tray = HypershotTray;
         let _handle = tray
             .spawn()
             .await
@@ -97,8 +97,8 @@ pub async fn run_tray() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         anyhow::bail!(
-            "tray is Linux-only in v0.9 (StatusNotifierItem / ksni).\n\
-             On macOS / Windows use: lightsnip region | full | settings | annotate <png>"
+            "tray is Linux-only (StatusNotifierItem / ksni).\n\
+             On macOS / Windows use: hypershot region | full | settings | annotate <png>"
         );
     }
 }

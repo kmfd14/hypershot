@@ -1,13 +1,12 @@
-//! On-screen annotate overlay (Flameshot / Lightshot style).
+//! On-screen annotate overlay.
 //!
 //! Fullscreen capture → dimmed desktop → drag-select with live `W x H` →
 //! bottom flat toolbar draws on the region in place. Save / Copy / Enter /
 //! Exit match the floating preview. A preview button hands the session off to
 //! the floating HyperShot window.
 //!
-//! Wayland: best-effort fullscreen egui overlay after a full-screen capture
-//! (portal or grim). True compositor-layer overlay / global grabs are not
-//! available; some compositors may tile or refuse always-on-top.
+//! Best-effort fullscreen egui overlay after a full-screen capture. Some
+//! desktops may tile or refuse always-on-top.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -1068,28 +1067,28 @@ impl eframe::App for OnscreenApp {
             if Instant::now() >= until {
                 self.thickness_hud_until = None;
             } else {
-                let screen = ctx.screen_rect();
                 let label = format!("{:.0} px", self.stroke_width);
                 egui::Area::new(egui::Id::new("hypershot_onscreen_thickness_hud"))
-                    .fixed_pos(Pos2::new(screen.center().x - 44.0, screen.top() + 24.0))
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 24.0))
                     .order(egui::Order::Foreground)
                     .interactable(false)
                     .show(ctx, |ui| {
                         egui::Frame::new()
                             .fill(Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2))
                             .corner_radius(egui::CornerRadius::same(8))
-                            .inner_margin(egui::Margin::symmetric(14, 7))
+                            .inner_margin(egui::Margin::symmetric(12, 7))
                             .show(ui, |ui| {
-                                ui.set_min_width(60.0);
+                                // Shrink-wrap to the label (no min_width) so the pill stays snug.
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(label)
+                                        egui::RichText::new(&label)
                                             .color(crate::ui::THICKNESS_INK_ON_LIGHT)
                                             .size(13.0)
                                             .strong()
                                             .monospace(),
                                     )
-                                    .wrap_mode(egui::TextWrapMode::Extend),
+                                    .wrap_mode(egui::TextWrapMode::Extend)
+                                    .selectable(false),
                                 );
                             });
                     });

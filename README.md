@@ -5,55 +5,52 @@
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![CI](https://github.com/kmfd14/lightsnip/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/lightsnip/actions/workflows/ci.yml)
+[![CI](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml)
 
-**Product name:** HyperShot · **Crate / binary / repo:** `lightsnip`
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.2.0**
 
-**Do this now** (from the repo checkout, graphical session, ~1 minute after deps):
+**Do this now** (from the repo checkout, graphical session):
 
 ```bash
 cargo run --release -- region
 ```
 
-1. Drag-select a region on the dimmed desktop — live size text like `1280 x 720` updates while you drag (Flameshot-style on-screen overlay by default).
-2. Mark up in place with the bottom flat toolbar (arrow, box, pixelate, step number). Only the **active** tool is purple-highlighted. Use **Open in preview** for the floating window.
-3. **Save** → pick a file in the dialog → close. **Enter** → same dialog + copy to clipboard + toast + close. **Copy** → clipboard toast + close (no dialog).
+1. Drag-select a region — live size text like `1280 x 720` updates while you drag.
+2. Mark up with the bottom flat toolbar. Only the **active** tool is purple. Use **Open in preview** for the floating window.
+3. **Save** → pick a file → close. **Enter** → same dialog + copy + toast + close. **Copy** → clipboard toast + close.
 4. Cancel the save dialog (or **Exit**) to dismiss.
 
-PNG default folder: `~/Pictures/lightsnip/` (overridable in Settings).
+PNG default folder: `~/Pictures/hypershot/` (change in Settings).
 
 ```bash
 cargo run --release -- settings
 ```
 
-No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and **off by default**.
+No install required. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are **off by default**.
 
-Screenshot tool with capture + annotation. Region or fullscreen → floating annotate window → save or copy. Built in Rust. Minimal flat annotate toolbar + Apple-inspired settings.
+Screenshot tool with capture + annotation. Region or fullscreen → annotate → save or copy. Built in Rust. Minimal flat annotate toolbar + clean settings.
 
-## Platform support (v1.0)
+## Platform support (v1.2)
 
 | Platform | Capture | Annotate / Save / Clipboard | Tray | Native ARM |
 | --- | --- | --- | --- | --- |
-| Linux Wayland | **Works** — full capture (portal / `grim`), then in-app region picker with live `W x H` | **Works** | **Works** (SNI / `ksni`) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
-| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) + in-app region picker | **Works** (`arboard` + `rfd`) | Not in v1.0 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
-| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v1.0 | `aarch64-pc-windows-msvc` via CI `cargo check` |
+| Linux | **Works** — full capture (portal / `grim`), then in-app region picker with live `W x H` | **Works** | **Works** (tray icon) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
+| macOS | **Best-effort** — `screencapture` (needs Screen Recording) + in-app region picker | **Works** | Not in v1.2 | **Yes** — `aarch64-apple-darwin` |
+| Windows 10/11 | **WIP** — use Snipping Tool then `annotate` | **Works** | Not in v1.2 | `aarch64-pc-windows-msvc` via CI `cargo check` |
 
 > [!CAUTION]
-> No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop (Linux XDG helpers only). Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
+> No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
 >
-> Default annotate is an **on-screen overlay** at the capture (selection handles, resolution pill, bottom flat toolbar). Settings → Annotate mode can switch to the floating preview window. Wayland: fullscreen overlay is best-effort after a full capture; compositors may ignore always-on-top. Toolbar chrome: light gray/white flat bar (no border), charcoal icons, purple active-only highlight.
+> Default annotate is an **on-screen overlay** at the capture. Settings → Annotate mode can switch to the floating preview window. Toolbar: light gray/white flat bar, charcoal icons, purple active-only highlight.
 
 ### ARM / cross builds
 
 ```bash
-# Apple Silicon (native on M-series)
 cargo build --release --target aarch64-apple-darwin
 
-# Windows ARM64 (from an MSVC toolchain host)
 rustup target add aarch64-pc-windows-msvc
 cargo build --release --target aarch64-pc-windows-msvc
 
-# Linux ARM64
 rustup target add aarch64-unknown-linux-gnu
 cargo build --release --target aarch64-unknown-linux-gnu
 ```
@@ -67,37 +64,36 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
   <img src="https://cdn.simpleicons.org/tokio/000000" width="32" height="32" alt="Tokio">
   <img src="https://cdn.simpleicons.org/toml/9C4121" width="32" height="32" alt="TOML">
   <img src="https://cdn.simpleicons.org/linux/FCC624" width="32" height="32" alt="Linux">
-  <img src="https://cdn.simpleicons.org/wayland/ff0000" width="32" height="32" alt="Wayland">
   <img src="https://cdn.simpleicons.org/apple/000000" width="32" height="32" alt="Apple">
   <img src="https://cdn.simpleicons.org/windows/0078D4" width="32" height="32" alt="Windows">
 </p>
 
 * **Language / CLI:** Rust, `tokio`, `clap`, `directories`, `serde` / `toml`
-* **Capture:** Linux `ashpd` + `grim`/`slurp`; macOS `screencapture`; Windows stub (WIP)
+* **Capture:** Linux portal + `grim`/`slurp`; macOS `screencapture`; Windows stub (WIP)
 * **Annotate / settings / region UI:** egui + eframe; save dialog via `rfd`
-* **Toolbar icons:** [Iconoir](https://iconoir.com/) SVGs (vendored under `assets/icons/`, MIT), rasterized DPI-aware with `resvg`
+* **Toolbar icons:** [Iconoir](https://iconoir.com/) SVGs (vendored under `assets/icons/`, MIT), rasterized with `resvg`
 * **Images:** `image` / `imageproc`
-* **Clipboard:** `arboard` (Wayland still benefits from `wl-clipboard` on PATH)
-* **Tray:** Linux `ksni` only
+* **Clipboard:** `arboard` (on Linux, `wl-clipboard` on PATH helps)
+* **Tray:** Linux only (`ksni`)
 
 ## Features
 
-1. **Capture** — `cargo run --release -- region` / `full` (see [Platform support](#platform-support-v09)).
-2. **On-screen annotate (default)** — dimmed desktop overlay with selection handles, `W x H` pill, bottom flat toolbar; tools draw on the region in place. Button opens the floating preview window.
-3. **Region resolution** — live size text (`1280 x 720`) while selecting; hidden when not selecting.
-4. **Preview annotate** — floating **HyperShot** window (`annotate path.png`, or Settings → Annotate mode → Preview). Flat icon rail ([Iconoir](https://iconoir.com/) SVGs): arrow, highlighter, line, box, pixelate, step, text, magnify, color, thickness, undo/redo, clear, settings, save, copy, exit. Ctrl+scroll adjusts stroke thickness. **Only the active tool** is purple-highlighted.
-5. **Save** — file dialog (defaults under configured save dir). Cancel keeps the window open.
-6. **Enter** — save dialog + copy to clipboard + toast + close (always). Esc respects **Esc to exit**; Enter does not.
-7. **Pixelate** — soft classic mosaic (`PIXELATE_BLOCK = 20`, averages the image behind) so fine text is hard to read but the region still looks like the capture; seamless fill (no block borders); undo/redo still work.
+1. **Capture** — `cargo run --release -- region` / `full`.
+2. **On-screen annotate (default)** — selection handles, `W x H` pill, bottom flat toolbar.
+3. **Region resolution** — live size text while selecting.
+4. **Preview annotate** — floating HyperShot window with Iconoir tool rail. Ctrl+scroll adjusts thickness.
+5. **Save** — file dialog. Cancel keeps the window open.
+6. **Enter** — save dialog + copy + toast + close.
+7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — cards with `?` tooltips, annotate mode, folder picker, UI + About (`1.0`).
-10. **Tray** — Linux only: `cargo run --release -- tray`.
+9. **Settings** — cards with help tooltips, annotate mode, folder picker, UI + About (`1.2`).
+10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
 
-### Linux (Wayland)
+### Linux
 
-Portal first for fullscreen capture; `grim` (+ `slurp` for older region fallback paths) when the portal fails. Install `wl-clipboard` for reliable clipboard. Region mode then opens HyperShot’s in-app picker with live `W x H`.
+Portal first for fullscreen capture; `grim` (+ `slurp` for older region fallback paths) when the portal fails. Install `wl-clipboard` for reliable clipboard.
 
 #### Fedora 44 COSMIC — install now
 
@@ -109,8 +105,8 @@ sudo dnf install grim slurp wl-clipboard \
 | Need | Binary / package | Role |
 | --- | --- | --- |
 | Capture fallback | `grim` | PNG when portal fails |
-| Region fallback | `slurp` | Legacy geometry helper (region now uses in-app picker after full capture) |
-| Clipboard | `wl-copy` (`wl-clipboard`) | Helps `arboard` on Wayland |
+| Region fallback | `slurp` | Legacy geometry helper |
+| Clipboard | `wl-copy` (`wl-clipboard`) | Helps clipboard copy |
 
 | Desktop | Fedora packages |
 | --- | --- |
@@ -124,12 +120,12 @@ sudo dnf install grim slurp wl-clipboard \
 
 ### macOS
 
-1. Grant **Screen Recording** to your terminal (or the `lightsnip` binary) in System Settings → Privacy & Security.
-2. `cargo run --release -- region` captures the display, then opens HyperShot’s region picker with live size text.
+1. Grant **Screen Recording** to your terminal (or the `hypershot` binary) in System Settings → Privacy & Security.
+2. `cargo run --release -- region` captures the display, then opens the region picker with live size text.
 
 ### Windows 10/11
 
-1. Capture is **WIP** in v1.0.
+1. Capture is **WIP** in v1.2.
 2. Do this instead: Win+Shift+S (or Snipping Tool) → save a PNG →
 
    ```bash
@@ -138,12 +134,12 @@ sudo dnf install grim slurp wl-clipboard \
 
 ## Install
 
-1. Install platform deps above (Linux one-liner, or macOS Screen Recording).
+1. Install platform deps above.
 2. Clone:
 
    ```bash
-   git clone https://github.com/kmfd14/lightsnip.git
-   cd lightsnip
+   git clone https://github.com/kmfd14/HyperShot.git
+   cd HyperShot
    ```
 
 3. Jump to [Quick start](#quick-start).
@@ -152,10 +148,8 @@ sudo dnf install grim slurp wl-clipboard \
 
 ```bash
 cargo build --release
-cp target/release/lightsnip ~/.local/bin/   # or Windows equivalent on PATH
+cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 ```
-
-The binary stays named `lightsnip`; the product UI shows **HyperShot**.
 
 ## Quick start
 
@@ -167,7 +161,7 @@ The binary stays named `lightsnip`; the product UI shows **HyperShot**.
 
 2. Fullscreen: `cargo run --release -- full`
 
-3. Annotate an existing PNG: `cargo run --release -- annotate ~/Pictures/lightsnip/lightsnip-123.png`
+3. Annotate an existing PNG: `cargo run --release -- annotate ~/Pictures/hypershot/hypershot-123.png`
 
 4. Settings: `cargo run --release -- settings`
 
@@ -182,20 +176,20 @@ The binary stays named `lightsnip`; the product UI shows **HyperShot**.
 
 ## Hotkeys
 
-**Assign… in Settings is not a live global hotkey.** Bind the **bind command** in your DE / compositor (Linux). macOS / Windows: bind your own shortcut to `lightsnip region` after optional install.
+**Assign… in Settings is not a live global hotkey.** Bind the **bind command** in your desktop keyboard settings. macOS / Windows: bind your own shortcut to `hypershot region` after optional install.
 
 | Desktop | Where to bind | Sample |
 | --- | --- | --- |
-| Fedora COSMIC | Settings → Input Devices → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/lightsnip/Cargo.toml -- region` |
-| GNOME / KDE | Custom shortcut | Same command (does not steal PrintScreen by itself) |
+| Fedora COSMIC | Settings → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
+| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
+| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
+| GNOME / KDE | Custom shortcut | Same command (does not steal Print Screen by itself) |
 
 Annotate keys:
 
 * **Enter** = save dialog + copy + toast + close
 * **Save** = save dialog + close
-* **Copy** = write + clipboard toast + close
+* **Copy** = clipboard toast + close
 * **Exit** = cancel; **Esc** = same when Esc-to-exit is on
 * **Ctrl+Z** / **Ctrl+Shift+Z** = undo / redo
 
@@ -203,14 +197,16 @@ Annotate keys:
 
 `cargo run --release -- settings`, or **Settings** on the annotate bar.
 
-Config: `~/.config/lightsnip/config.toml` (via `directories`; macOS/Windows use the platform equivalent).
+Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equivalent).
 
-1. **Shortcuts** — label only (not a global grab).
-2. **Run at startup** / **Replace default** — Linux XDG `.desktop` helpers; off by default.
-3. **Stay in tray** — Linux SNI tray; off by default.
-4. **User Interface** — annotate mode (on-screen / preview), toolbar / theme / Esc-to-exit / transparency (toolbar stays opaque).
-5. **About** — HyperShot `1.0`.
+1. **Shortcuts** — label only (not a live system shortcut).
+2. **Run at startup** / **Replace default** — Linux desktop helpers; off by default.
+3. **Stay in tray** — Linux tray icon; off by default.
+4. **User Interface** — annotate mode, toolbar, theme, Esc-to-exit, transparency (toolbar stays opaque).
+5. **About** — HyperShot `1.2`.
 6. **Save directory** + **Save to clipboard** defaults.
+
+Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 
 ## Documentation
 
@@ -225,7 +221,7 @@ Config: `~/.config/lightsnip/config.toml` (via `directories`; macOS/Windows use 
 3. Open a pull request with a clear description of the change.
 4. Run `cargo test` (and CI covers cross targets).
 
-Issues: <https://github.com/kmfd14/lightsnip/issues>
+Issues: <https://github.com/kmfd14/HyperShot/issues>
 
 ## License
 

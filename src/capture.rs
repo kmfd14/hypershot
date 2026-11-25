@@ -281,8 +281,8 @@ mod windows {
         bail!(
             "Windows screen capture is not wired yet in v0.9 (Windows Graphics Capture planned).\n\
              Workarounds:\n\
-             • Capture with Snipping Tool / Win+Shift+S, then: lightsnip annotate path.png\n\
-             • Or: lightsnip annotate existing.png\n\
+             • Capture with Snipping Tool / Win+Shift+S, then: hypershot annotate path.png\n\
+             • Or: hypershot annotate existing.png\n\
              See README → Platform support."
         );
     }

@@ -6,12 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use image::RgbaImage;
 
-pub use crate::config::SAVE_DIR_ENV;
-
 /// Resolve where to write the PNG.
 ///
 /// Precedence: `--output PATH` → timestamped file under `--save-dir` /
-/// `LIGHTSNIP_SAVE_DIR` / config `save_directory` / `~/Pictures/lightsnip`.
+/// `HYPERSHOT_SAVE_DIR` / config `save_directory` / `~/Pictures/hypershot`.
 pub fn resolve_output_path(output: Option<PathBuf>, save_dir: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = output {
         return Ok(path);
@@ -20,20 +18,18 @@ pub fn resolve_output_path(output: Option<PathBuf>, save_dir: Option<PathBuf>) -
     Ok(dir.join(timestamped_filename()))
 }
 
-/// Default save directory: `$LIGHTSNIP_SAVE_DIR`, else config, else Pictures/lightsnip.
+/// Default save directory: `$HYPERSHOT_SAVE_DIR` (or legacy `$LIGHTSNIP_SAVE_DIR`),
+/// else config, else Pictures/hypershot.
 pub fn default_save_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var(SAVE_DIR_ENV) {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
+    if let Some(dir) = crate::config::env_save_dir() {
+        return dir;
     }
     if let Ok(cfg) = crate::config::Config::load() {
         if !cfg.save_directory.as_os_str().is_empty() {
             return cfg.save_directory;
         }
     }
-    crate::config::default_pictures_lightsnip()
+    crate::config::default_pictures_hypershot()
 }
 
 fn timestamped_filename() -> String {
@@ -41,13 +37,13 @@ fn timestamped_filename() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    format!("lightsnip-{secs}.png")
+    format!("hypershot-{secs}.png")
 }
 
 /// Copy a PNG file to the system clipboard (image/png via `arboard`).
 ///
-/// Returns `Ok(true)` on success. On Linux Wayland, `arboard` uses `wl-copy`
-/// when available — install `wl-clipboard` if copy fails.
+/// Returns `Ok(true)` on success. On Linux, `arboard` uses `wl-copy` when
+/// available — install `wl-clipboard` if copy fails.
 pub async fn copy_png_to_clipboard(path: &Path) -> Result<bool> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || copy_png_to_clipboard_blocking(&path))
@@ -95,7 +91,7 @@ mod tests {
         let path = resolve_output_path(None, Some(PathBuf::from("/tmp/snips"))).unwrap();
         assert_eq!(path.parent(), Some(Path::new("/tmp/snips")));
         let name = path.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with("lightsnip-"));
+        assert!(name.starts_with("hypershot-"));
         assert!(name.ends_with(".png"));
     }
 }
