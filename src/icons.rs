@@ -8,9 +8,8 @@
 //! 1× raster).
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 
-use eframe::egui::{self, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
+use eframe::egui::{self, Color32, ColorImage, Id, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
@@ -94,9 +93,12 @@ impl IconId {
 /// white alpha-mask texture works on light and dark chrome.
 type CacheKey = (IconId, u32);
 
-fn texture_cache() -> &'static Mutex<HashMap<CacheKey, TextureHandle>> {
-    static CACHE: OnceLock<Mutex<HashMap<CacheKey, TextureHandle>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+/// Per-`egui::Context` TextureHandle map. Never process-wide: each eframe window
+/// has its own TextureManager, and onscreen → preview reuses the process.
+type IconTextureCache = HashMap<CacheKey, TextureHandle>;
+
+fn icon_texture_cache_id() -> Id {
+    Id::new("hypershot_iconoir_textures")
 }
 
 fn hex_color(c: Color32) -> String {
@@ -168,10 +170,14 @@ pub fn rasterize_icon(id: IconId, color: Color32, px: u32) -> Result<ColorImage,
 
 fn texture_for(ctx: &egui::Context, id: IconId, px: u32) -> Option<TextureHandle> {
     let key = (id, px);
-    if let Ok(cache) = texture_cache().lock() {
-        if let Some(tex) = cache.get(&key) {
-            return Some(tex.clone());
-        }
+    let cache_id = icon_texture_cache_id();
+
+    if let Some(tex) = ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<IconTextureCache>(cache_id)
+            .get(&key)
+            .cloned()
+    }) {
+        return Some(tex);
     }
 
     let image = match rasterize_icon(id, MASK_WHITE, px) {
@@ -184,11 +190,13 @@ fn texture_for(ctx: &egui::Context, id: IconId, px: u32) -> Option<TextureHandle
 
     let name = format!("iconoir/{}/mask/{px}", id.iconoir_name());
     // LINEAR minifies the supersampled glyph cleanly; we never upscale a 1× bitmap.
+    // Always load into *this* context's TextureManager (never a handle from another window).
     let handle = ctx.load_texture(name, image, TextureOptions::LINEAR);
 
-    if let Ok(mut cache) = texture_cache().lock() {
-        cache.insert(key, handle.clone());
-    }
+    ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<IconTextureCache>(cache_id)
+            .insert(key, handle.clone());
+    });
     Some(handle)
 }
 
@@ -391,5 +399,33 @@ mod tests {
         let a = rasterize_icon(IconId::Arrow, Color32::RED, 32).unwrap();
         let b = rasterize_icon(IconId::Arrow, Color32::BLUE, 32).unwrap();
         assert_eq!(a.pixels, b.pixels);
+    }
+
+    #[test]
+    fn icon_textures_belong_to_the_calling_egui_context() {
+        // Process-wide TextureHandle cache reuses ids from a prior eframe window
+        // (onscreen → preview). The new context's tex_manager then has no meta for
+        // that id → blank but clickable toolbar icons.
+        let ctx_a = egui::Context::default();
+        let handle_a = texture_for(&ctx_a, IconId::Exit, 32).expect("load in A");
+        assert!(
+            ctx_a.tex_manager().read().meta(handle_a.id()).is_some(),
+            "texture must register in context A"
+        );
+        // Same context must reuse the handle (per-window cache hit).
+        let handle_a2 = texture_for(&ctx_a, IconId::Exit, 32).expect("cache hit in A");
+        assert_eq!(handle_a.id(), handle_a2.id());
+        drop(handle_a);
+        drop(handle_a2);
+        drop(ctx_a);
+
+        let ctx_b = egui::Context::default();
+        let handle_b = texture_for(&ctx_b, IconId::Exit, 32).expect("load in B");
+        assert!(
+            ctx_b.tex_manager().read().meta(handle_b.id()).is_some(),
+            "must load into context B's TextureManager, not reuse a stale handle from A"
+        );
+        let handle_b2 = texture_for(&ctx_b, IconId::Exit, 32).expect("cache hit in B");
+        assert_eq!(handle_b.id(), handle_b2.id());
     }
 }
