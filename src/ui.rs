@@ -123,7 +123,6 @@ pub const SETTINGS_SECONDARY_DARK: Color32 = Color32::from_rgb(0x9A, 0x9A, 0xA0)
 pub const SETTINGS_FIELD_DARK: Color32 = Color32::from_rgb(0x2A, 0x2B, 0x2F);
 /// Subtle dark-purple rounded highlight for the active sidebar item.
 pub const SETTINGS_NAV_ACTIVE: Color32 = Color32::from_rgb(0x2C, 0x28, 0x3C);
-pub const SETTINGS_KEYCAP: Color32 = Color32::from_rgb(0x2A, 0x2B, 0x2E);
 pub const SETTINGS_FOOTER_BTN: Color32 = Color32::from_rgb(0x2E, 0x2F, 0x33);
 pub const SETTINGS_SIDEBAR_W: f32 = 188.0;
 pub const SETTINGS_FOOTER_H: f32 = 52.0;

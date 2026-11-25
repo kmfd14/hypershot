@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.6.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.8.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -86,7 +86,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — dark two-pane window (sidebar + content + OK/Cancel/Apply), shortcuts as keycaps (`1.6`).
+9. **Settings** — fixed-size dark two-pane window (sidebar + content + OK/Cancel/Apply), file-name pattern (`1.8`).
 10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -161,7 +161,7 @@ cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 
 2. Fullscreen: `cargo run --release -- full`
 
-3. Annotate an existing PNG: `cargo run --release -- annotate ~/Pictures/hypershot/hypershot-123.png`
+3. Annotate an existing PNG: `cargo run --release -- annotate ~/Pictures/hypershot/screenshot_251125.png`
 
 4. Settings: `cargo run --release -- settings`
 
@@ -176,7 +176,7 @@ cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 
 ## Hotkeys
 
-**Assign… in Settings is not a live global hotkey.** Bind the **bind command** in your desktop keyboard settings. macOS / Windows: bind your own shortcut to `hypershot region` after optional install.
+HyperShot does not grab global hotkeys. Bind `hypershot region` / `hypershot full` (or `cargo run --release -- region`) in your desktop keyboard settings.
 
 | Desktop | Where to bind | Sample |
 | --- | --- | --- |
@@ -205,12 +205,13 @@ Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equiva
 
 1. **General** — run at startup, replace-default helper, stay in tray, theme.
 2. **Capture** — on-screen vs preview annotate mode.
-3. **Overlay** — toolbar dock, title bar, tiling, Esc-to-exit, transparency / blur.
-4. **Saving** — save directory + clipboard default.
-5. **Shortcuts · Global** — click a row to assign a suggested key label (not a live system grab); paste the bind command into your desktop.
-6. **About** — HyperShot `1.6`.
+3. **Overlay** — toolbar dock, title bar, annotate tiling, Esc-to-exit.
+4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
+5. **Saving** — save directory + clipboard default.
+6. **File names** — default pattern (`screenshot_%d%m%y`) with `%Y` `%y` `%m` `%d` `%H` `%M` `%S`.
+7. **About** — HyperShot `1.8`.
 
-Other sidebar items (History, Recording, Upload, …) are placeholders for later. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
+Settings stays a fixed, monitor-scaled floating window (not tiled; height does not grow). Checkboxes align in one left column. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 
 ## Documentation
 

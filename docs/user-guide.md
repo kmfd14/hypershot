@@ -1,6 +1,6 @@
 # HyperShot: user guide
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.6.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.8.0**
 
 **Do this now** (from the repo checkout, graphical desktop):
 
@@ -111,7 +111,7 @@ Settings → Annotate mode → Preview window (or after **Open in preview**). Hy
 
 After **Save** (or after capture when using `--no-annotate`), HyperShot writes a PNG and (by default) copies it to the clipboard.
 
-1. **Default save** — settings save directory, else `~/Pictures/hypershot/hypershot-<unix>.png`.
+1. **Default save** — settings save directory + **File names** pattern (default `screenshot_%d%m%y.png`). Existing names get `_2`, `_3`, …
 2. **Custom file** — `cargo run --release -- region -o ~/Pictures/snip.png`.
 3. **Custom directory** — `cargo run --release -- full --save-dir ~/Pictures/Screenshots`.
 4. **Env override** — set `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
@@ -131,12 +131,13 @@ Or click **Settings** on the annotate bar. Dark two-pane window: left sidebar, r
 
 1. **General** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray, theme. All helpers off by default.
 2. **Capture** — annotate mode (on-screen vs preview window).
-3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling, Esc to exit, transparency / blur (toolbar stays opaque).
-4. **Saving** — save directory (**Browse…**) + clipboard default.
-5. **Shortcuts · Global** — click a row to assign a suggested key **label only** (shown as keycaps). Paste the bind command into your desktop keyboard settings. Empty rows show a dash.
-6. **About** — HyperShot + `x.y` version.
+3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling (annotate only), Esc to exit.
+4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
+5. **Saving** — save directory (**Browse…**) + clipboard default.
+6. **File names** — default save pattern (`screenshot_%d%m%y` and tokens `%Y` `%y` `%m` `%d` `%H` `%M` `%S`).
+7. **About** — HyperShot + `x.y` version.
 
-Other sidebar pages (File names, History, Recording, Camera, Upload, S3, extra shortcut groups) are stubs for later. CLI flags still win for a single run.
+Settings uses a **fixed**, monitor-scaled window size (not tiled; height does not grow). Checkboxes sit in one left-aligned column. CLI flags still win for a single run.
 
 ---
 
@@ -152,9 +153,9 @@ Skip unless you want `hypershot` on your `PATH`. Default stays `cargo run` from 
 
 ## Hotkeys (desktop binds)
 
-1. Copy the bind command from Settings → Shortcuts (or use `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region`).
-2. Paste it into your desktop keyboard settings.
-3. After optional install, you can bind `hypershot region` / `hypershot full` instead.
+1. Use `cargo run --release -- region` (or the built `hypershot region` / `hypershot full` binary).
+2. Paste that command into your desktop keyboard settings.
+3. After optional install, bind `hypershot region` / `hypershot full` instead.
 
 | Desktop | Where | Sample |
 | --- | --- | --- |

@@ -1,42 +1,51 @@
 //! Settings window: dark two-pane chrome (sidebar + content + footer).
 //!
-//! Matches `/media/hypershot-settings-window-reference.png`: lavender accent,
-//! Iconoir-style nav icons, keycap shortcut rows, OK / Cancel / Apply.
+//! Fixed, monitor-scaled size — never tiled / never auto-grows. Matches the
+//! dark reference look: lavender accent, OK / Cancel / Apply.
 //!
-//! Shortcuts store *suggested* key labels and a bind command only — HyperShot
-//! does **not** register a live global hotkey. Bind the command in your desktop
-//! keyboard settings. “Replace default screenshot” only installs a user
-//! `.desktop` helper.
+//! Sidebar keeps General, Capture, Overlay, Annotation Window, Saving,
+//! File names, About. Upload / S3 / History / Recording / Camera and the
+//! entire SHORTCUTS group are intentionally omitted.
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use anyhow::{bail, Result};
-use eframe::egui::{self, Key, Modifiers, Sense, Stroke, ViewportBuilder};
+use eframe::egui::{self, Sense, Stroke, Vec2, ViewportBuilder};
 
 use crate::config::{
-    clamp_intensity, config_path, AnnotateSessionMode, Config, ToolbarPosition, UiTheme, APP_NAME,
-    APP_VERSION,
+    clamp_intensity, config_path, default_filename_pattern, AnnotateSessionMode, Config,
+    ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
+use crate::icons::{paint_iconoir, IconId};
+use crate::output::render_filename_pattern;
 use crate::ui::{
     self, choice_button, contrast_checkbox, settings_button, settings_text_edit, SETTINGS_BG_DARK,
-    SETTINGS_CONTROL_HEIGHT, SETTINGS_FOOTER_BTN, SETTINGS_FOOTER_H, SETTINGS_KEYCAP,
-    SETTINGS_LABEL_DARK, SETTINGS_NAV_ACTIVE, SETTINGS_PRIMARY, SETTINGS_SECONDARY_DARK,
-    SETTINGS_SEPARATOR_DARK, SETTINGS_SIDEBAR_W,
+    SETTINGS_CONTROL_HEIGHT, SETTINGS_FOOTER_BTN, SETTINGS_FOOTER_H, SETTINGS_LABEL_DARK,
+    SETTINGS_NAV_ACTIVE, SETTINGS_PRIMARY, SETTINGS_SECONDARY_DARK, SETTINGS_SEPARATOR_DARK,
+    SETTINGS_SIDEBAR_W,
 };
+
+/// Design size at ~1080p; scaled to the monitor, then locked.
+const SETTINGS_DESIGN: Vec2 = Vec2::new(820.0, 560.0);
 
 /// Open the standalone settings window. Blocks until closed.
 pub fn run_settings_window() -> Result<()> {
     ensure_display_available()?;
 
     let cfg = Config::load().unwrap_or_default();
+    // Start at design size; first frame re-scales to the monitor and locks it.
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_title(format!("{APP_NAME} Settings"))
-            .with_inner_size([820.0, 560.0])
-            .with_min_inner_size([640.0, 420.0])
-            .with_maximize_button(false),
+            .with_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
+            .with_min_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
+            .with_max_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
+            .with_resizable(false)
+            .with_maximize_button(false)
+            .with_always_on_top()
+            // Hint floating dialog (helps some WMs; Wayland may still need size lock).
+            .with_window_type(egui::X11WindowType::Dialog),
         centered: true,
         ..Default::default()
     };
@@ -46,7 +55,6 @@ pub fn run_settings_window() -> Result<()> {
             &format!("{APP_NAME} Settings"),
             options,
             Box::new(move |cc| {
-                // Settings chrome is always the dark two-pane reference look.
                 ui::apply_settings_visuals(&cc.egui_ctx, UiTheme::Dark);
                 Ok(Box::new(SettingsApp::new(cfg)))
             }),
@@ -71,24 +79,39 @@ fn ensure_display_available() -> Result<()> {
     Ok(())
 }
 
+/// Fixed Settings size: design aspect scaled to the monitor so content fits.
+fn settings_fixed_size(screen: egui::Rect) -> Vec2 {
+    let sw = screen.width().max(1.0);
+    let sh = screen.height().max(1.0);
+    // Fit design into ~72% of the work area; clamp so small/large monitors stay usable.
+    let scale = (sw * 0.72 / SETTINGS_DESIGN.x)
+        .min(sh * 0.72 / SETTINGS_DESIGN.y)
+        .clamp(0.78, 1.15);
+    Vec2::new(
+        (SETTINGS_DESIGN.x * scale).round(),
+        (SETTINGS_DESIGN.y * scale).round(),
+    )
+}
+
+/// Keep Settings out of tiling: fixed size + not resizable + always-on-top.
+fn enforce_fixed_settings_viewport(ctx: &egui::Context, size: Vec2) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(size));
+    ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(size));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+    ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+        egui::WindowLevel::AlwaysOnTop,
+    ));
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NavId {
     General,
     Capture,
     Overlay,
+    AnnotationWindow,
     Saving,
     FileNames,
-    History,
-    Recording,
-    Camera,
-    Upload,
-    S3Storage,
-    ShortcutsGlobal,
-    ShortcutsRecording,
-    ShortcutsOverlayTools,
-    ShortcutsOverlayEditing,
-    ShortcutsOverlayActions,
-    ShortcutsEditWindow,
     About,
 }
 
@@ -98,34 +121,11 @@ impl NavId {
             Self::General => "General",
             Self::Capture => "Capture",
             Self::Overlay => "Overlay",
+            Self::AnnotationWindow => "Annotation Window",
             Self::Saving => "Saving",
             Self::FileNames => "File names",
-            Self::History => "History",
-            Self::Recording => "Recording",
-            Self::Camera => "Camera",
-            Self::Upload => "Upload",
-            Self::S3Storage => "S3 storage",
-            Self::ShortcutsGlobal => "Shortcuts · Global",
-            Self::ShortcutsRecording => "Shortcuts · Recording",
-            Self::ShortcutsOverlayTools => "Shortcuts · Overlay tools",
-            Self::ShortcutsOverlayEditing => "Shortcuts · Overlay editing",
-            Self::ShortcutsOverlayActions => "Shortcuts · Overlay actions",
-            Self::ShortcutsEditWindow => "Shortcuts · Edit window",
             Self::About => "About",
         }
-    }
-
-    #[cfg(test)]
-    fn is_shortcuts(self) -> bool {
-        matches!(
-            self,
-            Self::ShortcutsGlobal
-                | Self::ShortcutsRecording
-                | Self::ShortcutsOverlayTools
-                | Self::ShortcutsOverlayEditing
-                | Self::ShortcutsOverlayActions
-                | Self::ShortcutsEditWindow
-        )
     }
 }
 
@@ -134,19 +134,9 @@ enum NavIcon {
     General,
     Capture,
     Overlay,
+    AnnotationWindow,
     Saving,
     FileNames,
-    History,
-    Recording,
-    Camera,
-    Upload,
-    S3,
-    Keyboard,
-    Grid,
-    Pencil,
-    Cursor,
-    Send,
-    Window,
     Info,
 }
 
@@ -155,43 +145,48 @@ struct SettingsApp {
     /// Snapshot used for dirty detection + Cancel restore.
     baseline: Config,
     save_dir_text: String,
-    shortcut_text: String,
+    filename_pattern_text: String,
     status: String,
     close_requested: bool,
-    /// Listening for a key combination after clicking a shortcut row.
-    capturing: Option<&'static str>,
     nav: NavId,
+    /// Locked outer size (monitor-scaled). Set on first frame.
+    fixed_size: Option<Vec2>,
 }
 
 impl SettingsApp {
     fn new(cfg: Config) -> Self {
         let save_dir_text = cfg.save_directory.display().to_string();
-        let shortcut_text = cfg.shortcut_bind_command.clone();
+        let filename_pattern_text = cfg.filename_pattern.clone();
         Self {
             baseline: cfg.clone(),
             cfg,
             save_dir_text,
-            shortcut_text,
+            filename_pattern_text,
             status: String::new(),
             close_requested: false,
-            capturing: None,
-            nav: NavId::ShortcutsGlobal,
+            nav: NavId::General,
+            fixed_size: None,
         }
     }
 
     fn is_dirty(&self) -> bool {
         let mut draft = self.cfg.clone();
         draft.save_directory = PathBuf::from(self.save_dir_text.trim());
-        draft.shortcut_bind_command = self.shortcut_text.trim().to_string();
+        draft.filename_pattern = self.filename_pattern_text.trim().to_string();
         draft != self.baseline
     }
 
     fn sync_text_into_cfg(&mut self) {
         self.cfg.save_directory = PathBuf::from(self.save_dir_text.trim());
-        self.cfg.shortcut_bind_command = self.shortcut_text.trim().to_string();
+        let pattern = self.filename_pattern_text.trim();
+        self.cfg.filename_pattern = if pattern.is_empty() {
+            default_filename_pattern()
+        } else {
+            pattern.to_string()
+        };
+        self.filename_pattern_text = self.cfg.filename_pattern.clone();
         if self.cfg.shortcut_bind_command.is_empty() {
             self.cfg.shortcut_bind_command = crate::config::default_shortcut_bind_command();
-            self.shortcut_text = self.cfg.shortcut_bind_command.clone();
         }
         if self.cfg.shortcut_keys.trim().is_empty() {
             self.cfg.shortcut_keys = crate::config::default_shortcut_keys();
@@ -234,8 +229,7 @@ impl SettingsApp {
     fn cancel_and_close(&mut self) {
         self.cfg = self.baseline.clone();
         self.save_dir_text = self.cfg.save_directory.display().to_string();
-        self.shortcut_text = self.cfg.shortcut_bind_command.clone();
-        self.capturing = None;
+        self.filename_pattern_text = self.cfg.filename_pattern.clone();
         self.close_requested = true;
     }
 
@@ -256,7 +250,6 @@ impl SettingsApp {
     fn open_config_file(&mut self) {
         match config_path() {
             Ok(path) => {
-                // Ensure the file exists so the desktop can open it.
                 if !path.is_file() {
                     let _ = self.cfg.save();
                 }
@@ -290,6 +283,8 @@ impl SettingsApp {
                 self.cfg.show_title_bar = defaults.show_title_bar;
                 self.cfg.follow_window_tiling = defaults.follow_window_tiling;
                 self.cfg.esc_to_exit = defaults.esc_to_exit;
+            }
+            NavId::AnnotationWindow => {
                 self.cfg.window_transparency = defaults.window_transparency;
                 self.cfg.window_transparency_intensity = defaults.window_transparency_intensity;
                 self.cfg.window_background_blur = defaults.window_background_blur;
@@ -301,63 +296,18 @@ impl SettingsApp {
                 self.save_dir_text = self.cfg.save_directory.display().to_string();
                 self.cfg.save_to_clipboard = defaults.save_to_clipboard;
             }
-            NavId::ShortcutsGlobal => {
-                self.cfg.shortcut_keys = defaults.shortcut_keys;
-                self.cfg.shortcut_full_keys = defaults.shortcut_full_keys;
-                self.cfg.shortcut_window_keys = defaults.shortcut_window_keys;
-                self.cfg.shortcut_repeat_keys = defaults.shortcut_repeat_keys;
-                self.cfg.shortcut_copy_text_keys = defaults.shortcut_copy_text_keys;
-                self.cfg.shortcut_qr_keys = defaults.shortcut_qr_keys;
-                self.cfg.shortcut_history_keys = defaults.shortcut_history_keys;
-                self.cfg.shortcut_quit_keys = defaults.shortcut_quit_keys;
-                self.cfg.shortcut_bind_command = crate::config::default_shortcut_bind_command();
-                self.shortcut_text = self.cfg.shortcut_bind_command.clone();
-                self.capturing = None;
+            NavId::FileNames => {
+                self.cfg.filename_pattern = defaults.filename_pattern.clone();
+                self.filename_pattern_text = self.cfg.filename_pattern.clone();
             }
-            _ => {}
+            NavId::About => {}
         }
-    }
-
-    fn poll_shortcut_capture(&mut self, ui: &mut egui::Ui) {
-        let Some(target) = self.capturing else {
-            return;
-        };
-        ui.ctx().input(|i| {
-            for event in &i.events {
-                if let egui::Event::Key {
-                    key,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } = event
-                {
-                    if matches!(key, Key::Escape) {
-                        self.capturing = None;
-                        return;
-                    }
-                    let combo = format_key_combo(*modifiers, *key);
-                    match target {
-                        "region" => self.cfg.shortcut_keys = combo,
-                        "full" => self.cfg.shortcut_full_keys = combo,
-                        "window" => self.cfg.shortcut_window_keys = combo,
-                        "repeat" => self.cfg.shortcut_repeat_keys = combo,
-                        "copy_text" => self.cfg.shortcut_copy_text_keys = combo,
-                        "qr" => self.cfg.shortcut_qr_keys = combo,
-                        "history" => self.cfg.shortcut_history_keys = combo,
-                        "quit" => self.cfg.shortcut_quit_keys = combo,
-                        _ => {}
-                    }
-                    self.capturing = None;
-                    return;
-                }
-            }
-        });
     }
 
     fn draw_shell(&mut self, ui: &mut egui::Ui) {
         ui::apply_settings_visuals(ui.ctx(), UiTheme::Dark);
-        self.poll_shortcut_capture(ui);
 
+        // Fixed footer height (status may paint inside; does not grow the shell).
         egui::TopBottomPanel::bottom("hypershot_settings_footer")
             .exact_height(SETTINGS_FOOTER_H + 8.0)
             .frame(
@@ -405,29 +355,13 @@ impl SettingsApp {
                 (NavId::General, "General", NavIcon::General),
                 (NavId::Capture, "Capture", NavIcon::Capture),
                 (NavId::Overlay, "Overlay", NavIcon::Overlay),
+                (
+                    NavId::AnnotationWindow,
+                    "Annotation Window",
+                    NavIcon::AnnotationWindow,
+                ),
                 (NavId::Saving, "Saving", NavIcon::Saving),
                 (NavId::FileNames, "File names", NavIcon::FileNames),
-                (NavId::History, "History", NavIcon::History),
-                (NavId::Recording, "Recording", NavIcon::Recording),
-                (NavId::Camera, "Camera", NavIcon::Camera),
-                (NavId::Upload, "Upload", NavIcon::Upload),
-                (NavId::S3Storage, "S3 storage", NavIcon::S3),
-            ];
-            let shortcut_items: &[(NavId, &str, NavIcon)] = &[
-                (NavId::ShortcutsGlobal, "Global", NavIcon::Keyboard),
-                (NavId::ShortcutsRecording, "Recording", NavIcon::Grid),
-                (NavId::ShortcutsOverlayTools, "Overlay tools", NavIcon::Pencil),
-                (
-                    NavId::ShortcutsOverlayEditing,
-                    "Overlay editing",
-                    NavIcon::Cursor,
-                ),
-                (
-                    NavId::ShortcutsOverlayActions,
-                    "Overlay actions",
-                    NavIcon::Send,
-                ),
-                (NavId::ShortcutsEditWindow, "Edit window", NavIcon::Window),
             ];
 
             let about_h = 32.0;
@@ -442,21 +376,6 @@ impl SettingsApp {
                         for &(id, name, icon) in top_items {
                             if nav_item(ui, self.nav == id, name, icon, label, secondary) {
                                 self.nav = id;
-                                self.capturing = None;
-                            }
-                        }
-                        ui.add_space(10.0);
-                        ui.label(
-                            egui::RichText::new("SHORTCUTS")
-                                .color(secondary)
-                                .size(10.0)
-                                .strong(),
-                        );
-                        ui.add_space(4.0);
-                        for &(id, name, icon) in shortcut_items {
-                            if nav_item(ui, self.nav == id, name, icon, label, secondary) {
-                                self.nav = id;
-                                self.capturing = None;
                             }
                         }
                     });
@@ -472,7 +391,6 @@ impl SettingsApp {
                 secondary,
             ) {
                 self.nav = NavId::About;
-                self.capturing = None;
             }
         });
     }
@@ -483,8 +401,8 @@ impl SettingsApp {
 
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(ui.available_width());
+            ui.set_max_height(ui.available_height());
 
-            // Header: breadcrumb + reset
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(self.nav.breadcrumb())
@@ -504,8 +422,10 @@ impl SettingsApp {
             ui.painter().rect_filled(div, 0.0, SETTINGS_SEPARATOR_DARK);
             ui.add_space(10.0);
 
+            let body_h = ui.available_height().max(40.0);
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
+                .max_height(body_h)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
@@ -513,59 +433,11 @@ impl SettingsApp {
                             NavId::General => self.page_general(ui, label, secondary),
                             NavId::Capture => self.page_capture(ui, label, secondary),
                             NavId::Overlay => self.page_overlay(ui, label, secondary),
+                            NavId::AnnotationWindow => {
+                                self.page_annotation_window(ui, label, secondary)
+                            }
                             NavId::Saving => self.page_saving(ui, label, secondary),
-                            NavId::FileNames => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "File names",
-                                "Custom file-name patterns are not available yet. Captures use a timestamped PNG name.",
-                            ),
-                            NavId::History => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "History",
-                                "Capture history is not available yet.",
-                            ),
-                            NavId::Recording => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "Recording",
-                                "Screen recording is not available yet.",
-                            ),
-                            NavId::Camera => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "Camera",
-                                "Camera capture is not available yet.",
-                            ),
-                            NavId::Upload => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "Upload",
-                                "Upload destinations are not available yet.",
-                            ),
-                            NavId::S3Storage => stub_page(
-                                ui,
-                                label,
-                                secondary,
-                                "S3 storage",
-                                "S3 storage is not available yet.",
-                            ),
-                            NavId::ShortcutsGlobal => {
-                                self.page_shortcuts_global(ui, label, secondary)
-                            }
-                            NavId::ShortcutsRecording
-                            | NavId::ShortcutsOverlayTools
-                            | NavId::ShortcutsOverlayEditing
-                            | NavId::ShortcutsOverlayActions
-                            | NavId::ShortcutsEditWindow => {
-                                stub_shortcut_page(ui, label, secondary, self.nav);
-                            }
+                            NavId::FileNames => self.page_file_names(ui, label, secondary),
                             NavId::About => self.page_about(ui, label, secondary),
                         }
                     });
@@ -626,6 +498,7 @@ impl SettingsApp {
                 }
             });
         });
+        // Status fits inside the fixed footer; truncate visually via single line.
         if !self.status.is_empty() {
             ui.label(
                 egui::RichText::new(&self.status)
@@ -746,7 +619,7 @@ impl SettingsApp {
             ui,
             &mut self.cfg.follow_window_tiling,
             "Follow window tiling",
-            "On: let your window manager place annotate. Off (default): center the window and keep it on top when the desktop allows.",
+            "On: let your window manager place annotate. Off (default): center the window and keep it on top when the desktop allows. Settings itself never tiles.",
             label,
             secondary,
         );
@@ -759,12 +632,27 @@ impl SettingsApp {
             label,
             secondary,
         );
-        row_sep(ui);
+    }
+
+    fn page_annotation_window(
+        &mut self,
+        ui: &mut egui::Ui,
+        label: egui::Color32,
+        secondary: egui::Color32,
+    ) {
+        ui.label(
+            egui::RichText::new(
+                "Preview annotate window only. The toolbar stays solid.",
+            )
+            .color(secondary)
+            .size(11.0),
+        );
+        ui.add_space(12.0);
         session_row(
             ui,
             &mut self.cfg.window_transparency,
             "Window transparency",
-            "Softens the preview window. The toolbar stays solid.",
+            "Softens the preview window. Some desktops ignore transparency.",
             label,
             secondary,
         );
@@ -783,7 +671,7 @@ impl SettingsApp {
             ui,
             &mut self.cfg.window_background_blur,
             "Window background blur",
-            "Frosts the preview area. The toolbar stays a solid pastel panel.",
+            "Frosts the preview area. Does not sample the desktop behind the window.",
             label,
             secondary,
         );
@@ -832,71 +720,94 @@ impl SettingsApp {
         );
     }
 
-    fn page_shortcuts_global(
+    fn page_file_names(
         &mut self,
         ui: &mut egui::Ui,
         label: egui::Color32,
         secondary: egui::Color32,
     ) {
         ui.label(
-            egui::RichText::new(
-                "Suggested keys only — bind the command in your desktop keyboard settings.",
-            )
-            .color(SETTINGS_PRIMARY)
-            .size(11.5)
-            .strong(),
-        );
-        ui.add_space(10.0);
-
-        let region = self.cfg.shortcut_keys.clone();
-        let full = self.cfg.shortcut_full_keys.clone();
-        let window = self.cfg.shortcut_window_keys.clone();
-        let repeat = self.cfg.shortcut_repeat_keys.clone();
-        let copy_text = self.cfg.shortcut_copy_text_keys.clone();
-        let qr = self.cfg.shortcut_qr_keys.clone();
-        let history = self.cfg.shortcut_history_keys.clone();
-        let quit = self.cfg.shortcut_quit_keys.clone();
-        let capturing = self.capturing;
-        let quit_label = format!("Quit {APP_NAME}");
-
-        let rows = [
-            ("Capture region", region.as_str(), "region"),
-            ("Capture full screen", full.as_str(), "full"),
-            ("Capture window", window.as_str(), "window"),
-            ("Repeat last capture", repeat.as_str(), "repeat"),
-            ("Copy text from area", copy_text.as_str(), "copy_text"),
-            ("Read QR code from area", qr.as_str(), "qr"),
-            ("Open History", history.as_str(), "history"),
-            (quit_label.as_str(), quit.as_str(), "quit"),
-        ];
-        let mut clicked: Option<&'static str> = None;
-        for (name, keys, id) in rows {
-            if shortcut_row(ui, name, keys, capturing == Some(id), label) {
-                clicked = Some(id);
-            }
-        }
-        if let Some(id) = clicked {
-            self.capturing = Some(id);
-        }
-
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new("Bind command (region)")
+            egui::RichText::new("Default file name")
                 .color(label)
                 .size(12.5)
                 .strong(),
         );
         ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Pattern used when HyperShot picks a save name. Write plain text plus date/time codes below.",
+            )
+            .color(secondary)
+            .size(11.0),
+        );
+        ui.add_space(8.0);
         settings_text_edit(
             ui,
-            &mut self.shortcut_text,
+            &mut self.filename_pattern_text,
             f32::INFINITY,
-            "path/to/hypershot region",
+            "screenshot_%d%m%y",
+        );
+        ui.add_space(8.0);
+        let preview = render_filename_pattern(self.filename_pattern_text.trim());
+        ui.label(
+            egui::RichText::new(format!("Preview right now: {preview}"))
+                .color(SETTINGS_PRIMARY)
+                .size(12.0)
+                .monospace(),
+        );
+        ui.add_space(14.0);
+        ui.label(
+            egui::RichText::new("Codes you can use")
+                .color(label)
+                .size(12.5)
+                .strong(),
+        );
+        ui.add_space(6.0);
+        for (code, meaning) in [
+            ("%d", "Day of the month (01-31)"),
+            ("%m", "Month (01-12)"),
+            ("%y", "Year, two digits (26 for 2026)"),
+            ("%Y", "Year, four digits (2026)"),
+            ("%H", "Hour, 24-hour clock (00-23)"),
+            ("%M", "Minute (00-59)"),
+            ("%S", "Second (00-59)"),
+            ("%%", "A literal % character"),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(code)
+                        .color(label)
+                        .size(12.0)
+                        .monospace()
+                        .strong(),
+                );
+                ui.label(egui::RichText::new(meaning).color(secondary).size(11.5));
+            });
+        }
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("Example")
+                .color(label)
+                .size(12.5)
+                .strong(),
         );
         ui.add_space(4.0);
         ui.label(
+            egui::RichText::new("Pattern:  screenshot_%d%m%y")
+                .color(secondary)
+                .size(11.5)
+                .monospace(),
+        );
+        ui.label(
+            egui::RichText::new("Becomes:  screenshot_251125.png")
+                .color(secondary)
+                .size(11.5)
+                .monospace(),
+        );
+        ui.add_space(6.0);
+        ui.label(
             egui::RichText::new(
-                "Paste into your desktop’s custom shortcuts. Full capture uses the same binary with `full`.",
+                ".png is added if you leave it off. If that name already exists, HyperShot tries screenshot_251125_2.png, then _3, and so on.",
             )
             .color(secondary)
             .size(11.0),
@@ -927,6 +838,7 @@ impl SettingsApp {
 }
 
 fn open_path_in_desktop(path: &std::path::Path) -> bool {
+    use std::process::Command;
     #[cfg(target_os = "macos")]
     {
         Command::new("open").arg(path).spawn().is_ok()
@@ -945,55 +857,6 @@ fn open_path_in_desktop(path: &std::path::Path) -> bool {
                 .args(["open", &path.display().to_string()])
                 .spawn()
                 .is_ok()
-    }
-}
-
-fn stub_page(
-    ui: &mut egui::Ui,
-    label: egui::Color32,
-    secondary: egui::Color32,
-    title: &str,
-    body: &str,
-) {
-    ui.label(egui::RichText::new(title).color(label).size(13.0).strong());
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(body).color(secondary).size(12.0));
-}
-
-fn stub_shortcut_page(
-    ui: &mut egui::Ui,
-    label: egui::Color32,
-    secondary: egui::Color32,
-    nav: NavId,
-) {
-    let hint = match nav {
-        NavId::ShortcutsRecording => "Recording shortcuts will appear here when recording ships.",
-        NavId::ShortcutsOverlayTools => {
-            "Overlay tool shortcuts use the on-screen annotate toolbar for now."
-        }
-        NavId::ShortcutsOverlayEditing => {
-            "Editing shortcuts (undo/redo) work in annotate; global binds are not configured here yet."
-        }
-        NavId::ShortcutsOverlayActions => {
-            "Overlay action shortcuts (save/copy/exit) work in annotate; global binds are not configured here yet."
-        }
-        NavId::ShortcutsEditWindow => {
-            "Edit-window shortcuts will appear here when more window binds are added."
-        }
-        _ => "No shortcuts in this group yet.",
-    };
-    ui.label(
-        egui::RichText::new(nav.breadcrumb())
-            .color(label)
-            .size(13.0)
-            .strong(),
-    );
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(hint).color(secondary).size(12.0));
-    ui.add_space(12.0);
-    // Empty dash rows keep the layout familiar.
-    for name in ["Action A", "Action B", "Action C"] {
-        let _ = shortcut_row(ui, name, "", false, label);
     }
 }
 
@@ -1016,7 +879,8 @@ fn nav_item(
     label: egui::Color32,
     secondary: egui::Color32,
 ) -> bool {
-    let height = 28.0;
+    const ICON: f32 = 18.0;
+    let height = 32.0;
     let width = ui.available_width().max(SETTINGS_SIDEBAR_W - 20.0);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
     let painter = ui.painter_at(rect);
@@ -1032,14 +896,14 @@ fn nav_item(
     }
 
     let icon_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.left() + 16.0, rect.center().y),
-        egui::vec2(14.0, 14.0),
+        egui::pos2(rect.left() + 14.0 + ICON * 0.5, rect.center().y),
+        egui::vec2(ICON, ICON),
     );
     let ink = if active { label } else { secondary };
-    paint_nav_icon(&painter, icon_rect, ink, icon);
+    paint_iconoir(&painter, icon_rect, ink, nav_icon_id(icon));
 
     painter.text(
-        egui::pos2(rect.left() + 30.0, rect.center().y),
+        egui::pos2(rect.left() + 14.0 + ICON + 10.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         name,
         egui::FontId::proportional(if active { 12.5 } else { 12.0 }),
@@ -1049,257 +913,15 @@ fn nav_item(
     response.clicked()
 }
 
-fn paint_nav_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, icon: NavIcon) {
-    let stroke = Stroke::new(1.25_f32, color);
-    let c = rect.center();
-    let r = rect.width() * 0.42;
+fn nav_icon_id(icon: NavIcon) -> IconId {
     match icon {
-        NavIcon::General => {
-            // Fader / levels
-            for (i, h) in [0.55_f32, 0.9, 0.4].iter().enumerate() {
-                let x = rect.left() + rect.width() * (0.22 + i as f32 * 0.28);
-                let top = c.y - r * h;
-                let bot = c.y + r * 0.85;
-                painter.line_segment(
-                    [egui::pos2(x, top), egui::pos2(x, bot)],
-                    stroke,
-                );
-                painter.circle_filled(egui::pos2(x, top + (bot - top) * 0.35), 1.8, color);
-            }
-        }
-        NavIcon::Capture => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.7, r * 1.2)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            painter.circle_stroke(c, r * 0.35, stroke);
-        }
-        NavIcon::Overlay => {
-            let rr = egui::Rect::from_center_size(c, egui::vec2(r * 1.6, r * 1.6));
-            // Dashed square
-            let pts = [
-                rr.left_top(),
-                rr.right_top(),
-                rr.right_bottom(),
-                rr.left_bottom(),
-            ];
-            for i in 0..4 {
-                let a = pts[i];
-                let b = pts[(i + 1) % 4];
-                let mid = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-                painter.line_segment([a, mid], stroke);
-            }
-        }
-        NavIcon::Saving => {
-            let folder = egui::Rect::from_center_size(
-                egui::pos2(c.x, c.y + 1.0),
-                egui::vec2(r * 1.7, r * 1.2),
-            );
-            painter.rect_stroke(folder, 1.5, stroke, egui::StrokeKind::Outside);
-            painter.line_segment(
-                [
-                    egui::pos2(folder.left(), folder.top()),
-                    egui::pos2(folder.left() + r * 0.55, folder.top() - r * 0.35),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(folder.left() + r * 0.55, folder.top() - r * 0.35),
-                    egui::pos2(folder.left() + r * 0.95, folder.top()),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::FileNames => {
-            painter.text(
-                c,
-                egui::Align2::CENTER_CENTER,
-                "T",
-                egui::FontId::proportional(13.0),
-                color,
-            );
-        }
-        NavIcon::History => {
-            painter.circle_stroke(c, r * 0.85, stroke);
-            painter.line_segment([c, egui::pos2(c.x, c.y - r * 0.5)], stroke);
-            painter.line_segment([c, egui::pos2(c.x + r * 0.45, c.y + 0.2)], stroke);
-            // small undo tick
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.7, c.y - r * 0.55),
-                    egui::pos2(c.x - r * 0.35, c.y - r * 0.85),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::Recording => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.5, r * 1.1)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            painter.circle_filled(c, r * 0.28, color);
-        }
-        NavIcon::Camera => {
-            painter.circle_stroke(c, r * 0.85, stroke);
-            painter.circle_stroke(c, r * 0.4, stroke);
-        }
-        NavIcon::Upload | NavIcon::S3 => {
-            // Cloud-ish arcs
-            painter.circle_stroke(
-                egui::pos2(c.x - r * 0.35, c.y + r * 0.1),
-                r * 0.45,
-                stroke,
-            );
-            painter.circle_stroke(
-                egui::pos2(c.x + r * 0.25, c.y),
-                r * 0.55,
-                stroke,
-            );
-            if matches!(icon, NavIcon::S3) {
-                painter.rect_stroke(
-                    egui::Rect::from_center_size(
-                        egui::pos2(c.x + r * 0.55, c.y + r * 0.55),
-                        egui::vec2(r * 0.55, r * 0.45),
-                    ),
-                    1.0,
-                    stroke,
-                    egui::StrokeKind::Outside,
-                );
-            }
-        }
-        NavIcon::Keyboard => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.8, r * 1.1)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            for i in 0..3 {
-                let x = c.x - r * 0.5 + i as f32 * r * 0.5;
-                painter.rect_filled(
-                    egui::Rect::from_center_size(
-                        egui::pos2(x, c.y - r * 0.15),
-                        egui::vec2(r * 0.28, r * 0.28),
-                    ),
-                    1.0,
-                    color,
-                );
-            }
-        }
-        NavIcon::Grid => {
-            for row in 0..2 {
-                for col in 0..2 {
-                    let p = egui::pos2(
-                        c.x - r * 0.4 + col as f32 * r * 0.8,
-                        c.y - r * 0.4 + row as f32 * r * 0.8,
-                    );
-                    painter.rect_stroke(
-                        egui::Rect::from_center_size(p, egui::vec2(r * 0.55, r * 0.55)),
-                        1.0,
-                        stroke,
-                        egui::StrokeKind::Outside,
-                    );
-                }
-            }
-        }
-        NavIcon::Pencil => {
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.55, c.y + r * 0.55),
-                    egui::pos2(c.x + r * 0.55, c.y - r * 0.55),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x + r * 0.35, c.y - r * 0.75),
-                    egui::pos2(c.x + r * 0.75, c.y - r * 0.35),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::Cursor => {
-            let tip = egui::pos2(c.x - r * 0.4, c.y - r * 0.7);
-            painter.line_segment([tip, egui::pos2(c.x - r * 0.4, c.y + r * 0.6)], stroke);
-            painter.line_segment([tip, egui::pos2(c.x + r * 0.55, c.y + r * 0.15)], stroke);
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.05, c.y + r * 0.05),
-                    egui::pos2(c.x + r * 0.2, c.y + r * 0.7),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::Send => {
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.7, c.y + r * 0.5),
-                    egui::pos2(c.x + r * 0.7, c.y),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.7, c.y - r * 0.5),
-                    egui::pos2(c.x + r * 0.7, c.y),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.7, c.y - r * 0.5),
-                    egui::pos2(c.x - r * 0.15, c.y),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.7, c.y + r * 0.5),
-                    egui::pos2(c.x - r * 0.15, c.y),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::Window => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.7, r * 1.3)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.85, c.y - r * 0.35),
-                    egui::pos2(c.x + r * 0.85, c.y - r * 0.35),
-                ],
-                stroke,
-            );
-            painter.rect_stroke(
-                egui::Rect::from_center_size(
-                    egui::pos2(c.x + r * 0.35, c.y + r * 0.25),
-                    egui::vec2(r * 0.55, r * 0.45),
-                ),
-                1.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-        }
-        NavIcon::Info => {
-            painter.circle_stroke(c, r * 0.85, stroke);
-            painter.circle_filled(egui::pos2(c.x, c.y - r * 0.35), 1.4, color);
-            painter.line_segment(
-                [
-                    egui::pos2(c.x, c.y - r * 0.05),
-                    egui::pos2(c.x, c.y + r * 0.45),
-                ],
-                Stroke::new(1.6_f32, color),
-            );
-        }
+        NavIcon::General => IconId::Settings,
+        NavIcon::Capture => IconId::Camera,
+        NavIcon::Overlay => IconId::Crop,
+        NavIcon::AnnotationWindow => IconId::Preview,
+        NavIcon::Saving => IconId::Folder,
+        NavIcon::FileNames => IconId::Text,
+        NavIcon::Info => IconId::InfoCircle,
     }
 }
 
@@ -1312,10 +934,7 @@ fn reset_defaults_button(ui: &mut egui::Ui) -> egui::Response {
         .stroke(Stroke::new(1.0_f32, egui::Color32::from_rgb(0x5A, 0x5A, 0x60)))
         .corner_radius(egui::CornerRadius::same(14))
         .min_size(egui::vec2(128.0, 26.0));
-    let response = ui.add(btn);
-    // Small circular arrow drawn left of text would need custom layout; the
-    // bordered pill already matches the reference affordance.
-    response.on_hover_text("Reset this section to defaults")
+    ui.add(btn).on_hover_text("Reset this section to defaults")
 }
 
 fn footer_button(
@@ -1331,191 +950,6 @@ fn footer_button(
         .corner_radius(egui::CornerRadius::same(14))
         .min_size(egui::vec2(min_width, 30.0));
     ui.add(btn)
-}
-
-/// Returns true when the row was clicked (start listening).
-fn shortcut_row(
-    ui: &mut egui::Ui,
-    name: &str,
-    keys: &str,
-    listening: bool,
-    label: egui::Color32,
-) -> bool {
-    let height = 34.0;
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), height),
-        Sense::click(),
-    );
-    if response.hovered() {
-        ui.painter().rect_filled(
-            rect,
-            4.0,
-            egui::Color32::from_rgb(0x20, 0x21, 0x25),
-        );
-    }
-    if listening {
-        ui.painter().rect_stroke(
-            rect,
-            4.0,
-            Stroke::new(1.0_f32, SETTINGS_PRIMARY),
-            egui::StrokeKind::Inside,
-        );
-    }
-
-    ui.painter().text(
-        egui::pos2(rect.left() + 4.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        if listening {
-            "Listening… (Esc cancels)"
-        } else {
-            name
-        },
-        egui::FontId::proportional(13.0),
-        if listening { SETTINGS_PRIMARY } else { label },
-    );
-
-    // Keycaps on the right
-    let parts = parse_keycaps(keys);
-    let mut x = rect.right() - 4.0;
-    if parts.is_empty() {
-        ui.painter().text(
-            egui::pos2(x, rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            "—",
-            egui::FontId::proportional(13.0),
-            SETTINGS_SECONDARY_DARK,
-        );
-    } else {
-        for part in parts.iter().rev() {
-            let galley = ui.painter().layout_no_wrap(
-                (*part).to_string(),
-                egui::FontId::proportional(11.5),
-                SETTINGS_LABEL_DARK,
-            );
-            let pad_x = 7.0;
-            let w = galley.size().x + pad_x * 2.0;
-            let h = 22.0;
-            let key_rect = egui::Rect::from_min_size(
-                egui::pos2(x - w, rect.center().y - h * 0.5),
-                egui::vec2(w, h),
-            );
-            ui.painter().rect_filled(key_rect, 4.0, SETTINGS_KEYCAP);
-            ui.painter().galley(
-                egui::pos2(
-                    key_rect.left() + pad_x,
-                    key_rect.center().y - galley.size().y * 0.5,
-                ),
-                galley,
-                SETTINGS_LABEL_DARK,
-            );
-            x = key_rect.left() - 4.0;
-        }
-    }
-
-    ui.add_space(2.0);
-    response.clicked()
-}
-
-/// Split `Shift+Super+X` into display keycaps (`Shift`, `Win`, `X`).
-fn parse_keycaps(keys: &str) -> Vec<String> {
-    let trimmed = keys.trim();
-    if trimmed.is_empty() || trimmed == "—" || trimmed == "-" {
-        return Vec::new();
-    }
-    trimmed
-        .split('+')
-        .map(|p| {
-            let p = p.trim();
-            match p {
-                "Super" | "Meta" | "Cmd" | "Command" => "Win".to_string(),
-                "Control" => "Ctrl".to_string(),
-                other => other.to_string(),
-            }
-        })
-        .filter(|p| !p.is_empty())
-        .collect()
-}
-
-fn format_key_combo(modifiers: Modifiers, key: Key) -> String {
-    let mut parts = Vec::new();
-    if modifiers.ctrl && !modifiers.command {
-        parts.push("Ctrl");
-    }
-    if modifiers.alt {
-        parts.push("Alt");
-    }
-    if modifiers.shift {
-        parts.push("Shift");
-    }
-    if modifiers.mac_cmd || modifiers.command {
-        parts.push("Super");
-    }
-    parts.push(key_name(key));
-    parts.join("+")
-}
-
-fn key_name(key: Key) -> &'static str {
-    match key {
-        Key::Space => "Space",
-        Key::Enter => "Enter",
-        Key::Tab => "Tab",
-        Key::Backspace => "Backspace",
-        Key::Delete => "Delete",
-        Key::ArrowUp => "Up",
-        Key::ArrowDown => "Down",
-        Key::ArrowLeft => "Left",
-        Key::ArrowRight => "Right",
-        Key::Escape => "Esc",
-        Key::F1 => "F1",
-        Key::F2 => "F2",
-        Key::F3 => "F3",
-        Key::F4 => "F4",
-        Key::F5 => "F5",
-        Key::F6 => "F6",
-        Key::F7 => "F7",
-        Key::F8 => "F8",
-        Key::F9 => "F9",
-        Key::F10 => "F10",
-        Key::F11 => "F11",
-        Key::F12 => "F12",
-        Key::A => "A",
-        Key::B => "B",
-        Key::C => "C",
-        Key::D => "D",
-        Key::E => "E",
-        Key::F => "F",
-        Key::G => "G",
-        Key::H => "H",
-        Key::I => "I",
-        Key::J => "J",
-        Key::K => "K",
-        Key::L => "L",
-        Key::M => "M",
-        Key::N => "N",
-        Key::O => "O",
-        Key::P => "P",
-        Key::Q => "Q",
-        Key::R => "R",
-        Key::S => "S",
-        Key::T => "T",
-        Key::U => "U",
-        Key::V => "V",
-        Key::W => "W",
-        Key::X => "X",
-        Key::Y => "Y",
-        Key::Z => "Z",
-        Key::Num0 => "0",
-        Key::Num1 => "1",
-        Key::Num2 => "2",
-        Key::Num3 => "3",
-        Key::Num4 => "4",
-        Key::Num5 => "5",
-        Key::Num6 => "6",
-        Key::Num7 => "7",
-        Key::Num8 => "8",
-        Key::Num9 => "9",
-        _ => "Key",
-    }
 }
 
 fn intensity_slider(
@@ -1558,6 +992,7 @@ fn intensity_slider(
     });
 }
 
+/// Checkbox in a fixed left column; title + hint wrap in the remaining width.
 fn session_row(
     ui: &mut egui::Ui,
     value: &mut bool,
@@ -1566,12 +1001,22 @@ fn session_row(
     label: egui::Color32,
     secondary: egui::Color32,
 ) {
-    const CHECK_COL: f32 = 36.0;
+    const CHECK_COL: f32 = 28.0;
     const GAP: f32 = 12.0;
     let row_w = ui.available_width();
     let text_w = (row_w - CHECK_COL - GAP).max(120.0);
     ui.horizontal(|ui| {
         ui.set_min_height(SETTINGS_CONTROL_HEIGHT.max(40.0));
+        // Left column: one aligned checkbox edge for every row.
+        ui.allocate_ui_with_layout(
+            egui::vec2(CHECK_COL, ui.available_height().max(40.0)),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.add_space(2.0);
+                contrast_checkbox(ui, value);
+            },
+        );
+        ui.add_space(GAP);
         ui.allocate_ui_with_layout(
             egui::vec2(text_w, ui.available_height().max(40.0)),
             egui::Layout::top_down(egui::Align::Min),
@@ -1583,13 +1028,6 @@ fn session_row(
                 );
             },
         );
-        ui.add_space(GAP);
-        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.set_min_width(CHECK_COL);
-            ui.set_max_width(CHECK_COL);
-            ui.add_space(2.0);
-            contrast_checkbox(ui, value);
-        });
     });
 }
 
@@ -1600,8 +1038,14 @@ impl eframe::App for SettingsApp {
             return;
         }
 
+        // Lock size every frame so a tiling WM cannot slowly stretch height.
+        let size = *self
+            .fixed_size
+            .get_or_insert_with(|| settings_fixed_size(ctx.screen_rect()));
+        enforce_fixed_settings_viewport(ctx, size);
+
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::Escape) && self.capturing.is_none() {
+            if i.key_pressed(egui::Key::Escape) {
                 self.cancel_and_close();
             }
         });
@@ -1611,6 +1055,9 @@ impl eframe::App for SettingsApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(SETTINGS_BG_DARK).inner_margin(0.0))
             .show(ctx, |ui| {
+                // Clip shell to the fixed viewport so content never requests growth.
+                ui.set_min_size(ui.available_size());
+                ui.set_max_size(ui.available_size());
                 self.draw_shell(ui);
             });
     }
@@ -1621,32 +1068,31 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
     if !*open {
         return;
     }
-    // Install settings widget colors *before* the Window Ui is created so
-    // slider rails inherit opaque tracks (not annotate's transparent idle fill).
     ui::apply_settings_visuals(ctx, UiTheme::Dark);
     let screen = ctx.screen_rect();
-    let default_size = egui::vec2(780.0, 520.0);
+    let size = settings_fixed_size(screen);
     let default_pos = egui::pos2(
-        (screen.width() - default_size.x) * 0.5,
-        (screen.height() - default_size.y) * 0.5,
+        (screen.width() - size.x) * 0.5,
+        (screen.height() - size.y) * 0.5,
     );
     egui::Window::new("Settings")
         .open(open)
-        .resizable(true)
+        .resizable(false)
         .collapsible(false)
-        .default_size(default_size)
+        .default_size(size)
+        .min_size(size)
+        .max_size(size)
         .default_pos(default_pos)
-        .min_width(560.0)
-        .min_height(360.0)
         .frame(
             egui::Frame::window(&ctx.style())
                 .fill(SETTINGS_BG_DARK)
                 .inner_margin(0.0),
         )
         .show(ctx, |ui| {
+            ui.set_min_size(size);
+            ui.set_max_size(size);
             state.inner.draw_shell(ui);
         });
-    // Restore annotate chrome for the rest of the frame (toolbar, handles).
     let theme = state.config().theme;
     ui::apply_annotate_visuals(ctx, theme);
 }
@@ -1704,24 +1150,6 @@ mod tests {
     }
 
     #[test]
-    fn format_combo_includes_modifiers() {
-        let mut mods = Modifiers::NONE;
-        mods.shift = true;
-        mods.command = true;
-        assert_eq!(format_key_combo(mods, Key::S), "Shift+Super+S");
-    }
-
-    #[test]
-    fn parse_keycaps_maps_super_to_win() {
-        assert_eq!(
-            parse_keycaps("Shift+Super+X"),
-            vec!["Shift".to_string(), "Win".to_string(), "X".to_string()]
-        );
-        assert!(parse_keycaps("").is_empty());
-        assert!(parse_keycaps("—").is_empty());
-    }
-
-    #[test]
     fn dirty_detection_tracks_baseline() {
         let mut app = SettingsApp::new(Config::default());
         assert!(!app.is_dirty());
@@ -1732,9 +1160,38 @@ mod tests {
     }
 
     #[test]
-    fn nav_breadcrumb_global() {
-        assert_eq!(NavId::ShortcutsGlobal.breadcrumb(), "Shortcuts · Global");
-        assert!(NavId::ShortcutsGlobal.is_shortcuts());
-        assert!(!NavId::General.is_shortcuts());
+    fn dirty_tracks_filename_pattern() {
+        let mut app = SettingsApp::new(Config::default());
+        assert!(!app.is_dirty());
+        app.filename_pattern_text = "shot_%Y%m%d".into();
+        assert!(app.is_dirty());
+    }
+
+    #[test]
+    fn nav_pages_are_trimmed() {
+        assert_eq!(NavId::General.breadcrumb(), "General");
+        assert_eq!(NavId::Overlay.breadcrumb(), "Overlay");
+        assert_eq!(
+            NavId::AnnotationWindow.breadcrumb(),
+            "Annotation Window"
+        );
+        assert_eq!(NavId::FileNames.breadcrumb(), "File names");
+        assert_eq!(NavId::About.breadcrumb(), "About");
+    }
+
+    #[test]
+    fn fixed_size_scales_and_clamps() {
+        let large = settings_fixed_size(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(3840.0, 2160.0),
+        ));
+        assert!(large.x <= SETTINGS_DESIGN.x * 1.15 + 1.0);
+        assert!(large.y <= SETTINGS_DESIGN.y * 1.15 + 1.0);
+        let small = settings_fixed_size(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(1280.0, 720.0),
+        ));
+        assert!(small.x >= SETTINGS_DESIGN.x * 0.78 - 1.0);
+        assert!(small.y >= SETTINGS_DESIGN.y * 0.78 - 1.0);
     }
 }

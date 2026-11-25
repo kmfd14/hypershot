@@ -1,6 +1,6 @@
 [package]
 name = "hypershot"
-version = "1.6.0"
+version = "1.8.0"
 edition = "2024"
 description = "HyperShot — cross-platform screenshot tool with annotation"
 license = "MIT"
@@ -17,6 +17,7 @@ path = "src/main.rs"
 ab_glyph = "0.2"
 anyhow = "1.0.105"
 arboard = { version = "3", features = ["image-data"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.6.9", features = ["derive"] }
 directories = "6.0.0"
 eframe = "0.31"
