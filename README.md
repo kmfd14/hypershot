@@ -82,7 +82,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 2. **Annotate** — floating **Lightsnip** window, or `cargo run --release -- annotate path.png`. Flat pastel icon rail (no text label): arrow, box, pixelate, step number, color (default red), undo, redo, clear, settings, **Save**, **Copy**, **Exit**.
 3. **Save** — file dialog (defaults under configured save dir). Cancel keeps the window open.
 4. **Enter** — save dialog + copy to clipboard + toast + close (always). Esc respects **Esc to exit**; Enter does not.
-5. **Pixelate** — strong single-pass mosaic (`PIXELATE_BLOCK = 48` + grain) so text is unreadable after one pass; seamless fill (no block borders); undo/redo still work.
+5. **Pixelate** — soft classic mosaic (`PIXELATE_BLOCK = 20`, averages the image behind) so fine text is hard to read but the region still looks like the capture; seamless fill (no block borders); undo/redo still work.
 6. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
 7. **Settings** — cards with `?` tooltips, folder picker, UI + About (`0.6`).
 8. **Tray** — Linux only: `cargo run --release -- tray`.
