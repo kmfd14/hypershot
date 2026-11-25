@@ -698,7 +698,36 @@ fn intensity_slider(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(caption).color(label).size(12.0));
         ui.spacing_mut().slider_width = 160.0;
-        let resp = ui.add(egui::Slider::new(value, 0.0..=1.0).show_value(false));
+        // egui paints the rail with `inactive.bg_fill`. When Settings is embedded
+        // in on-screen annotate, the Ui can still carry annotate visuals where
+        // that fill is transparent — force a high-contrast track locally.
+        let dark = ui.visuals().dark_mode;
+        let track = if dark {
+            egui::Color32::from_rgb(0x5C, 0x5C, 0x60)
+        } else {
+            egui::Color32::from_rgb(0xC7, 0xC7, 0xCC)
+        };
+        let track_hover = if dark {
+            egui::Color32::from_rgb(0x6E, 0x6E, 0x72)
+        } else {
+            egui::Color32::from_rgb(0xB8, 0xB8, 0xBE)
+        };
+        {
+            let v = ui.visuals_mut();
+            v.widgets.inactive.bg_fill = track;
+            v.widgets.inactive.weak_bg_fill = track;
+            v.widgets.hovered.bg_fill = track_hover;
+            v.widgets.hovered.weak_bg_fill = track_hover;
+            v.widgets.active.bg_fill = track_hover;
+            v.widgets.active.weak_bg_fill = track_hover;
+            v.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x99);
+            v.slider_trailing_fill = true;
+        }
+        let resp = ui.add(
+            egui::Slider::new(value, 0.0..=1.0)
+                .show_value(false)
+                .trailing_fill(true),
+        );
         if resp.changed() {
             *value = clamp_intensity(*value);
         }
@@ -776,6 +805,10 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
     if !*open {
         return;
     }
+    let theme = state.config().theme;
+    // Install settings widget colors *before* the Window Ui is created so
+    // slider rails inherit opaque tracks (not annotate's transparent idle fill).
+    ui::apply_settings_visuals(ctx, theme);
     let dark = ctx.theme() == egui::Theme::Dark;
     let bg = if dark { SETTINGS_BG_DARK } else { SETTINGS_BG };
     let screen = ctx.screen_rect();
@@ -804,6 +837,8 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
                     state.inner.draw_form(ui, true);
                 });
         });
+    // Restore annotate chrome for the rest of the frame (toolbar, handles).
+    ui::apply_annotate_visuals(ctx, theme);
 }
 
 /// Embeddable settings state for the annotate overlay.

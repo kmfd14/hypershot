@@ -1,6 +1,6 @@
 //! Shared visuals for annotate + settings.
 //!
-//! Annotate: minimal pill chrome (light gray / white bar, charcoal icons).
+//! Annotate: flat rounded-rect chrome (light gray / white bar, charcoal icons).
 //! Only the *active* tool gets a soft purple rounded-square highlight
 //! (pale fill + purple border + purple icon). No neon, no multi-color accents
 //! beyond the stroke color picker. When Window Transparency / Background Blur
@@ -24,7 +24,7 @@ use crate::config::UiTheme;
 /// Tool button hit target (desktop ≥ 28 pt). Rounded square, not a circle.
 pub const TOOL_BTN: f32 = 30.0;
 
-/// Settings gear matches other tools for compact pill chrome.
+/// Settings gear matches other tools for compact bar chrome.
 pub const SETTINGS_BTN: f32 = 30.0;
 
 /// Toolbar strip thickness (cross-axis).
@@ -36,8 +36,8 @@ pub const TOOLBAR_GUTTER: f32 = 12.0;
 /// Outer padding inside the floating window.
 pub const WINDOW_PAD: f32 = 18.0;
 
-/// Pill-ish rail corner radius (horizontal bars read as a capsule).
-pub const TOOLBAR_RADIUS: f32 = 18.0;
+/// Modest bar corner radius — matches tool wells, not a capsule/pill.
+pub const TOOLBAR_RADIUS: f32 = 8.0;
 
 /// Rounded-square highlight radius on tool wells.
 pub const TOOL_WELL_RADIUS: f32 = 7.0;
@@ -51,7 +51,7 @@ pub const SETTINGS_CHECKBOX_SIZE: f32 = 18.0;
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 
-// --- Annotate light palette (pill reference) ----------------------------------
+// --- Annotate light palette (flat purple / gray / white) ----------------------
 
 pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF4);
 pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xF7, 0xF7, 0xF8);
@@ -315,35 +315,44 @@ fn settings_visuals(dark: bool) -> egui::Visuals {
             SETTINGS_FIELD,
         )
     };
+    // Slider rails use `inactive.bg_fill` — keep clearly above card/bg contrast
+    // (dark card 0x2C2C2E / light card white) so intensity tracks stay visible
+    // when Settings is layered over the on-screen annotate overlay.
+    let slider_track = if dark {
+        Color32::from_rgb(0x5C, 0x5C, 0x60)
+    } else {
+        Color32::from_rgb(0xC7, 0xC7, 0xCC)
+    };
     visuals.panel_fill = bg;
     visuals.window_fill = card;
-    visuals.extreme_bg_color = field;
+    visuals.extreme_bg_color = slider_track;
     visuals.override_text_color = Some(label);
     visuals.widgets.noninteractive.bg_fill = bg;
     visuals.widgets.noninteractive.weak_bg_fill = bg;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, sep);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, secondary);
-    visuals.widgets.inactive.bg_fill = field;
+    visuals.widgets.inactive.bg_fill = slider_track;
     visuals.widgets.inactive.weak_bg_fill = field;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, label);
     visuals.widgets.hovered.bg_fill = if dark {
-        Color32::from_rgb(0x48, 0x48, 0x4A)
+        Color32::from_rgb(0x6E, 0x6E, 0x72)
     } else {
-        Color32::from_rgb(0xDC, 0xDC, 0xE0)
+        Color32::from_rgb(0xB8, 0xB8, 0xBE)
     };
     visuals.widgets.hovered.weak_bg_fill = visuals.widgets.hovered.bg_fill;
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, label);
     visuals.widgets.active.bg_fill = if dark {
-        Color32::from_rgb(0x54, 0x54, 0x56)
+        Color32::from_rgb(0x7A, 0x7A, 0x7E)
     } else {
-        Color32::from_rgb(0xD0, 0xD0, 0xD5)
+        Color32::from_rgb(0xA8, 0xA8, 0xAE)
     };
     visuals.widgets.active.weak_bg_fill = visuals.widgets.active.bg_fill;
     visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, label);
     visuals.widgets.open.bg_fill = field;
     visuals.widgets.open.weak_bg_fill = field;
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, label);
-    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x40);
+    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x99);
+    visuals.slider_trailing_fill = true;
     visuals.selection.stroke = Stroke::new(1.0_f32, SETTINGS_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, SETTINGS_PRIMARY);
     visuals.hyperlink_color = SETTINGS_PRIMARY;
@@ -396,9 +405,10 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     });
 }
 
-/// Frame for the floating pill tool rail (content-sized, not full window).
+/// Frame for the floating flat tool bar (content-sized, not full window).
 ///
-/// Always uses a solid opaque fill — window transparency / blur never wash it out.
+/// Flat fill only — no border stroke. Modest radius matches tool wells.
+/// Window transparency / blur never wash the fill out.
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
     let shadow_a = if pal.dark { 36 } else { 20 };
     egui::Frame::new()
@@ -407,14 +417,7 @@ pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
             pal.toolbar_fill.g(),
             pal.toolbar_fill.b(),
         ))
-        .stroke(Stroke::new(
-            1.0_f32,
-            Color32::from_rgb(
-                pal.toolbar_stroke.r(),
-                pal.toolbar_stroke.g(),
-                pal.toolbar_stroke.b(),
-            ),
-        ))
+        .stroke(Stroke::NONE)
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
         .inner_margin(Margin::symmetric(5, 5))
         .outer_margin(Margin::ZERO)
@@ -532,7 +535,8 @@ pub fn tool_icon_button(
     } else {
         ICON_DARK
     };
-    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.52));
+    // Slightly larger glyph well; Iconoir is supersampled for crisp HiDPI.
+    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.56));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
@@ -765,18 +769,38 @@ mod tests {
         assert!(TOOLBAR_WIDTH >= TOOL_BTN);
         assert!(WINDOW_PAD >= 12.0);
         assert!(TOOLBAR_GUTTER >= 12.0);
-        assert!(TOOLBAR_RADIUS >= 16.0);
+        // Flat bar: modest radius near tool wells — not a capsule (≥ half bar height).
+        assert!(TOOLBAR_RADIUS <= TOOL_WELL_RADIUS + 2.0);
+        assert!(TOOLBAR_RADIUS < TOOLBAR_WIDTH * 0.35);
         assert!(TOOL_WELL_RADIUS >= 6.0);
     }
 
     #[test]
-    fn pill_toolbar_is_light_gray_with_purple_active_only() {
+    fn flat_toolbar_is_light_gray_with_purple_active_only() {
         assert_eq!(TOOLBAR_FILL, Color32::from_rgb(0xF7, 0xF7, 0xF8));
         assert_eq!(BTN_IDLE, Color32::TRANSPARENT);
         assert!(BTN_SELECTED.b() > BTN_SELECTED.g());
         // Selected well is pale (high luminance); primary accent is purple.
         assert!(approx_luminance(BTN_SELECTED) > 180.0);
         assert!(PASTEL_PRIMARY.b() > PASTEL_PRIMARY.r());
+    }
+
+    #[test]
+    fn settings_slider_track_contrasts_card() {
+        for dark in [false, true] {
+            let v = settings_visuals(dark);
+            let track = v.widgets.inactive.bg_fill;
+            let card = v.window_fill;
+            assert!(
+                track.a() == 255,
+                "slider track must be opaque (dark={dark})"
+            );
+            let lum_delta = (approx_luminance(track) - approx_luminance(card)).abs();
+            assert!(
+                lum_delta >= 40.0,
+                "slider track must contrast card (dark={dark}, ΔL={lum_delta:.1})"
+            );
+        }
     }
 
     #[test]
