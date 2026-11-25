@@ -25,10 +25,11 @@ pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolbarPosition {
-    #[default]
     Left,
     Right,
     Top,
+    /// Default for on-screen annotate (below the selection).
+    #[default]
     Bottom,
 }
 
@@ -120,7 +121,7 @@ pub struct Config {
     pub shortcut_bind_command: String,
     /// Human-readable key combination to bind in your desktop (e.g. `Super+Shift+S`).
     pub shortcut_keys: String,
-    /// Annotate tool rail position relative to the preview.
+    /// On-screen annotate toolbar dock (left/right/top/bottom). Preview window ignores this (always top).
     pub toolbar_position: ToolbarPosition,
     /// Dark / light / follow OS appearance.
     pub theme: UiTheme,
@@ -154,7 +155,7 @@ impl Default for Config {
             stay_in_tray: false,
             shortcut_bind_command: default_shortcut_bind_command(),
             shortcut_keys: default_shortcut_keys(),
-            toolbar_position: ToolbarPosition::Left,
+            toolbar_position: ToolbarPosition::Bottom,
             theme: UiTheme::System,
             show_title_bar: true,
             window_transparency: false,
@@ -297,9 +298,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_toolbar_left_theme_system() {
+    fn defaults_toolbar_bottom_theme_system() {
         let cfg = Config::default();
-        assert_eq!(cfg.toolbar_position, ToolbarPosition::Left);
+        assert_eq!(cfg.toolbar_position, ToolbarPosition::Bottom);
         assert_eq!(cfg.theme, UiTheme::System);
         assert!(cfg.show_title_bar);
         assert!(!cfg.window_transparency);
@@ -368,7 +369,7 @@ stay_in_tray = false
 shortcut_bind_command = "hypershot region"
 "#;
         let cfg: Config = toml::from_str(legacy).unwrap();
-        assert_eq!(cfg.toolbar_position, ToolbarPosition::Left);
+        assert_eq!(cfg.toolbar_position, ToolbarPosition::Bottom);
         assert_eq!(cfg.theme, UiTheme::System);
         assert_eq!(cfg.shortcut_keys, "Print");
         assert!(cfg.show_title_bar);

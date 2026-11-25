@@ -415,7 +415,7 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     });
 }
 
-/// Frame for the floating flat tool bar (content-sized, not full window).
+/// Frame for the on-screen floating flat tool bar (content-sized pill).
 ///
 /// Flat fill only — no border stroke. Modest radius matches tool wells.
 /// Window transparency / blur never wash the fill out.
@@ -437,6 +437,23 @@ pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
             spread: 0,
             color: Color32::from_black_alpha(shadow_a),
         })
+}
+
+/// Full-width top strip for the preview/window annotate chrome.
+///
+/// Embedded in the window (not a floating `Area`) so Iconoir glyphs stay in the
+/// normal paint path and remain high-contrast on the solid bar.
+pub fn embedded_top_toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
+    egui::Frame::new()
+        .fill(Color32::from_rgb(
+            pal.toolbar_fill.r(),
+            pal.toolbar_fill.g(),
+            pal.toolbar_fill.b(),
+        ))
+        .stroke(Stroke::NONE)
+        .corner_radius(CornerRadius::ZERO)
+        .inner_margin(Margin::symmetric(8, 6))
+        .outer_margin(Margin::ZERO)
 }
 
 /// Subtle separator between toolbar groups (vertical for horizontal bars).

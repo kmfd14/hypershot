@@ -1,20 +1,19 @@
-//! Floating annotate window (flat rounded-rect tool rail + image canvas).
+//! Floating annotate window (embedded top toolbar + image canvas).
 //!
-//! Layout: content-sized floating rail attached to the capture preview (not
-//! full window height). Position: left (default) / right / top / bottom via
-//! settings. Exit cancels/discards (Esc does the same when enabled in settings).
+//! Layout: solid toolbar strip along the **top** of the window (not a floating
+//! `Area` pill). Dock position in Settings applies only to on-screen annotate.
+//! Exit cancels/discards (Esc does the same when enabled in settings).
 //! Save opens a file dialog, then dismisses after a successful write (cancel
 //! leaves the window open). Enter = save dialog + clipboard toast + close.
 //! Copy shows a short clipboard toast, then closes without blanking the preview.
 //!
-//! Chrome: light gray/white flat bar (no border stroke), charcoal icons; only
-//! the active tool gets a soft purple rounded-square highlight. Transparency +
-//! blur settings apply window opacity and a translucent frosted panel on the
-//! window/preview area; the tool rail stays fully opaque.
+//! Chrome: light gray/white flat bar (no border stroke), high-contrast icons;
+//! only the active tool gets a soft purple rounded-square highlight.
+//! Transparency + blur settings apply window opacity and a translucent frosted
+//! panel on the preview area; the tool rail stays fully opaque.
 //!
 //! Floating (default): centered + `ViewportBuilder::with_always_on_top`.
 //! Follow tiling: skip those hints so a tiling WM can place the window.
-//! Wayland: winit’s always-on-top is a no-op; COSMIC/tiling may still tile.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -25,11 +24,11 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuild
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
-use crate::config::{ToolbarPosition, APP_NAME};
+use crate::config::APP_NAME;
 use crate::output::default_save_dir;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
-    self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
+    self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
     paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
     paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step, paint_icon_text,
@@ -133,8 +132,8 @@ pub(crate) const PIXELATE_BLOCK: u32 = 20;
 const MAX_DISPLAY_W: f32 = 1100.0;
 const MAX_DISPLAY_H: f32 = 800.0;
 
-/// Approximate content size of the floating rail (vertical).
-fn toolbar_content_height() -> f32 {
+/// Approximate width of the horizontal top toolbar (for window sizing).
+fn toolbar_content_width() -> f32 {
     // 8 tools + color + thickness + undo + redo + clear + settings + save + copy + exit
     // + 3 separators
     let n_btns = 16.0_f32;
@@ -143,12 +142,9 @@ fn toolbar_content_height() -> f32 {
     n_btns * TOOL_BTN + seps + gaps
 }
 
-/// Approximate content size of the floating rail (horizontal).
-fn toolbar_content_width() -> f32 {
-    let n_btns = 16.0_f32;
-    let seps = 3.0 * 8.0;
-    let gaps = 18.0 * 6.0;
-    n_btns * TOOL_BTN + seps + gaps
+/// Height of the embedded top toolbar strip (including inner margins).
+fn embedded_toolbar_height() -> f32 {
+    TOOLBAR_WIDTH
 }
 
 /// Open a floating annotate window on an existing PNG.
@@ -171,7 +167,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
 
     let settings = EmbeddedSettings::load();
     let cfg = settings.config().clone();
-    let (win_w, win_h) = floating_window_size(w, h, cfg.toolbar_position);
+    let (win_w, win_h) = floating_window_size(w, h);
     let rgba_bytes = rgba.as_raw().clone();
     let path_buf = path.to_path_buf();
     let outcome = Arc::new(Mutex::new(AnnotateOutcome::Cancelled));
@@ -187,8 +183,8 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
         .with_title(APP_NAME)
         .with_inner_size([win_w, win_h])
         .with_min_inner_size([
-            TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
-            200.0,
+            320.0,
+            embedded_toolbar_height() + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
         ])
         .with_decorations(decorations)
         .with_transparent(transparent)
@@ -241,22 +237,17 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     Ok(result)
 }
 
-fn floating_window_size(img_w: u32, img_h: u32, pos: ToolbarPosition) -> (f32, f32) {
+/// Preview window size: embedded top toolbar + image (dock setting ignored).
+fn floating_window_size(img_w: u32, img_h: u32) -> (f32, f32) {
     let scale = (MAX_DISPLAY_W / img_w as f32)
         .min(MAX_DISPLAY_H / img_h as f32)
         .min(1.0);
     let disp_w = img_w as f32 * scale;
     let disp_h = img_h as f32 * scale;
-    match pos {
-        ToolbarPosition::Left | ToolbarPosition::Right => (
-            TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_w + WINDOW_PAD * 2.0,
-            disp_h.max(toolbar_content_height()) + WINDOW_PAD * 2.0,
-        ),
-        ToolbarPosition::Top | ToolbarPosition::Bottom => (
-            disp_w.max(toolbar_content_width()) + WINDOW_PAD * 2.0,
-            TOOLBAR_WIDTH + TOOLBAR_GUTTER + disp_h + WINDOW_PAD * 2.0,
-        ),
-    }
+    (
+        disp_w.max(toolbar_content_width()) + WINDOW_PAD * 2.0,
+        embedded_toolbar_height() + TOOLBAR_GUTTER + disp_h + WINDOW_PAD * 2.0,
+    )
 }
 
 fn ensure_display_available() -> Result<()> {
@@ -1143,8 +1134,16 @@ impl eframe::App for AnnotateApp {
 
         let dark = ctx.theme() == egui::Theme::Dark;
         let pal = self.palette(dark);
-        let toolbar_pos = self.settings.config().toolbar_position;
-        let horizontal = toolbar_pos.is_horizontal();
+
+        // Embedded top toolbar (preview/window only — not a floating Area).
+        egui::TopBottomPanel::top("hypershot_preview_toolbar")
+            .exact_height(embedded_toolbar_height())
+            .frame(embedded_top_toolbar_frame(&pal))
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                ui.set_min_height(embedded_toolbar_height() - 12.0);
+                self.draw_toolbar(ui, true);
+            });
 
         egui::CentralPanel::default()
             .frame(
@@ -1153,63 +1152,7 @@ impl eframe::App for AnnotateApp {
                     .inner_margin(egui::Margin::same(WINDOW_PAD as i8)),
             )
             .show(ctx, |ui| {
-                let available = ui.available_rect_before_wrap();
-
-                // Reserve a strip for the content-sized rail; image gets the rest.
-                let (image_area, toolbar_origin) = match toolbar_pos {
-                    ToolbarPosition::Left => {
-                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
-                        let img = Rect::from_min_max(
-                            Pos2::new(available.min.x + rail, available.min.y),
-                            available.max,
-                        );
-                        let (fitted, _) =
-                            fit_image_rect(img, self.width as f32, self.height as f32);
-                        let th = toolbar_content_height().min(available.height());
-                        let ty = (fitted.center().y - th * 0.5)
-                            .clamp(available.min.y, available.max.y - th);
-                        (img, Pos2::new(available.min.x, ty))
-                    }
-                    ToolbarPosition::Right => {
-                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
-                        let img = Rect::from_min_max(
-                            available.min,
-                            Pos2::new(available.max.x - rail, available.max.y),
-                        );
-                        let (fitted, _) =
-                            fit_image_rect(img, self.width as f32, self.height as f32);
-                        let th = toolbar_content_height().min(available.height());
-                        let ty = (fitted.center().y - th * 0.5)
-                            .clamp(available.min.y, available.max.y - th);
-                        (img, Pos2::new(available.max.x - TOOLBAR_WIDTH, ty))
-                    }
-                    ToolbarPosition::Top => {
-                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
-                        let img = Rect::from_min_max(
-                            Pos2::new(available.min.x, available.min.y + rail),
-                            available.max,
-                        );
-                        let (fitted, _) =
-                            fit_image_rect(img, self.width as f32, self.height as f32);
-                        let tw = toolbar_content_width().min(available.width());
-                        let tx = (fitted.center().x - tw * 0.5)
-                            .clamp(available.min.x, available.max.x - tw);
-                        (img, Pos2::new(tx, available.min.y))
-                    }
-                    ToolbarPosition::Bottom => {
-                        let rail = TOOLBAR_WIDTH + TOOLBAR_GUTTER;
-                        let img = Rect::from_min_max(
-                            available.min,
-                            Pos2::new(available.max.x, available.max.y - rail),
-                        );
-                        let (fitted, _) =
-                            fit_image_rect(img, self.width as f32, self.height as f32);
-                        let tw = toolbar_content_width().min(available.width());
-                        let tx = (fitted.center().x - tw * 0.5)
-                            .clamp(available.min.x, available.max.x - tw);
-                        (img, Pos2::new(tx, available.max.y - TOOLBAR_WIDTH))
-                    }
-                };
+                let image_area = ui.available_rect_before_wrap();
 
                 // Image canvas (letterbox / upscale with LINEAR).
                 let (fitted_image, fitted_scale) =
@@ -1220,21 +1163,6 @@ impl eframe::App for AnnotateApp {
                 if interactive {
                     self.paint_text_editor(ctx, fitted_image, fitted_scale);
                 }
-
-                // Floating pastel rail — content-sized, attached to preview (not full height).
-                egui::Area::new(egui::Id::new("hypershot_toolbar"))
-                    .fixed_pos(toolbar_origin)
-                    .order(egui::Order::Foreground)
-                    .show(ctx, |ui| {
-                        glass_toolbar_frame(&pal).show(ui, |ui| {
-                            if horizontal {
-                                ui.set_height(TOOLBAR_WIDTH - 16.0);
-                            } else {
-                                ui.set_width(TOOLBAR_WIDTH - 16.0);
-                            }
-                            self.draw_toolbar(ui, horizontal);
-                        });
-                    });
             });
 
         self.paint_copy_toast(ctx, &pal);
@@ -2285,26 +2213,30 @@ mod tests {
     }
 
     #[test]
-    fn floating_window_includes_toolbar_and_gutter() {
-        let (w, h) = floating_window_size(400, 300, ToolbarPosition::Left);
-        assert!(w > 400.0 + TOOLBAR_WIDTH);
-        assert!(h >= 300.0);
+    fn floating_window_includes_top_toolbar_and_gutter() {
+        let (w, h) = floating_window_size(400, 300);
         assert!(WINDOW_PAD >= 12.0);
-        assert!(w >= 400.0 + TOOLBAR_WIDTH + TOOLBAR_GUTTER + WINDOW_PAD * 2.0);
-        assert!(h >= 300.0 + WINDOW_PAD * 2.0);
+        assert!(w >= 400.0 + WINDOW_PAD * 2.0);
+        assert!(
+            h >= 300.0 + embedded_toolbar_height() + TOOLBAR_GUTTER + WINDOW_PAD * 2.0 - 1.0
+        );
+        assert!(w >= toolbar_content_width().min(400.0 + WINDOW_PAD * 2.0));
     }
 
     #[test]
     fn floating_window_clamps_huge_captures() {
-        let (w, h) = floating_window_size(4000, 3000, ToolbarPosition::Left);
-        assert!(w <= TOOLBAR_WIDTH + TOOLBAR_GUTTER + MAX_DISPLAY_W + WINDOW_PAD * 2.0 + 1.0);
-        assert!(h <= MAX_DISPLAY_H + WINDOW_PAD * 2.0 + 1.0 + toolbar_content_height());
+        let (w, h) = floating_window_size(4000, 3000);
+        assert!(w <= toolbar_content_width().max(MAX_DISPLAY_W) + WINDOW_PAD * 2.0 + 1.0);
+        assert!(
+            h <= embedded_toolbar_height() + TOOLBAR_GUTTER + MAX_DISPLAY_H + WINDOW_PAD * 2.0 + 1.0
+        );
     }
 
     #[test]
-    fn toolbar_does_not_force_full_window_height() {
-        // Content-sized rail is shorter than a tall window's image area.
-        assert!(toolbar_content_height() < MAX_DISPLAY_H);
+    fn preview_toolbar_is_embedded_top_strip() {
+        // Preview chrome is a fixed top strip — not a tall side rail.
+        assert_eq!(embedded_toolbar_height(), TOOLBAR_WIDTH);
+        assert!(embedded_toolbar_height() < MAX_DISPLAY_H * 0.25);
     }
 
     #[test]
