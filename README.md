@@ -27,13 +27,13 @@ No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouch
 
 Screenshot tool with capture + annotation. Region or fullscreen → floating annotate window → save or copy. Built in Rust. Flat pastel tool rail + Apple-inspired settings.
 
-## Platform support (v0.5)
+## Platform support (v0.6)
 
 | Platform | Capture | Annotate / Save / Clipboard | Tray | Native ARM |
 | --- | --- | --- | --- | --- |
 | Linux Wayland | **Works** — portal first, `grim`/`slurp` fallback | **Works** | **Works** (SNI / `ksni`) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
-| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) | **Works** (`arboard` + `rfd`) | Not in v0.5 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
-| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v0.5 | `aarch64-pc-windows-msvc` via CI `cargo check` |
+| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) | **Works** (`arboard` + `rfd`) | Not in v0.6 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
+| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v0.6 | `aarch64-pc-windows-msvc` via CI `cargo check` |
 
 > [!CAUTION]
 > No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop (Linux XDG helpers only). Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
@@ -82,9 +82,9 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 2. **Annotate** — floating **Lightsnip** window, or `cargo run --release -- annotate path.png`. Flat pastel icon rail (no text label): arrow, box, pixelate, step number, color (default red), undo, redo, clear, settings, **Save**, **Copy**, **Exit**.
 3. **Save** — file dialog (defaults under configured save dir). Cancel keeps the window open.
 4. **Enter** — save dialog + copy to clipboard + toast + close (always). Esc respects **Esc to exit**; Enter does not.
-5. **Pixelate** — strong single-pass mosaic (`PIXELATE_BLOCK = 28` + offset densify) so text is unreadable; undo/redo still work.
+5. **Pixelate** — soft classic mosaic (`PIXELATE_BLOCK = 20`, averages the image behind) so fine text is hard to read but the region still looks like the capture; seamless fill (no block borders); undo/redo still work.
 6. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-7. **Settings** — cards with `?` tooltips, folder picker, UI + About (`0.5`).
+7. **Settings** — cards with `?` tooltips, folder picker, UI + About (`0.6`).
 8. **Tray** — Linux only: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -123,7 +123,7 @@ sudo dnf install grim slurp wl-clipboard \
 
 ### Windows 10/11
 
-1. Capture is **WIP** in v0.5.
+1. Capture is **WIP** in v0.6.
 2. Do this instead: Win+Shift+S (or Snipping Tool) → save a PNG →
 
    ```bash

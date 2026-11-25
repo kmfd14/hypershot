@@ -279,7 +279,7 @@ mod windows {
     pub async fn capture_to_png(mode: CaptureMode, output: &Path) -> Result<()> {
         let _ = (mode, output);
         bail!(
-            "Windows screen capture is not wired yet in v0.5 (Windows Graphics Capture planned).\n\
+            "Windows screen capture is not wired yet in v0.6 (Windows Graphics Capture planned).\n\
              Workarounds:\n\
              • Capture with Snipping Tool / Win+Shift+S, then: lightsnip annotate path.png\n\
              • Or: lightsnip annotate existing.png\n\

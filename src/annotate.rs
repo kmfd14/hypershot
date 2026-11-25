@@ -88,9 +88,11 @@ const STEP_RADIUS: f32 = 14.0;
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
 ///
-/// Tunable: raised in v0.5 so a single drag pass makes typical UI text unreadable.
-/// Previous default was 12; 28 averages a wider neighborhood into each cell.
-const PIXELATE_BLOCK: u32 = 28;
+/// Classic Flameshot/Lightshot-style mosaic: each cell is the average of the
+/// underlying image. ~20 keeps the region recognizable as soft pixelate while
+/// making fine UI text hard to read. (v0.6 first pass used 48 + heavy grain —
+/// that read as an opaque noise slab, not a mosaic of the image.)
+const PIXELATE_BLOCK: u32 = 20;
 
 /// Max displayed image size inside the floating window (px). Larger captures scale down.
 const MAX_DISPLAY_W: f32 = 1100.0;
@@ -236,9 +238,6 @@ fn ensure_display_available() -> Result<()> {
 
 const STROKE_WIDTH: f32 = 3.0;
 
-const PIXELATE_PREVIEW_FILL: Color32 =
-    Color32::from_rgba_premultiplied(0x19, 0x19, 0x1A, 160);
-const PIXELATE_PREVIEW_STROKE: Color32 = Color32::from_rgb(0xC8, 0xC8, 0xC8);
 
 struct AnnotateApp {
     texture: egui::TextureHandle,
@@ -680,7 +679,15 @@ impl AnnotateApp {
         };
 
         for shape in self.shapes.iter().chain(self.draft.iter()) {
-            paint_shape(&painter, *shape, to_screen, scale);
+            paint_shape(
+                &painter,
+                *shape,
+                to_screen,
+                scale,
+                &self.pixels,
+                self.width,
+                self.height,
+            );
         }
 
         if self.tool == Tool::Step {
@@ -979,6 +986,9 @@ fn paint_shape(
     shape: Shape,
     to_screen: impl Fn(Pos2) -> Pos2,
     scale: f32,
+    pixels: &[u8],
+    img_w: u32,
+    img_h: u32,
 ) {
     match shape {
         Shape::Arrow { from, to, color } => {
@@ -996,36 +1006,9 @@ fn paint_shape(
             painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Outside);
         }
         Shape::Pixelate { a, b } => {
-            let r = Rect::from_two_pos(to_screen(a), to_screen(b));
-            painter.rect_filled(r, 0.0, PIXELATE_PREVIEW_FILL);
-            let block_screen = (PIXELATE_BLOCK as f32 * scale).max(4.0);
-            let mut y = r.min.y;
-            while y < r.max.y {
-                let mut x = r.min.x;
-                while x < r.max.x {
-                    let cell = Rect::from_min_max(
-                        Pos2::new(x, y),
-                        Pos2::new((x + block_screen).min(r.max.x), (y + block_screen).min(r.max.y)),
-                    );
-                    painter.rect_stroke(
-                        cell,
-                        0.0,
-                        Stroke::new(
-                            1.0_f32,
-                            Color32::from_rgba_premultiplied(0x33, 0x33, 0x33, 90),
-                        ),
-                        egui::StrokeKind::Inside,
-                    );
-                    x += block_screen;
-                }
-                y += block_screen;
-            }
-            painter.rect_stroke(
-                r,
-                0.0,
-                Stroke::new(1.5_f32, PIXELATE_PREVIEW_STROKE),
-                egui::StrokeKind::Outside,
-            );
+            // Classic mosaic preview: each cell is the average of the underlying
+            // image — seamless filled rects, no cell strokes / outer frame.
+            paint_pixelate_preview(painter, a, b, &to_screen, pixels, img_w, img_h);
         }
         Shape::Step {
             center,
@@ -1209,21 +1192,86 @@ fn pixelate_region(img: &mut RgbaImage, a: Pos2, b: Pos2, block: u32) {
         return;
     }
 
-    // Primary coarse mosaic.
+    // Classic mosaic blur: average each cell from the underlying image.
+    // No grain wash, no stroked borders, no offset densify seams.
     apply_mosaic(img, x0, y0, x1, y1, block);
-    // Second pass with half-block offset densifies the mosaic so residual
-    // letter edges from a single grid alignment are harder to read.
-    let half = (block / 2).max(1);
-    if half < block && x1.saturating_sub(x0) > half && y1.saturating_sub(y0) > half {
-        apply_mosaic(
-            img,
-            x0.saturating_add(half).min(x1),
-            y0.saturating_add(half).min(y1),
-            x1,
-            y1,
-            block,
-        );
+}
+
+/// On-canvas pixelate: sample averages from the capture so the preview reads as
+/// a soft mosaic of the image behind (not an opaque gray slab).
+fn paint_pixelate_preview(
+    painter: &egui::Painter,
+    a: Pos2,
+    b: Pos2,
+    to_screen: &impl Fn(Pos2) -> Pos2,
+    pixels: &[u8],
+    img_w: u32,
+    img_h: u32,
+) {
+    if img_w == 0 || img_h == 0 || pixels.len() < (img_w as usize * img_h as usize * 4) {
+        return;
     }
+    let block = PIXELATE_BLOCK.max(1);
+    let x0 = a.x.min(b.x).floor().max(0.0) as u32;
+    let y0 = a.y.min(b.y).floor().max(0.0) as u32;
+    let x1 = (a.x.max(b.x).ceil() as u32).min(img_w);
+    let y1 = (a.y.max(b.y).ceil() as u32).min(img_h);
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let mut y = y0;
+    while y < y1 {
+        let y_end = (y + block).min(y1);
+        let mut x = x0;
+        while x < x1 {
+            let x_end = (x + block).min(x1);
+            let avg = average_block_bytes(pixels, img_w, x, y, x_end, y_end);
+            let cell = Rect::from_min_max(
+                to_screen(Pos2::new(x as f32, y as f32)),
+                to_screen(Pos2::new(x_end as f32, y_end as f32)),
+            );
+            // Opaque fill from the image average — no stroke/grid.
+            painter.rect_filled(
+                cell,
+                0.0,
+                Color32::from_rgba_unmultiplied(avg[0], avg[1], avg[2], 255),
+            );
+            x = x_end;
+        }
+        y = y_end;
+    }
+}
+
+fn average_block_bytes(
+    pixels: &[u8],
+    width: u32,
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+) -> [u8; 4] {
+    let mut sum = [0u64; 4];
+    let mut count = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = ((y * width + x) * 4) as usize;
+            sum[0] += u64::from(pixels[i]);
+            sum[1] += u64::from(pixels[i + 1]);
+            sum[2] += u64::from(pixels[i + 2]);
+            sum[3] += u64::from(pixels[i + 3]);
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return [0, 0, 0, 255];
+    }
+    [
+        (sum[0] / count) as u8,
+        (sum[1] / count) as u8,
+        (sum[2] / count) as u8,
+        (sum[3] / count) as u8,
+    ]
 }
 
 fn apply_mosaic(img: &mut RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32, block: u32) {
@@ -1368,11 +1416,12 @@ mod tests {
     }
 
     #[test]
-    fn pixelate_block_is_aggressive_enough() {
-        // v0.5: single-pass redaction must use a large mosaic (≥24).
+    fn pixelate_block_is_soft_mosaic_range() {
+        // Classic mosaic: large enough to blur fine text, small enough to still
+        // read as the underlying image (not a solid slab).
         assert!(
-            PIXELATE_BLOCK >= 24,
-            "PIXELATE_BLOCK={PIXELATE_BLOCK} too small to hide readable text"
+            (16..=24).contains(&PIXELATE_BLOCK),
+            "PIXELATE_BLOCK={PIXELATE_BLOCK} outside soft-mosaic range 16..=24"
         );
     }
 
@@ -1394,7 +1443,7 @@ mod tests {
         );
         let p00 = img.get_pixel(0, 0).0;
         let p77 = img.get_pixel(7, 7).0;
-        assert_eq!(p00, p77);
+        assert_eq!(p00, p77, "mosaic cell must be flat (no grain)");
         assert_ne!(
             img.get_pixel(30, 30).0[0],
             img.get_pixel(31, 30).0[0],
@@ -1403,21 +1452,91 @@ mod tests {
     }
 
     #[test]
+    fn pixelate_preserves_underlying_average() {
+        // Soft mosaic must still look like the image: a red/blue split averages
+        // toward those hues per cell, not a washed-out gray slab.
+        let mut img = RgbaImage::new(40, 40);
+        for y in 0..40 {
+            for x in 0..40 {
+                let c = if x < 20 {
+                    Rgba([200, 40, 40, 255])
+                } else {
+                    Rgba([40, 40, 200, 255])
+                };
+                img.put_pixel(x, y, c);
+            }
+        }
+        pixelate_region(
+            &mut img,
+            Pos2::new(0.0, 0.0),
+            Pos2::new(40.0, 40.0),
+            PIXELATE_BLOCK,
+        );
+        let left = img.get_pixel(5, 5).0;
+        let right = img.get_pixel(25, 5).0;
+        assert!(left[0] > left[2] + 40, "left cell should stay reddish: {left:?}");
+        assert!(right[2] > right[0] + 40, "right cell should stay bluish: {right:?}");
+        // Within a cell, every pixel matches the average (classic mosaic).
+        assert_eq!(img.get_pixel(0, 0).0, img.get_pixel(PIXELATE_BLOCK - 1, 0).0);
+    }
+
+    #[test]
+    fn pixelate_softens_high_frequency_contrast() {
+        // Fixture: 2px-wide black/white columns (letter-stem scale). After one
+        // pass, within a mosaic cell neighbors are identical (flat average).
+        let mut img = RgbaImage::new(96, 48);
+        for y in 0..48 {
+            for x in 0..96 {
+                let v = if (x / 2) % 2 == 0 { 255 } else { 0 };
+                img.put_pixel(x, y, Rgba([v, v, v, 255]));
+            }
+        }
+        let before_edge = (img.get_pixel(9, 10).0[0] as i16 - img.get_pixel(10, 10).0[0] as i16)
+            .unsigned_abs();
+        assert!(before_edge >= 200, "fixture must start high-contrast");
+
+        pixelate_region(
+            &mut img,
+            Pos2::new(0.0, 0.0),
+            Pos2::new(96.0, 48.0),
+            PIXELATE_BLOCK,
+        );
+
+        let cell = PIXELATE_BLOCK.min(48);
+        for y in 0..cell {
+            for x in 0..cell {
+                assert_eq!(
+                    img.get_pixel(x, y).0,
+                    img.get_pixel(0, 0).0,
+                    "mosaic cell must be uniform"
+                );
+            }
+        }
+        // Fine stems must not survive as pure black/white at stem sites.
+        assert_ne!(img.get_pixel(10, 10).0, [0, 0, 0, 255]);
+        assert_ne!(img.get_pixel(9, 10).0, [255, 255, 255, 255]);
+    }
+
+    #[test]
     fn rasterize_pixelate_shape_redacts() {
-        let mut img = RgbaImage::from_pixel(48, 48, Rgba([10, 20, 30, 255]));
+        let mut img = RgbaImage::from_pixel(64, 64, Rgba([10, 20, 30, 255]));
         img.put_pixel(8, 8, Rgba([255, 0, 0, 255]));
         img.put_pixel(9, 9, Rgba([0, 255, 0, 255]));
         rasterize_shape(
             &mut img,
             Shape::Pixelate {
-                a: Pos2::new(4.0, 4.0),
-                b: Pos2::new(20.0, 20.0),
+                a: Pos2::new(0.0, 0.0),
+                b: Pos2::new(40.0, 40.0),
             },
         );
         let a = img.get_pixel(8, 8).0;
         let b = img.get_pixel(9, 9).0;
         assert_eq!(a, b, "pixelate should average neighbors in a block");
         assert_ne!(a, [255, 0, 0, 255], "original bright pixel must not remain");
+        assert!(
+            a[0] < 80 && a[1] < 80 && a[2] < 80,
+            "still too bright after redaction: {a:?}"
+        );
     }
 
     #[test]
