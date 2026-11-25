@@ -4,7 +4,7 @@
 //! dark reference look: lavender accent, OK / Cancel / Apply.
 //!
 //! Sidebar keeps General, Capture, Overlay, Annotation Window, Saving,
-//! File names, About. Upload / S3 / History / Recording / Camera and the
+//! File, About. Upload / S3 / History / Recording / Camera and the
 //! entire SHORTCUTS group are intentionally omitted.
 
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use eframe::egui::{self, Sense, Stroke, Vec2, ViewportBuilder};
 
 use crate::config::{
     clamp_intensity, config_path, default_filename_pattern, AnnotateSessionMode, Config,
-    ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
+    SaveFileType, ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
 use crate::icons::{paint_iconoir, IconId};
@@ -111,7 +111,7 @@ enum NavId {
     Overlay,
     AnnotationWindow,
     Saving,
-    FileNames,
+    File,
     About,
 }
 
@@ -123,7 +123,7 @@ impl NavId {
             Self::Overlay => "Overlay",
             Self::AnnotationWindow => "Annotation Window",
             Self::Saving => "Saving",
-            Self::FileNames => "File names",
+            Self::File => "File",
             Self::About => "About",
         }
     }
@@ -136,7 +136,7 @@ enum NavIcon {
     Overlay,
     AnnotationWindow,
     Saving,
-    FileNames,
+    File,
     Info,
 }
 
@@ -296,9 +296,10 @@ impl SettingsApp {
                 self.save_dir_text = self.cfg.save_directory.display().to_string();
                 self.cfg.save_to_clipboard = defaults.save_to_clipboard;
             }
-            NavId::FileNames => {
+            NavId::File => {
                 self.cfg.filename_pattern = defaults.filename_pattern.clone();
                 self.filename_pattern_text = self.cfg.filename_pattern.clone();
+                self.cfg.default_file_type = defaults.default_file_type;
             }
             NavId::About => {}
         }
@@ -361,7 +362,7 @@ impl SettingsApp {
                     NavIcon::AnnotationWindow,
                 ),
                 (NavId::Saving, "Saving", NavIcon::Saving),
-                (NavId::FileNames, "File names", NavIcon::FileNames),
+                (NavId::File, "File", NavIcon::File),
             ];
 
             let about_h = 32.0;
@@ -437,7 +438,7 @@ impl SettingsApp {
                                 self.page_annotation_window(ui, label, secondary)
                             }
                             NavId::Saving => self.page_saving(ui, label, secondary),
-                            NavId::FileNames => self.page_file_names(ui, label, secondary),
+                            NavId::File => self.page_file(ui, label, secondary),
                             NavId::About => self.page_about(ui, label, secondary),
                         }
                     });
@@ -451,7 +452,7 @@ impl SettingsApp {
             ui.set_min_height(SETTINGS_FOOTER_H - 16.0);
             let link = ui.add(
                 egui::Label::new(
-                    egui::RichText::new("Open config file")
+                    egui::RichText::new("Open Config File")
                         .color(SETTINGS_PRIMARY)
                         .size(13.0),
                 )
@@ -512,7 +513,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.run_at_startup,
-            "Run at startup",
+            "Run at Startup",
             "Start the tray when you log in.",
             label,
             secondary,
@@ -521,7 +522,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.replace_default_screenshot,
-            "Replace default screenshot",
+            "Replace Default Screenshot",
             "Adds a launcher helper only — does not bind keys or steal Print Screen.",
             label,
             secondary,
@@ -530,7 +531,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.stay_in_tray,
-            "Stay in tray",
+            "Stay in Tray",
             "Keep a tray icon while HyperShot is running.",
             label,
             secondary,
@@ -556,7 +557,7 @@ impl SettingsApp {
 
     fn page_capture(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("Annotate mode")
+            egui::RichText::new("Annotate Mode")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -584,7 +585,7 @@ impl SettingsApp {
 
     fn page_overlay(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("On-screen toolbar position")
+            egui::RichText::new("On-Screen Toolbar Position")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -609,7 +610,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.show_title_bar,
-            "Show window title bar",
+            "Show Window Title Bar",
             "Show the normal window title bar. Off makes the window borderless.",
             label,
             secondary,
@@ -618,7 +619,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.follow_window_tiling,
-            "Follow window tiling",
+            "Follow Window Tiling",
             "On: let your window manager place annotate. Off (default): center the window and keep it on top when the desktop allows. Settings itself never tiles.",
             label,
             secondary,
@@ -627,7 +628,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.esc_to_exit,
-            "Esc to exit",
+            "Esc to Exit",
             "When on (default), Escape closes annotate without save/copy (after clearing a draft). Exit always works.",
             label,
             secondary,
@@ -651,7 +652,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.window_transparency,
-            "Window transparency",
+            "Window Transparency",
             "Softens the preview window. Some desktops ignore transparency.",
             label,
             secondary,
@@ -670,7 +671,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.window_background_blur,
-            "Window background blur",
+            "Window Background Blur",
             "Frosts the preview area. Does not sample the desktop behind the window.",
             label,
             secondary,
@@ -689,7 +690,7 @@ impl SettingsApp {
 
     fn page_saving(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("Save directory")
+            egui::RichText::new("Save Directory")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -713,21 +714,21 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.save_to_clipboard,
-            "Save to clipboard by default",
+            "Save to Clipboard by Default",
             "Copy each save unless you pass --clipboard or --no-clipboard.",
             label,
             secondary,
         );
     }
 
-    fn page_file_names(
+    fn page_file(
         &mut self,
         ui: &mut egui::Ui,
         label: egui::Color32,
         secondary: egui::Color32,
     ) {
         ui.label(
-            egui::RichText::new("Default file name")
+            egui::RichText::new("Default File Name")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -748,7 +749,8 @@ impl SettingsApp {
             "screenshot_%d%m%y",
         );
         ui.add_space(8.0);
-        let preview = render_filename_pattern(self.filename_pattern_text.trim());
+        let preview =
+            render_filename_pattern(self.filename_pattern_text.trim(), self.cfg.default_file_type);
         ui.label(
             egui::RichText::new(format!("Preview right now: {preview}"))
                 .color(SETTINGS_PRIMARY)
@@ -757,7 +759,31 @@ impl SettingsApp {
         );
         ui.add_space(14.0);
         ui.label(
-            egui::RichText::new("Codes you can use")
+            egui::RichText::new("Default File Type")
+                .color(label)
+                .size(12.5)
+                .strong(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Format used for automatic names and the Save dialog default.")
+                .color(secondary)
+                .size(11.0),
+        );
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for file_type in SaveFileType::ALL {
+                if choice_button(ui, self.cfg.default_file_type == file_type, file_type.label())
+                    .clicked()
+                {
+                    self.cfg.default_file_type = file_type;
+                }
+            }
+        });
+        ui.add_space(14.0);
+        ui.label(
+            egui::RichText::new("Codes You Can Use")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -798,8 +824,12 @@ impl SettingsApp {
                 .size(11.5)
                 .monospace(),
         );
+        let becomes = format!(
+            "Becomes:  screenshot_251125.{}",
+            self.cfg.default_file_type.extension()
+        );
         ui.label(
-            egui::RichText::new("Becomes:  screenshot_251125.png")
+            egui::RichText::new(becomes)
                 .color(secondary)
                 .size(11.5)
                 .monospace(),
@@ -807,7 +837,7 @@ impl SettingsApp {
         ui.add_space(6.0);
         ui.label(
             egui::RichText::new(
-                ".png is added if you leave it off. If that name already exists, HyperShot tries screenshot_251125_2.png, then _3, and so on.",
+                "The chosen file type is added if you leave the extension off. If that name already exists, HyperShot tries _2, then _3, and so on.",
             )
             .color(secondary)
             .size(11.0),
@@ -834,8 +864,73 @@ impl SettingsApp {
                 .color(secondary)
                 .size(12.0),
         );
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("Changelog")
+                .color(label)
+                .size(14.0)
+                .strong(),
+        );
+        ui.add_space(8.0);
+        for (ver, notes) in CHANGELOG_ENTRIES {
+            ui.label(
+                egui::RichText::new(*ver)
+                    .color(label)
+                    .size(12.5)
+                    .strong(),
+            );
+            ui.add_space(2.0);
+            for note in *notes {
+                ui.label(
+                    egui::RichText::new(format!("· {note}"))
+                        .color(secondary)
+                        .size(11.5),
+                );
+            }
+            ui.add_space(10.0);
+        }
     }
 }
+
+/// Recent version notes for Settings → About (Title Case headers; scannable bullets).
+const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
+    (
+        "1.9.0",
+        &[
+            "File page with Default File Type (PNG / JPEG / WebP)",
+            "About Changelog section",
+            "Title Case settings titles and sidebar labels",
+            "Centered tools in the annotate toolbar",
+        ],
+    ),
+    (
+        "1.8.0",
+        &[
+            "Annotation Window for transparency and blur",
+            "Clearer file name tokens and examples",
+            "Iconoir sidebar navigation icons",
+        ],
+    ),
+    (
+        "1.7.0",
+        &[
+            "Fixed Settings window size (no tiling)",
+            "Default file name pattern wiring",
+            "Settings polish and left-aligned checkboxes",
+        ],
+    ),
+    (
+        "1.6.0",
+        &["Settings two-pane restack and layout polish"],
+    ),
+    (
+        "1.5.0",
+        &[
+            "Dark two-pane Settings chrome",
+            "High-contrast Iconoir toolbar textures",
+        ],
+    ),
+];
 
 fn open_path_in_desktop(path: &std::path::Path) -> bool {
     use std::process::Command;
@@ -920,13 +1015,13 @@ fn nav_icon_id(icon: NavIcon) -> IconId {
         NavIcon::Overlay => IconId::Crop,
         NavIcon::AnnotationWindow => IconId::Preview,
         NavIcon::Saving => IconId::Folder,
-        NavIcon::FileNames => IconId::Text,
+        NavIcon::File => IconId::Text,
         NavIcon::Info => IconId::InfoCircle,
     }
 }
 
 fn reset_defaults_button(ui: &mut egui::Ui) -> egui::Response {
-    let label = egui::RichText::new("Reset to defaults")
+    let label = egui::RichText::new("Reset to Defaults")
         .color(SETTINGS_LABEL_DARK)
         .size(12.0);
     let btn = egui::Button::new(label)
@@ -1175,8 +1270,26 @@ mod tests {
             NavId::AnnotationWindow.breadcrumb(),
             "Annotation Window"
         );
-        assert_eq!(NavId::FileNames.breadcrumb(), "File names");
+        assert_eq!(NavId::File.breadcrumb(), "File");
         assert_eq!(NavId::About.breadcrumb(), "About");
+    }
+
+    #[test]
+    fn dirty_tracks_default_file_type() {
+        let mut app = SettingsApp::new(Config::default());
+        assert!(!app.is_dirty());
+        app.cfg.default_file_type = crate::config::SaveFileType::Jpeg;
+        assert!(app.is_dirty());
+    }
+
+    #[test]
+    fn changelog_lists_current_version() {
+        assert!(
+            CHANGELOG_ENTRIES
+                .iter()
+                .any(|(ver, _)| *ver == APP_VERSION),
+            "About Changelog must include APP_VERSION {APP_VERSION}"
+        );
     }
 
     #[test]
