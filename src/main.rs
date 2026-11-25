@@ -1,10 +1,13 @@
-//! lightsnip - Cross-platform screenshot CLI with annotate + settings.
+//! HyperShot (crate/binary: `lightsnip`) — cross-platform screenshot CLI
+//! with annotate + settings.
 
 mod annotate;
 mod capture;
 mod config;
 mod desktop;
+mod onscreen;
 mod output;
+mod region_select;
 mod settings;
 mod tray;
 mod ui;
@@ -16,14 +19,16 @@ use clap::{Parser, Subcommand};
 
 use annotate::{run_annotate_overlay, AnnotateOutcome};
 use capture::{capture_to_png, CaptureMode};
-use config::Config;
+use config::{AnnotateSessionMode, Config, APP_NAME};
+use onscreen::{run_onscreen_annotate_with_options, take_preview_handoff};
 use output::{copy_png_to_clipboard, resolve_output_path};
+use region_select::{run_region_select_and_crop, RegionSelectOutcome};
 use settings::{resolve_save_dir, run_settings_window, want_clipboard};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "lightsnip",
-    about = "Screenshot tool with annotation + settings",
+    about = "HyperShot — screenshot tool with annotation + settings (binary: lightsnip)",
     version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
@@ -152,28 +157,141 @@ async fn run_capture(
 ) -> Result<()> {
     let dir = resolve_save_dir(save_dir, cfg)?;
     let output = resolve_output_path(output, Some(dir))?;
-    capture_to_png(mode, &output).await?;
+
+    // Always capture the full output first. On-screen mode selects + annotates
+    // in one overlay; Preview mode crops then opens the floating window.
+    capture_to_png(CaptureMode::Full, &output).await?;
+
+    if no_annotate {
+        if mode == CaptureMode::Region {
+            match run_region_select_and_crop(&output) {
+                Ok(RegionSelectOutcome::Selected(_)) => {}
+                Ok(RegionSelectOutcome::Cancelled) => {
+                    let _ = tokio::fs::remove_file(&output).await;
+                    eprintln!("region select cancelled");
+                    return Ok(());
+                }
+                Err(err) => {
+                    let _ = tokio::fs::remove_file(&output).await;
+                    bail!("{APP_NAME} region select failed: {err:#}");
+                }
+            }
+        }
+        return finish_output(&output, want_clipboard).await;
+    }
 
     let mut force_clipboard = false;
     let mut final_path = output.clone();
-    if !no_annotate {
-        match run_annotate_overlay(&output) {
-            Ok(AnnotateOutcome::Saved(saved)) => {
-                cleanup_replaced_capture(&output, &saved).await;
-                final_path = saved;
+
+    match cfg.annotate_session_mode {
+        AnnotateSessionMode::OnScreen => {
+            // Region: drag-select on the overlay. Full: pre-select entire frame.
+            let preselect_full = mode == CaptureMode::Full;
+            match run_onscreen_annotate_with_options(&output, preselect_full) {
+                Ok(AnnotateOutcome::Saved(saved)) => {
+                    if take_preview_handoff(&saved) {
+                        // User asked to continue in the floating preview window.
+                        match run_annotate_overlay(&saved) {
+                            Ok(AnnotateOutcome::Saved(s2)) => {
+                                cleanup_replaced_capture(&output, &s2).await;
+                                final_path = s2;
+                            }
+                            Ok(AnnotateOutcome::Copied(s2)) => {
+                                cleanup_replaced_capture(&output, &s2).await;
+                                final_path = s2;
+                                force_clipboard = true;
+                            }
+                            Ok(AnnotateOutcome::Cancelled) => {
+                                cleanup_replaced_capture(&output, &saved).await;
+                                final_path = saved;
+                            }
+                            Err(err) => {
+                                eprintln!("preview window unavailable ({err:#}); keeping on-screen save");
+                                cleanup_replaced_capture(&output, &saved).await;
+                                final_path = saved;
+                            }
+                        }
+                    } else {
+                        cleanup_replaced_capture(&output, &saved).await;
+                        final_path = saved;
+                    }
+                }
+                Ok(AnnotateOutcome::Copied(saved)) => {
+                    let _ = take_preview_handoff(&saved);
+                    cleanup_replaced_capture(&output, &saved).await;
+                    final_path = saved;
+                    force_clipboard = true;
+                }
+                Ok(AnnotateOutcome::Cancelled) => {
+                    let _ = tokio::fs::remove_file(&output).await;
+                    eprintln!("annotate cancelled");
+                    return Ok(());
+                }
+                Err(err) => {
+                    eprintln!(
+                        "on-screen annotate unavailable ({err:#}); falling back to preview window"
+                    );
+                    if mode == CaptureMode::Region {
+                        if let Err(sel_err) = run_region_select_and_crop(&output) {
+                            let _ = tokio::fs::remove_file(&output).await;
+                            bail!("{APP_NAME} region select failed: {sel_err:#}");
+                        }
+                    }
+                    match run_annotate_overlay(&output) {
+                        Ok(AnnotateOutcome::Saved(saved)) => {
+                            cleanup_replaced_capture(&output, &saved).await;
+                            final_path = saved;
+                        }
+                        Ok(AnnotateOutcome::Copied(saved)) => {
+                            cleanup_replaced_capture(&output, &saved).await;
+                            final_path = saved;
+                            force_clipboard = true;
+                        }
+                        Ok(AnnotateOutcome::Cancelled) => {
+                            let _ = tokio::fs::remove_file(&output).await;
+                            eprintln!("annotate cancelled");
+                            return Ok(());
+                        }
+                        Err(err2) => {
+                            eprintln!("annotate window unavailable ({err2:#}); keeping raw capture");
+                        }
+                    }
+                }
             }
-            Ok(AnnotateOutcome::Copied(saved)) => {
-                cleanup_replaced_capture(&output, &saved).await;
-                final_path = saved;
-                force_clipboard = true;
+        }
+        AnnotateSessionMode::Preview => {
+            if mode == CaptureMode::Region {
+                match run_region_select_and_crop(&output) {
+                    Ok(RegionSelectOutcome::Selected(_)) => {}
+                    Ok(RegionSelectOutcome::Cancelled) => {
+                        let _ = tokio::fs::remove_file(&output).await;
+                        eprintln!("region select cancelled");
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        let _ = tokio::fs::remove_file(&output).await;
+                        bail!("{APP_NAME} region select failed: {err:#}");
+                    }
+                }
             }
-            Ok(AnnotateOutcome::Cancelled) => {
-                let _ = tokio::fs::remove_file(&output).await;
-                eprintln!("annotate cancelled");
-                return Ok(());
-            }
-            Err(err) => {
-                eprintln!("annotate window unavailable ({err:#}); keeping raw capture");
+            match run_annotate_overlay(&output) {
+                Ok(AnnotateOutcome::Saved(saved)) => {
+                    cleanup_replaced_capture(&output, &saved).await;
+                    final_path = saved;
+                }
+                Ok(AnnotateOutcome::Copied(saved)) => {
+                    cleanup_replaced_capture(&output, &saved).await;
+                    final_path = saved;
+                    force_clipboard = true;
+                }
+                Ok(AnnotateOutcome::Cancelled) => {
+                    let _ = tokio::fs::remove_file(&output).await;
+                    eprintln!("annotate cancelled");
+                    return Ok(());
+                }
+                Err(err) => {
+                    eprintln!("annotate window unavailable ({err:#}); keeping raw capture");
+                }
             }
         }
     }

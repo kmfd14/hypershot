@@ -15,7 +15,8 @@ use anyhow::{bail, Result};
 use eframe::egui::{self, Key, Modifiers, ViewportBuilder};
 
 use crate::config::{
-    clamp_intensity, config_path, Config, ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
+    clamp_intensity, config_path, AnnotateSessionMode, Config, ToolbarPosition, UiTheme, APP_NAME,
+    APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
 use crate::ui::{
@@ -403,10 +404,32 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "User Interface",
-                "Annotate chrome: toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. Transparency / blur affect the window and preview area; the tool rail stays fully opaque. Background blur cannot sample the desktop in egui.",
+                "Annotate mode (on-screen overlay vs preview window), toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. On-screen is Flameshot-style at the capture; Wayland overlay is best-effort. Transparency / blur affect the preview window; the tool rail stays opaque.",
                 label,
                 secondary,
             );
+
+            ui.label(egui::RichText::new("Annotate mode").color(label).size(12.0));
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for mode in AnnotateSessionMode::ALL {
+                    if choice_button(ui, self.cfg.annotate_session_mode == mode, mode.label())
+                        .clicked()
+                    {
+                        self.cfg.annotate_session_mode = mode;
+                    }
+                }
+            });
+            ui.label(
+                egui::RichText::new(
+                    "On-screen (default): Flameshot-style overlay on the capture. Preview window: floating HyperShot annotate. Wayland: fullscreen overlay is best-effort after a full capture; compositors may ignore always-on-top.",
+                )
+                .color(secondary)
+                .size(10.5)
+                .italics(),
+            );
+            ui.add_space(8.0);
 
             ui.label(egui::RichText::new("Toolbar position").color(label).size(12.0));
             ui.add_space(4.0);

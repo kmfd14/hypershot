@@ -37,8 +37,8 @@ fn sync_autostart(enabled: bool) -> Result<Vec<String>> {
     if enabled {
         let exe = current_exe_string()?;
         let body = desktop_file(
-            "lightsnip",
-            "lightsnip tray (autostart)",
+            "HyperShot",
+            "HyperShot tray (autostart; binary: lightsnip)",
             &format!("{exe} tray"),
             false,
         );
@@ -63,8 +63,8 @@ fn sync_replace_default(enabled: bool) -> Result<Vec<String>> {
             "\
 [Desktop Entry]
 Type=Application
-Name=lightsnip Screenshot
-Comment=Region capture with lightsnip (does not rebind PrintScreen)
+Name=HyperShot Screenshot
+Comment=Region capture with HyperShot (does not rebind PrintScreen)
 Exec={exe} region
 Terminal=false
 Categories=Utility;Graphics;Photography;

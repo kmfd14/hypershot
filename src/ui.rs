@@ -1,13 +1,14 @@
 //! Shared visuals for annotate + settings.
 //!
-//! Annotate: flat pastel chrome (restrained purple / gray / white). No liquid-glass
-//! imitation — no specular rims or glow. When Window Transparency / Background Blur
+//! Annotate: minimal pill chrome (light gray / white bar, charcoal icons).
+//! Only the *active* tool gets a soft purple rounded-square highlight
+//! (pale fill + purple border + purple icon). No neon, no multi-color accents
+//! beyond the stroke color picker. When Window Transparency / Background Blur
 //! are on, we apply real window opacity plus a translucent frosted panel on the
-//! window/preview area (closest effect egui can do). The tool rail stays fully
-//! opaque. True compositor backdrop-blur is unavailable on Wayland/egui.
+//! window/preview area; the tool rail stays fully opaque.
 //!
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
-//! Palette note: restrained pastel purple/gray/white is an owner override (R-37).
+//! Palette note: restrained purple/gray/white is an owner override (R-37).
 
 use eframe::egui::{
     self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Theme,
@@ -20,14 +21,14 @@ use crate::config::UiTheme;
 
 // --- Annotate sizes -----------------------------------------------------------
 
-/// Circular tool button diameter (desktop ≥ 28 pt).
-pub const TOOL_BTN: f32 = 36.0;
+/// Tool button hit target (desktop ≥ 28 pt). Rounded square, not a circle.
+pub const TOOL_BTN: f32 = 30.0;
 
-/// Settings gear is intentionally larger for discoverability.
-pub const SETTINGS_BTN: f32 = 42.0;
+/// Settings gear matches other tools for compact pill chrome.
+pub const SETTINGS_BTN: f32 = 30.0;
 
 /// Toolbar strip thickness (cross-axis).
-pub const TOOLBAR_WIDTH: f32 = 56.0;
+pub const TOOLBAR_WIDTH: f32 = 44.0;
 
 /// Gutter between image and floating tool rail.
 pub const TOOLBAR_GUTTER: f32 = 12.0;
@@ -35,8 +36,11 @@ pub const TOOLBAR_GUTTER: f32 = 12.0;
 /// Outer padding inside the floating window.
 pub const WINDOW_PAD: f32 = 18.0;
 
-/// Rail corner radius (moderate; not pill-everything).
-pub const TOOLBAR_RADIUS: f32 = 14.0;
+/// Pill-ish rail corner radius (horizontal bars read as a capsule).
+pub const TOOLBAR_RADIUS: f32 = 18.0;
+
+/// Rounded-square highlight radius on tool wells.
+pub const TOOL_WELL_RADIUS: f32 = 7.0;
 
 /// Universal settings control row height (buttons, text fields, checkbox wells).
 pub const SETTINGS_CONTROL_HEIGHT: f32 = 28.0;
@@ -47,42 +51,47 @@ pub const SETTINGS_CHECKBOX_SIZE: f32 = 18.0;
 /// Default markup stroke (red). Accent for marks lives on the image.
 pub const DEFAULT_STROKE: Color32 = Color32::from_rgb(0xE2, 0x4A, 0x3B);
 
-/// Soft contact shadow under tool wells only (kept light for a sharper chrome).
-pub const BTN_SHADOW: Color32 = Color32::from_black_alpha(20);
+// --- Annotate light palette (pill reference) ----------------------------------
 
-// --- Annotate light palette ---------------------------------------------------
+pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF4);
+pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xF7, 0xF7, 0xF8);
+pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD8, 0xD8, 0xDC);
+/// Active tool only: pale purple fill.
+pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xED, 0xE7, 0xF6);
+/// Idle wells stay transparent against the bar (no white disc on every icon).
+pub const BTN_IDLE: Color32 = Color32::TRANSPARENT;
+pub const BTN_HOVER: Color32 = Color32::from_rgb(0xEC, 0xEC, 0xF0);
 
-pub const ANNOTATE_BG: Color32 = Color32::from_rgb(0xF3, 0xF1, 0xF6);
-pub const TOOLBAR_FILL: Color32 = Color32::from_rgb(0xE8, 0xE4, 0xEE);
-pub const TOOLBAR_STROKE: Color32 = Color32::from_rgb(0xD0, 0xCA, 0xD8);
-pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xDD, 0xD4, 0xEC);
-pub const BTN_IDLE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub const BTN_HOVER: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xFB);
-
-pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x36, 0x45);
+pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x40);
 pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
 
-/// Muted purple Save primary (restrained, not neon).
-pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8B, 0x7C, 0xB6);
-pub const PASTEL_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x9A, 0x8C, 0xC4);
+/// Active-tool purple (border + icon). Soft, not neon.
+pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8E, 0x74, 0xC2);
+/// Hover companion for solid purple fills (settings / future action wells).
+#[allow(dead_code)]
+pub const PASTEL_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x9A, 0x84, 0xCA);
 
-/// Secondary action (Copy): muted gray-violet, flat.
+/// Kept for settings/action accents that still need a solid gray fill.
+#[allow(dead_code)]
 pub const ACTION_FILL: Color32 = Color32::from_rgb(0x6E, 0x68, 0x7A);
+#[allow(dead_code)]
 pub const ACTION_FILL_HOVER: Color32 = Color32::from_rgb(0x7E, 0x78, 0x8A);
 
-pub const MUTED: Color32 = Color32::from_rgb(0x8A, 0x84, 0x94);
-pub const PREVIEW_MATTE: Color32 = Color32::from_rgb(0xE0, 0xDC, 0xE8);
+pub const MUTED: Color32 = Color32::from_rgb(0x8A, 0x8A, 0x92);
+pub const PREVIEW_MATTE: Color32 = Color32::from_rgb(0xE4, 0xE4, 0xE8);
+pub const TOOLBAR_SEPARATOR: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD4);
 
 // --- Annotate dark palette ----------------------------------------------------
 
 pub const ANNOTATE_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1B, 0x20);
-pub const TOOLBAR_FILL_DARK: Color32 = Color32::from_rgb(0x2A, 0x28, 0x30);
+pub const TOOLBAR_FILL_DARK: Color32 = Color32::from_rgb(0x2C, 0x2B, 0x32);
 pub const TOOLBAR_STROKE_DARK: Color32 = Color32::from_rgb(0x48, 0x44, 0x52);
-pub const BTN_SELECTED_DARK: Color32 = Color32::from_rgb(0x4A, 0x42, 0x5C);
-pub const BTN_IDLE_DARK: Color32 = Color32::from_rgb(0x36, 0x34, 0x3E);
-pub const BTN_HOVER_DARK: Color32 = Color32::from_rgb(0x42, 0x3E, 0x4C);
+pub const BTN_SELECTED_DARK: Color32 = Color32::from_rgb(0x3D, 0x34, 0x52);
+pub const BTN_IDLE_DARK: Color32 = Color32::TRANSPARENT;
+pub const BTN_HOVER_DARK: Color32 = Color32::from_rgb(0x3A, 0x38, 0x42);
 pub const MUTED_DARK: Color32 = Color32::from_rgb(0xA8, 0xA2, 0xB0);
 pub const PREVIEW_MATTE_DARK: Color32 = Color32::from_rgb(0x28, 0x26, 0x2E);
+pub const TOOLBAR_SEPARATOR_DARK: Color32 = Color32::from_rgb(0x54, 0x50, 0x5C);
 
 // --- Settings -----------------------------------------------------------------
 
@@ -369,10 +378,10 @@ pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
     ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
     ctx.set_theme(theme_preference(theme));
-    // Tighter feathering keeps vector icons crisp without jagged stair-steps.
+    // Low feathering keeps vector icons crisp (less soft/pixelated AA).
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.55;
+        opts.feathering_size_in_pixels = 0.28;
     });
 }
 
@@ -383,15 +392,15 @@ pub fn apply_settings_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_theme(theme_preference(theme));
     ctx.tessellation_options_mut(|opts| {
         opts.feathering = true;
-        opts.feathering_size_in_pixels = 0.55;
+        opts.feathering_size_in_pixels = 0.28;
     });
 }
 
-/// Frame for the floating pastel tool rail (content-sized, not full window).
+/// Frame for the floating pill tool rail (content-sized, not full window).
 ///
 /// Always uses a solid opaque fill — window transparency / blur never wash it out.
 pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
-    let shadow_a = if pal.dark { 40 } else { 22 };
+    let shadow_a = if pal.dark { 36 } else { 20 };
     egui::Frame::new()
         .fill(Color32::from_rgb(
             pal.toolbar_fill.r(),
@@ -407,14 +416,52 @@ pub fn toolbar_frame(pal: &AnnotatePalette) -> egui::Frame {
             ),
         ))
         .corner_radius(CornerRadius::same(TOOLBAR_RADIUS as u8))
-        .inner_margin(Margin::symmetric(6, 12))
+        .inner_margin(Margin::symmetric(5, 5))
         .outer_margin(Margin::ZERO)
         .shadow(Shadow {
-            offset: [0, 2],
+            offset: [0, 1],
             blur: 6,
             spread: 0,
             color: Color32::from_black_alpha(shadow_a),
         })
+}
+
+/// Subtle separator between toolbar groups (vertical for horizontal bars).
+pub fn toolbar_separator(ui: &mut egui::Ui, horizontal: bool) {
+    let dark = ui.visuals().dark_mode;
+    let color = if dark {
+        TOOLBAR_SEPARATOR_DARK
+    } else {
+        TOOLBAR_SEPARATOR
+    };
+    let (size, stroke_len) = if horizontal {
+        (Vec2::new(8.0, TOOL_BTN), TOOL_BTN * 0.55)
+    } else {
+        (Vec2::new(TOOL_BTN, 8.0), TOOL_BTN * 0.55)
+    };
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    if horizontal {
+        let x = rect.center().x;
+        let half = stroke_len * 0.5;
+        painter.line_segment(
+            [
+                Pos2::new(x, rect.center().y - half),
+                Pos2::new(x, rect.center().y + half),
+            ],
+            Stroke::new(1.0_f32, color),
+        );
+    } else {
+        let y = rect.center().y;
+        let half = stroke_len * 0.5;
+        painter.line_segment(
+            [
+                Pos2::new(rect.center().x - half, y),
+                Pos2::new(rect.center().x + half, y),
+            ],
+            Stroke::new(1.0_f32, color),
+        );
+    }
 }
 
 /// Grouped settings card.
@@ -437,18 +484,8 @@ pub fn settings_group_frame(dark: bool) -> egui::Frame {
         })
 }
 
-fn paint_soft_circle(painter: &egui::Painter, center: Pos2, radius: f32, fill: Color32) {
-    painter.circle_filled(center + Vec2::new(0.0, 0.75), radius, BTN_SHADOW);
-    painter.circle_filled(center, radius, fill);
-    // Crisp rim (no wide soft glass stroke).
-    painter.circle_stroke(
-        center,
-        radius - 0.5,
-        Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x38)),
-    );
-}
-
-/// Circular pastel tool button with painted icon and auto-contrast ink.
+/// Rounded-square tool button. Only `selected` tools get the purple highlight;
+/// idle icons stay charcoal on the bar; hover is a faint gray well.
 pub fn tool_icon_button(
     ui: &mut egui::Ui,
     selected: bool,
@@ -463,57 +500,64 @@ pub fn tool_icon_button(
 
     let dark = ui.visuals().dark_mode;
     let pal = AnnotatePalette::for_mode(dark, false);
-    let fill = if let Some((idle, hover)) = fill_override {
-        if hovered {
-            hover
-        } else {
-            idle
-        }
-    } else if selected {
-        pal.btn_selected
-    } else if hovered {
-        pal.btn_hover
-    } else {
-        pal.btn_idle
-    };
+    // Snap wells/icons to half-pixels for cleaner stroke AA.
+    let center = Pos2::new(rect.center().x.round() + 0.5, rect.center().y.round() + 0.5);
+    let well = Rect::from_center_size(center, Vec2::splat(diameter - 6.0));
+    let radius = TOOL_WELL_RADIUS;
 
-    let radius = diameter * 0.46;
     let painter = ui.painter_at(rect);
-    paint_soft_circle(&painter, rect.center(), radius, fill);
 
+    // Active tool: pale purple fill + purple border. Never highlight non-tools via selected.
     if selected && fill_override.is_none() {
-        painter.circle_stroke(
-            rect.center(),
-            radius - 0.2,
-            Stroke::new(2.0_f32, Color32::from_rgba_premultiplied(0x8B, 0x7C, 0xB6, 0x90)),
+        painter.rect_filled(well, radius, pal.btn_selected);
+        painter.rect_stroke(
+            well,
+            radius,
+            Stroke::new(1.25_f32, PASTEL_PRIMARY),
+            egui::StrokeKind::Inside,
         );
+    } else if let Some((idle, hover)) = fill_override {
+        let fill = if hovered { hover } else { idle };
+        painter.rect_filled(well, radius, fill);
+    } else if hovered {
+        painter.rect_filled(well, radius, pal.btn_hover);
     }
 
-    let icon = icon_color_for_fill(fill);
-    let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(diameter * 0.50));
+    let icon = if selected && fill_override.is_none() {
+        PASTEL_PRIMARY
+    } else if let Some((idle, hover)) = fill_override {
+        icon_color_for_fill(if hovered { hover } else { idle })
+    } else if dark {
+        ICON_LIGHT
+    } else {
+        ICON_DARK
+    };
+    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.52));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
 }
 
-/// Circular stroke-color swatch that opens egui's color wheel (opaque stroke).
+/// Stroke-color swatch that opens egui's color wheel (opaque stroke).
 pub fn tool_color_swatch(ui: &mut egui::Ui, color: &mut Color32) -> egui::Response {
-    let popup_id = Id::new("lightsnip_stroke_color_popup");
+    let popup_id = Id::new("hypershot_stroke_color_popup");
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(TOOL_BTN), Sense::click());
     let response = response.on_hover_text("Stroke color");
     let hovered = response.hovered();
 
     let dark = ui.visuals().dark_mode;
     let pal = AnnotatePalette::for_mode(dark, false);
-    let fill = if hovered { pal.btn_hover } else { pal.btn_idle };
-    let radius = TOOL_BTN * 0.46;
+    let well = Rect::from_center_size(rect.center(), Vec2::splat(TOOL_BTN - 4.0));
     let painter = ui.painter_at(rect);
-    paint_soft_circle(&painter, rect.center(), radius, fill);
-    painter.circle_filled(rect.center(), radius * 0.62, *color);
+    if hovered {
+        painter.rect_filled(well, TOOL_WELL_RADIUS, pal.btn_hover);
+    }
+    let swatch_r = TOOL_BTN * 0.28;
+    painter.circle_filled(rect.center(), swatch_r, *color);
     painter.circle_stroke(
         rect.center(),
-        radius * 0.62,
-        Stroke::new(1.5_f32, Color32::from_rgba_premultiplied(0x3A, 0x36, 0x45, 0x40)),
+        swatch_r,
+        Stroke::new(1.25_f32, Color32::from_rgba_premultiplied(0x3A, 0x3A, 0x40, 0x50)),
     );
 
     if response.clicked() {
@@ -681,22 +725,22 @@ pub fn section_title_with_help(
     ui.add_space(6.0);
 }
 
-// --- Icon painters (vector strokes; keep AA feathering low in apply_*_visuals) ---
+// --- Icon painters (crisp thin vectors; low feathering in apply_*_visuals) ---
 
-const ICON_STROKE: f32 = 2.35;
+const ICON_STROKE: f32 = 1.65;
 
 /// `direction`: +1 = undo (opens left), -1 = redo (opens right).
 fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, direction: f32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
-    let c = rect.center() + Vec2::new(-direction * rect.width() * 0.06, rect.height() * 0.04);
-    let r = rect.width() * 0.32;
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let c = rect.center() + Vec2::new(-direction * rect.width() * 0.05, rect.height() * 0.02);
+    let r = rect.width() * 0.30;
     let start = if direction > 0.0 {
-        std::f32::consts::FRAC_PI_4 * 0.35
+        std::f32::consts::FRAC_PI_4 * 0.25
     } else {
-        std::f32::consts::PI - std::f32::consts::FRAC_PI_4 * 0.35
+        std::f32::consts::PI - std::f32::consts::FRAC_PI_4 * 0.25
     };
-    let sweep = direction * std::f32::consts::PI * 1.45;
-    let steps = 32;
+    let sweep = direction * std::f32::consts::PI * 1.40;
+    let steps = 40;
     let mut prev = Pos2::new(c.x + r * start.cos(), c.y + r * start.sin());
     for i in 1..=steps {
         let t = start - sweep * (i as f32 / steps as f32);
@@ -706,17 +750,18 @@ fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, directio
     }
     let tip_angle = start - sweep;
     let tip = Pos2::new(c.x + r * tip_angle.cos(), c.y + r * tip_angle.sin());
-    // Unit tangent at tip, oriented toward the arc travel end.
     let travel = -sweep.signum();
     let tangent = Vec2::new(-travel * tip_angle.sin(), travel * tip_angle.cos()).normalized();
     let normal = Vec2::new(-tangent.y, tangent.x);
-    let head = rect.width() * 0.22;
-    let wing = rect.width() * 0.16;
-    let base = tip + tangent * head;
-    let left = tip - tangent * (head * 0.15) + normal * wing;
-    let right = tip - tangent * (head * 0.15) - normal * wing;
+    let head = rect.width() * 0.20;
+    let wing = rect.width() * 0.14;
     painter.add(egui::Shape::convex_polygon(
-        vec![tip, left, base, right],
+        vec![
+            tip,
+            tip - tangent * (head * 0.15) + normal * wing,
+            tip + tangent * head,
+            tip - tangent * (head * 0.15) - normal * wing,
+        ],
         color,
         Stroke::NONE,
     ));
@@ -724,15 +769,14 @@ fn paint_arc_arrow(painter: &egui::Painter, rect: Rect, color: Color32, directio
 
 pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let a = Pos2::new(rect.left() + rect.width() * 0.18, rect.bottom() - rect.height() * 0.22);
-    let b = Pos2::new(rect.right() - rect.width() * 0.16, rect.top() + rect.height() * 0.20);
+    let a = Pos2::new(rect.left() + rect.width() * 0.20, rect.bottom() - rect.height() * 0.22);
+    let b = Pos2::new(rect.right() - rect.width() * 0.18, rect.top() + rect.height() * 0.22);
     painter.line_segment([a, b], stroke);
     let dir = (b - a).normalized();
     let perp = Vec2::new(-dir.y, dir.x);
-    let head = rect.width() * 0.30;
-    let wing = rect.width() * 0.17;
+    let head = rect.width() * 0.28;
+    let wing = rect.width() * 0.15;
     let back = b - dir * head;
-    // Filled head reads sharper than two thin strokes at 36px.
     painter.add(egui::Shape::convex_polygon(
         vec![b, back + perp * wing, back - perp * wing],
         color,
@@ -741,38 +785,40 @@ pub fn paint_icon_arrow(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_box(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.20);
+    let inset = rect.shrink(rect.width() * 0.22);
     painter.rect_stroke(
         inset,
-        2.5,
+        2.0,
         Stroke::new(ICON_STROKE, color),
         egui::StrokeKind::Middle,
     );
 }
 
 pub fn paint_icon_pixelate(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let inset = rect.shrink(rect.width() * 0.18);
-    let cell = inset.width() / 3.0;
-    let gap = cell * 0.12;
+    let inset = rect.shrink(rect.width() * 0.20);
+    let cell = (inset.width() / 3.0).floor().max(1.0);
+    let gap = 1.0_f32;
+    let origin = Pos2::new(
+        (inset.center().x - cell * 1.5 - gap).round(),
+        (inset.center().y - cell * 1.5 - gap).round(),
+    );
     for row in 0..3 {
         for col in 0..3 {
             if (row + col) % 2 == 0 {
                 let c = Rect::from_min_size(
                     Pos2::new(
-                        inset.min.x + col as f32 * cell + gap * 0.5,
-                        inset.min.y + row as f32 * cell + gap * 0.5,
+                        origin.x + col as f32 * (cell + gap),
+                        origin.y + row as f32 * (cell + gap),
                     ),
-                    Vec2::splat(cell - gap),
+                    Vec2::splat(cell),
                 );
-                painter.rect_filled(c, 1.0, color);
+                painter.rect_filled(c, 0.5, color);
             }
         }
     }
 }
 
-/// Numbered step stamp icon: bold circle with “1” + small “2” badge (sequence cue).
-///
-/// Digit ink flips for contrast against the toolbar glyph color (light/dark).
+/// Numbered step stamp: filled circle + vector “1” (no text glyphs — stays sharp).
 pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
     let lum = (u16::from(color.r()) * 2 + u16::from(color.g()) * 5 + u16::from(color.b())) / 8;
     let ink = if lum > 140 {
@@ -781,30 +827,54 @@ pub fn paint_icon_step(painter: &egui::Painter, rect: Rect, color: Color32) {
         Color32::WHITE
     };
 
-    // Primary stamp (large “1”).
-    let c1 = rect.center() - Vec2::new(rect.width() * 0.08, rect.height() * 0.06);
-    let r1 = rect.width() * 0.40;
+    let c1 = rect.center() - Vec2::new(rect.width() * 0.06, rect.height() * 0.04);
+    let r1 = rect.width() * 0.36;
     painter.circle_filled(c1, r1, color);
-    painter.circle_stroke(c1, r1, Stroke::new(2.0_f32, ink));
-    painter.text(
-        c1,
-        egui::Align2::CENTER_CENTER,
-        "1",
-        egui::FontId::proportional((r1 * 1.25).clamp(12.0, 22.0)),
-        ink,
+    painter.circle_stroke(c1, r1, Stroke::new(1.5_f32, ink));
+    // Vector “1”: stem + serif top + base.
+    let stem_x = c1.x;
+    let top = c1.y - r1 * 0.42;
+    let bot = c1.y + r1 * 0.42;
+    let stroke = Stroke::new(1.7_f32, ink);
+    painter.line_segment([Pos2::new(stem_x, top), Pos2::new(stem_x, bot)], stroke);
+    painter.line_segment(
+        [Pos2::new(stem_x - r1 * 0.18, top + r1 * 0.12), Pos2::new(stem_x, top)],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            Pos2::new(stem_x - r1 * 0.22, bot),
+            Pos2::new(stem_x + r1 * 0.22, bot),
+        ],
+        stroke,
     );
 
-    // Secondary badge suggests numbered steps (1 → 2 → …).
-    let c2 = rect.center() + Vec2::new(rect.width() * 0.24, rect.height() * 0.22);
-    let r2 = rect.width() * 0.20;
+    let c2 = rect.center() + Vec2::new(rect.width() * 0.26, rect.height() * 0.24);
+    let r2 = rect.width() * 0.18;
     painter.circle_filled(c2, r2, color);
-    painter.circle_stroke(c2, r2, Stroke::new(1.5_f32, ink));
-    painter.text(
-        c2,
-        egui::Align2::CENTER_CENTER,
-        "2",
-        egui::FontId::proportional((r2 * 1.2).clamp(8.0, 14.0)),
-        ink,
+    painter.circle_stroke(c2, r2, Stroke::new(1.25_f32, ink));
+    // Tiny vector “2” cue (chevron + base).
+    let s = Stroke::new(1.35_f32, ink);
+    painter.line_segment(
+        [
+            c2 + Vec2::new(-r2 * 0.35, -r2 * 0.15),
+            c2 + Vec2::new(r2 * 0.25, -r2 * 0.35),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c2 + Vec2::new(r2 * 0.25, -r2 * 0.35),
+            c2 + Vec2::new(-r2 * 0.15, r2 * 0.05),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c2 + Vec2::new(-r2 * 0.35, r2 * 0.35),
+            c2 + Vec2::new(r2 * 0.35, r2 * 0.35),
+        ],
+        s,
     );
 }
 
@@ -819,34 +889,32 @@ pub fn paint_icon_redo(painter: &egui::Painter, rect: Rect, color: Color32) {
 }
 
 pub fn paint_icon_clear(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let stroke = Stroke::new(ICON_STROKE + 0.15, color);
-    let inset = rect.shrink(rect.width() * 0.26);
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let inset = rect.shrink(rect.width() * 0.28);
     painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
     painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
 }
 
 pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) {
     let c = rect.center();
-    let outer = rect.width() * 0.26;
-    let hub = rect.width() * 0.11;
-    let tooth_len = rect.width() * 0.16;
-    let tooth_w = rect.width() * 0.11;
-    // Hub ring + filled center.
+    let outer = rect.width() * 0.24;
+    let hub = rect.width() * 0.09;
+    let tooth_len = rect.width() * 0.14;
+    let tooth_w = rect.width() * 0.095;
     painter.circle_stroke(c, outer, Stroke::new(ICON_STROKE, color));
     painter.circle_filled(c, hub, color);
-    // Six trapezoid teeth (sharper than stubby spokes).
     for i in 0..6 {
         let a = (i as f32) * std::f32::consts::TAU / 6.0;
         let dir = Vec2::angled(a);
         let perp = Vec2::new(-dir.y, dir.x);
-        let base = c + dir * (outer * 0.72);
+        let base = c + dir * (outer * 0.78);
         let tip = c + dir * (outer + tooth_len);
         let half = tooth_w * 0.5;
         painter.add(egui::Shape::convex_polygon(
             vec![
                 base + perp * half,
-                tip + perp * (half * 0.55),
-                tip - perp * (half * 0.55),
+                tip + perp * (half * 0.5),
+                tip - perp * (half * 0.5),
                 base - perp * half,
             ],
             color,
@@ -857,12 +925,11 @@ pub fn paint_icon_settings(painter: &egui::Painter, rect: Rect, color: Color32) 
 
 pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
-    let inset = rect.shrink(rect.width() * 0.20);
-    // Tray
-    let tray_y = inset.bottom() - inset.height() * 0.08;
+    let inset = rect.shrink(rect.width() * 0.22);
+    let tray_y = inset.bottom() - inset.height() * 0.06;
     painter.line_segment(
         [
-            Pos2::new(inset.left(), tray_y - inset.height() * 0.18),
+            Pos2::new(inset.left(), tray_y - inset.height() * 0.16),
             Pos2::new(inset.left(), tray_y),
         ],
         stroke,
@@ -874,20 +941,19 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.line_segment(
         [
             Pos2::new(inset.right(), tray_y),
-            Pos2::new(inset.right(), tray_y - inset.height() * 0.18),
+            Pos2::new(inset.right(), tray_y - inset.height() * 0.16),
         ],
         stroke,
     );
-    // Down arrow
-    let tip = Pos2::new(inset.center().x, tray_y - inset.height() * 0.12);
-    let top = Pos2::new(inset.center().x, inset.top() + inset.height() * 0.05);
+    let tip = Pos2::new(inset.center().x, tray_y - inset.height() * 0.10);
+    let top = Pos2::new(inset.center().x, inset.top() + inset.height() * 0.06);
     painter.line_segment([top, tip], stroke);
-    let wing = inset.width() * 0.22;
+    let wing = inset.width() * 0.20;
     painter.add(egui::Shape::convex_polygon(
         vec![
             tip,
-            tip + Vec2::new(-wing, -wing * 0.95),
-            tip + Vec2::new(wing, -wing * 0.95),
+            tip + Vec2::new(-wing, -wing * 0.9),
+            tip + Vec2::new(wing, -wing * 0.9),
         ],
         color,
         Stroke::NONE,
@@ -897,17 +963,35 @@ pub fn paint_icon_save(painter: &egui::Painter, rect: Rect, color: Color32) {
 pub fn paint_icon_copy(painter: &egui::Painter, rect: Rect, color: Color32) {
     let stroke = Stroke::new(ICON_STROKE, color);
     let back = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.16, rect.top() + rect.height() * 0.16),
-        Pos2::new(rect.right() - rect.width() * 0.34, rect.bottom() - rect.height() * 0.34),
+        Pos2::new(rect.left() + rect.width() * 0.18, rect.top() + rect.height() * 0.16),
+        Pos2::new(rect.right() - rect.width() * 0.36, rect.bottom() - rect.height() * 0.36),
     );
     let front = Rect::from_min_max(
-        Pos2::new(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.34),
-        Pos2::new(rect.right() - rect.width() * 0.16, rect.bottom() - rect.height() * 0.16),
+        Pos2::new(rect.left() + rect.width() * 0.36, rect.top() + rect.height() * 0.34),
+        Pos2::new(rect.right() - rect.width() * 0.18, rect.bottom() - rect.height() * 0.16),
     );
-    // Fill front sheet so the glyph reads as two pages, not two empty frames.
-    painter.rect_filled(front, 2.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 28));
-    painter.rect_stroke(back, 2.0, stroke, egui::StrokeKind::Middle);
-    painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Middle);
+    painter.rect_stroke(back, 1.5, stroke, egui::StrokeKind::Middle);
+    painter.rect_stroke(front, 1.5, stroke, egui::StrokeKind::Middle);
+}
+
+/// Exit / dismiss (X) — charcoal stroke matching other toolbar glyphs.
+pub fn paint_icon_exit(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let inset = rect.shrink(rect.width() * 0.30);
+    painter.line_segment([inset.left_top(), inset.right_bottom()], stroke);
+    painter.line_segment([inset.right_top(), inset.left_bottom()], stroke);
+}
+
+/// Open in preview window (floating pane glyph).
+pub fn paint_icon_preview(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = Stroke::new(ICON_STROKE, color);
+    let outer = rect.shrink(rect.width() * 0.20);
+    painter.rect_stroke(outer, 1.5, stroke, egui::StrokeKind::Middle);
+    let bar_y = outer.top() + outer.height() * 0.28;
+    painter.line_segment(
+        [Pos2::new(outer.left(), bar_y), Pos2::new(outer.right(), bar_y)],
+        stroke,
+    );
 }
 
 /// Fit `img` into `area` (letterbox). Allows upscale so small captures stay sharp-ish when window is large.
@@ -938,39 +1022,46 @@ mod tests {
     #[test]
     fn tool_button_meets_desktop_target() {
         assert!(TOOL_BTN >= 28.0);
-        assert!(SETTINGS_BTN > TOOL_BTN);
+        assert_eq!(SETTINGS_BTN, TOOL_BTN);
         assert!(TOOLBAR_WIDTH >= TOOL_BTN);
         assert!(WINDOW_PAD >= 12.0);
         assert!(TOOLBAR_GUTTER >= 12.0);
+        assert!(TOOLBAR_RADIUS >= 16.0);
+        assert!(TOOL_WELL_RADIUS >= 6.0);
     }
 
     #[test]
-    fn flat_pastel_keeps_lilac_not_pure_white() {
-        assert_eq!(TOOLBAR_FILL, Color32::from_rgb(0xE8, 0xE4, 0xEE));
+    fn pill_toolbar_is_light_gray_with_purple_active_only() {
+        assert_eq!(TOOLBAR_FILL, Color32::from_rgb(0xF7, 0xF7, 0xF8));
+        assert_eq!(BTN_IDLE, Color32::TRANSPARENT);
         assert!(BTN_SELECTED.b() > BTN_SELECTED.g());
-        assert_eq!(BTN_IDLE, Color32::WHITE);
+        // Selected well is pale (high luminance); primary accent is purple.
+        assert!(approx_luminance(BTN_SELECTED) > 180.0);
+        assert!(PASTEL_PRIMARY.b() > PASTEL_PRIMARY.r());
     }
 
     #[test]
     fn light_wells_get_dark_icons() {
-        assert_eq!(icon_color_for_fill(BTN_IDLE), ICON_DARK);
         assert_eq!(icon_color_for_fill(BTN_SELECTED), ICON_DARK);
         assert_eq!(icon_color_for_fill(BTN_HOVER), ICON_DARK);
+        assert_eq!(icon_color_for_fill(Color32::WHITE), ICON_DARK);
         assert!(approx_luminance(ICON_DARK) < 100.0);
     }
 
     #[test]
     fn dark_and_primary_fills_get_light_icons() {
         assert_eq!(icon_color_for_fill(ACTION_FILL), ICON_LIGHT);
-        assert_eq!(icon_color_for_fill(PASTEL_PRIMARY), ICON_LIGHT);
+        // Primary purple is mid-luminance; used as icon ink when selected, not as a fill.
         assert!(approx_luminance(ICON_LIGHT) > 200.0);
+        assert!(approx_luminance(PASTEL_PRIMARY) > 80.0);
+        assert!(approx_luminance(PASTEL_PRIMARY) < 160.0);
     }
 
     #[test]
     fn pastel_primary_is_muted_not_neon() {
         assert!(PASTEL_PRIMARY.r() < 0xB0);
         assert!(PASTEL_PRIMARY.b() < 0xD0);
-        assert!(approx_luminance(PASTEL_PRIMARY) > 100.0);
+        assert!(approx_luminance(PASTEL_PRIMARY) > 80.0);
         assert!(approx_luminance(PASTEL_PRIMARY) < 180.0);
     }
 

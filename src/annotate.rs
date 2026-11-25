@@ -1,4 +1,4 @@
-//! Floating annotate window (flat pastel tool rail + image canvas).
+//! Floating annotate window (pill tool rail + image canvas).
 //!
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
@@ -7,10 +7,10 @@
 //! leaves the window open). Enter = save dialog + clipboard toast + close.
 //! Copy shows a short clipboard toast, then closes without blanking the preview.
 //!
-//! Chrome: flat pastel purple / gray / white. Transparency + blur settings
-//! apply window opacity and a translucent frosted panel on the window/preview
-//! area; the tool rail stays fully opaque. egui cannot sample the desktop for
-//! real compositor backdrop-blur on Wayland.
+//! Chrome: light gray/white pill bar, charcoal icons; only the active tool gets
+//! a soft purple rounded-square highlight. Transparency + blur settings apply
+//! window opacity and a translucent frosted panel on the window/preview area;
+//! the tool rail stays fully opaque.
 //!
 //! Floating (default): centered + `ViewportBuilder::with_always_on_top`.
 //! Follow tiling: skip those hints so a tiling WM can place the window.
@@ -25,15 +25,15 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuild
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
-use crate::config::ToolbarPosition;
+use crate::config::{ToolbarPosition, APP_NAME};
 use crate::output::default_save_dir;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
-    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_pixelate,
-    paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step, paint_icon_undo,
-    AnnotatePalette, ACTION_FILL, ACTION_FILL_HOVER, DEFAULT_STROKE, PASTEL_PRIMARY,
-    PASTEL_PRIMARY_HOVER, SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
+    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
+    paint_icon_pixelate, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
+    paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE, SETTINGS_BTN,
+    TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
 
 /// How long the “copied to clipboard” toast stays visible before close.
@@ -51,7 +51,7 @@ pub enum AnnotateOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tool {
+pub(crate) enum Tool {
     Arrow,
     Rect,
     /// Privacy redaction: coarse pixel blocks over a drag rect.
@@ -61,7 +61,7 @@ enum Tool {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Shape {
+pub(crate) enum Shape {
     Arrow {
         from: Pos2,
         to: Pos2,
@@ -84,7 +84,7 @@ enum Shape {
 }
 
 /// Radius of a step stamp in image pixels.
-const STEP_RADIUS: f32 = 14.0;
+pub(crate) const STEP_RADIUS: f32 = 14.0;
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
 ///
@@ -92,7 +92,7 @@ const STEP_RADIUS: f32 = 14.0;
 /// underlying image. ~20 keeps the region recognizable as soft pixelate while
 /// making fine UI text hard to read. (v0.6 first pass used 48 + heavy grain —
 /// that read as an opaque noise slab, not a mosaic of the image.)
-const PIXELATE_BLOCK: u32 = 20;
+pub(crate) const PIXELATE_BLOCK: u32 = 20;
 
 /// Max displayed image size inside the floating window (px). Larger captures scale down.
 const MAX_DISPLAY_W: f32 = 1100.0;
@@ -100,19 +100,20 @@ const MAX_DISPLAY_H: f32 = 800.0;
 
 /// Approximate content size of the floating rail (vertical).
 fn toolbar_content_height() -> f32 {
-    // 4 tools + color + undo + redo + clear + settings + save + copy + Exit
-    let n_btns = 10.0_f32;
-    let exit = 22.0;
-    let gaps = 10.0 * 8.0 + 28.0;
-    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
+    // 4 tools + color + undo + redo + clear + settings + save + copy + exit
+    // + 3 separators
+    let n_btns = 11.0_f32;
+    let seps = 3.0 * 8.0;
+    let gaps = 13.0 * 6.0;
+    n_btns * TOOL_BTN + seps + gaps
 }
 
 /// Approximate content size of the floating rail (horizontal).
 fn toolbar_content_width() -> f32 {
-    let n_btns = 10.0_f32;
-    let exit = 48.0;
-    let gaps = 10.0 * 8.0 + 28.0;
-    n_btns * TOOL_BTN + (SETTINGS_BTN - TOOL_BTN) + exit + gaps
+    let n_btns = 11.0_f32;
+    let seps = 3.0 * 8.0;
+    let gaps = 13.0 * 6.0;
+    n_btns * TOOL_BTN + seps + gaps
 }
 
 /// Open a floating annotate window on an existing PNG.
@@ -148,7 +149,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
     // Floating (default): center + always-on-top. Follow tiling: skip those hints.
     // Wayland: winit `set_window_level` is a no-op; COSMIC may still tile anyway.
     let mut viewport = ViewportBuilder::default()
-        .with_title("Lightsnip")
+        .with_title(APP_NAME)
         .with_inner_size([win_w, win_h])
         .with_min_inner_size([
             TOOLBAR_WIDTH + TOOLBAR_GUTTER + 160.0 + WINDOW_PAD * 2.0,
@@ -169,7 +170,7 @@ pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
 
     let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         eframe::run_native(
-            "Lightsnip",
+            APP_NAME,
             options,
             Box::new(move |cc| {
                 ui::apply_annotate_visuals(&cc.egui_ctx, cfg.theme);
@@ -236,7 +237,7 @@ fn ensure_display_available() -> Result<()> {
     Ok(())
 }
 
-const STROKE_WIDTH: f32 = 3.0;
+pub(crate) const STROKE_WIDTH: f32 = 3.0;
 
 
 struct AnnotateApp {
@@ -473,20 +474,7 @@ impl AnnotateApp {
     }
 
     fn draft_from_drag(&self, start: Pos2, end: Pos2) -> Option<Shape> {
-        match self.tool {
-            Tool::Arrow => Some(Shape::Arrow {
-                from: start,
-                to: end,
-                color: self.stroke_color,
-            }),
-            Tool::Rect => Some(Shape::Rect {
-                a: start,
-                b: end,
-                color: self.stroke_color,
-            }),
-            Tool::Pixelate => Some(Shape::Pixelate { a: start, b: end }),
-            Tool::Step => None,
-        }
+        draft_shape_for_tool(self.tool, start, end, self.stroke_color)
     }
 
     fn sync_viewport_prefs(&mut self, ctx: &egui::Context) {
@@ -518,15 +506,14 @@ impl AnnotateApp {
         } else {
             egui::Layout::top_down(egui::Align::Center)
         };
-        let dark = ui.visuals().dark_mode;
-        let pal = self.palette(dark);
         ui.with_layout(layout, |ui| {
             if horizontal {
-                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.spacing_mut().item_spacing.x = 4.0;
             } else {
-                ui.spacing_mut().item_spacing.y = 8.0;
+                ui.spacing_mut().item_spacing.y = 4.0;
             }
 
+            // Drawing tools — only the active tool gets the purple well.
             if glass_icon_button(
                 ui,
                 self.tool == Tool::Arrow,
@@ -570,6 +557,8 @@ impl AnnotateApp {
 
             glass_color_swatch(ui, &mut self.stroke_color);
 
+            toolbar_separator(ui, horizontal);
+
             if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, TOOL_BTN, paint_icon_undo) {
                 self.undo();
             }
@@ -587,6 +576,9 @@ impl AnnotateApp {
             {
                 self.clear_all();
             }
+
+            toolbar_separator(ui, horizontal);
+
             if glass_icon_button(
                 ui,
                 false,
@@ -597,16 +589,11 @@ impl AnnotateApp {
             ) {
                 self.show_settings = true;
             }
-
-            // Save / Copy: flat pastel fills with hover color change.
-            let save_pair = (PASTEL_PRIMARY, PASTEL_PRIMARY_HOVER);
-            let copy_pair = (ACTION_FILL, ACTION_FILL_HOVER);
-
             if glass_icon_button(
                 ui,
                 false,
                 "Save (file dialog), then close",
-                Some(save_pair),
+                None,
                 TOOL_BTN,
                 paint_icon_save,
             ) {
@@ -618,7 +605,7 @@ impl AnnotateApp {
                 ui,
                 false,
                 "Copy to clipboard, then close",
-                Some(copy_pair),
+                None,
                 TOOL_BTN,
                 paint_icon_copy,
             ) {
@@ -627,30 +614,16 @@ impl AnnotateApp {
                 }
             }
 
-            // Clear Exit control (replaces the old Esc label). Same cancel path as Esc.
-            let exit_fill = if pal.dark {
-                Color32::from_rgb(0x4A, 0x3E, 0x48)
-            } else {
-                Color32::from_rgb(0xE8, 0xE0, 0xE6)
-            };
-            let exit_text = if pal.dark {
-                crate::ui::ICON_LIGHT
-            } else {
-                crate::ui::ICON_DARK
-            };
-            let exit = ui.add_sized(
-                Vec2::new(if horizontal { 52.0 } else { TOOL_BTN + 4.0 }, 22.0),
-                egui::Button::new(
-                    egui::RichText::new("Exit")
-                        .color(exit_text)
-                        .size(12.0)
-                        .strong(),
-                )
-                .fill(exit_fill)
-                .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
-                .corner_radius(egui::CornerRadius::same(6)),
-            );
-            if exit.on_hover_text("Close without saving").clicked() {
+            toolbar_separator(ui, horizontal);
+
+            if glass_icon_button(
+                ui,
+                false,
+                "Exit without saving",
+                None,
+                TOOL_BTN,
+                paint_icon_exit,
+            ) {
                 self.cancel_draft_or_session();
             }
         });
@@ -688,6 +661,23 @@ impl AnnotateApp {
                 self.width,
                 self.height,
             );
+        }
+
+        // Live size label while dragging a region tool (box / pixelate).
+        if let Some(draft) = self.draft {
+            if let Some((a, b)) = draft_region_corners(draft) {
+                let w = (a.x - b.x).abs().round() as i32;
+                let h = (a.y - b.y).abs().round() as i32;
+                if w > 0 && h > 0 {
+                    let screen_a = to_screen(a);
+                    let screen_b = to_screen(b);
+                    let label_pos = Pos2::new(
+                        screen_a.x.max(screen_b.x) + 8.0,
+                        screen_a.y.min(screen_b.y),
+                    );
+                    paint_resolution_label(&painter, label_pos, w as u32, h as u32, pal);
+                }
+            }
         }
 
         if self.tool == Tool::Step {
@@ -742,7 +732,7 @@ impl AnnotateApp {
             screen.center().x - toast_size.x * 0.5,
             screen.center().y - toast_size.y * 0.5,
         );
-        egui::Area::new(egui::Id::new("lightsnip_copy_toast"))
+        egui::Area::new(egui::Id::new("hypershot_copy_toast"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .interactable(false)
@@ -941,7 +931,7 @@ impl eframe::App for AnnotateApp {
                 });
 
                 // Floating pastel rail — content-sized, attached to preview (not full height).
-                egui::Area::new(egui::Id::new("lightsnip_toolbar"))
+                egui::Area::new(egui::Id::new("hypershot_toolbar"))
                     .fixed_pos(toolbar_origin)
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
@@ -964,14 +954,98 @@ impl eframe::App for AnnotateApp {
     }
 }
 
-fn clamp_to_image(p: Pos2, w: u32, h: u32) -> Pos2 {
+pub(crate) fn draft_shape_for_tool(
+    tool: Tool,
+    start: Pos2,
+    end: Pos2,
+    color: Color32,
+) -> Option<Shape> {
+    match tool {
+        Tool::Arrow => Some(Shape::Arrow {
+            from: start,
+            to: end,
+            color,
+        }),
+        Tool::Rect => Some(Shape::Rect {
+            a: start,
+            b: end,
+            color,
+        }),
+        Tool::Pixelate => Some(Shape::Pixelate { a: start, b: end }),
+        Tool::Step => None,
+    }
+}
+
+/// Rasterize marks onto a full capture, then crop to `sel` (image pixels).
+pub(crate) fn compose_selection_png(
+    pixels: &[u8],
+    img_w: u32,
+    img_h: u32,
+    shapes: &[Shape],
+    sel: Rect,
+) -> Result<RgbaImage> {
+    let mut img = RgbaImage::from_raw(img_w, img_h, pixels.to_vec())
+        .context("rebuild RGBA buffer for compose")?;
+    for shape in shapes {
+        rasterize_shape(&mut img, *shape);
+    }
+    let x = sel.min.x.floor().max(0.0) as u32;
+    let y = sel.min.y.floor().max(0.0) as u32;
+    let w = ((sel.width().ceil() as u32).max(1)).min(img_w.saturating_sub(x));
+    let h = ((sel.height().ceil() as u32).max(1)).min(img_h.saturating_sub(y));
+    Ok(image::imageops::crop_imm(&img, x, y, w, h).to_image())
+}
+
+pub(crate) fn clamp_to_image(p: Pos2, w: u32, h: u32) -> Pos2 {
     Pos2::new(
         p.x.clamp(0.0, (w.saturating_sub(1)) as f32),
         p.y.clamp(0.0, (h.saturating_sub(1)) as f32),
     )
 }
 
-fn shape_is_meaningful(shape: Shape) -> bool {
+pub(crate) fn draft_region_corners(shape: Shape) -> Option<(Pos2, Pos2)> {
+    match shape {
+        Shape::Rect { a, b, .. } | Shape::Pixelate { a, b } => Some((a, b)),
+        Shape::Arrow { .. } | Shape::Step { .. } => None,
+    }
+}
+
+pub(crate) fn paint_resolution_label(
+    painter: &egui::Painter,
+    pos: Pos2,
+    w: u32,
+    h: u32,
+    pal: &AnnotatePalette,
+) {
+    let text = format!("{w} x {h}");
+    let font = egui::FontId::proportional(12.0);
+    let galley = painter.layout_no_wrap(
+        text,
+        font,
+        if pal.dark {
+            crate::ui::ICON_LIGHT
+        } else {
+            crate::ui::ICON_DARK
+        },
+    );
+    let pad = Vec2::new(8.0, 4.0);
+    let rect = Rect::from_min_size(pos, galley.size() + pad * 2.0);
+    let fill = if pal.dark {
+        Color32::from_rgba_unmultiplied(0x2A, 0x28, 0x30, 0xE8)
+    } else {
+        Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF0)
+    };
+    painter.rect_filled(rect, 6.0, fill);
+    painter.rect_stroke(
+        rect,
+        6.0,
+        Stroke::new(1.0_f32, pal.toolbar_stroke),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(rect.min + pad, galley, Color32::PLACEHOLDER);
+}
+
+pub(crate) fn shape_is_meaningful(shape: Shape) -> bool {
     match shape {
         Shape::Arrow { from, to, .. } => from.distance(to) >= 4.0,
         Shape::Rect { a, b, .. } | Shape::Pixelate { a, b } => {
@@ -981,7 +1055,7 @@ fn shape_is_meaningful(shape: Shape) -> bool {
     }
 }
 
-fn paint_shape(
+pub(crate) fn paint_shape(
     painter: &egui::Painter,
     shape: Shape,
     to_screen: impl Fn(Pos2) -> Pos2,
@@ -1044,7 +1118,7 @@ fn arrow_head_points(from: Pos2, to: Pos2, size: f32) -> [Pos2; 2] {
     [back + perp * (size * 0.45), back - perp * (size * 0.45)]
 }
 
-fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
+pub(crate) fn rasterize_shape(img: &mut RgbaImage, shape: Shape) {
     match shape {
         Shape::Arrow { from, to, color } => {
             let rgba = Rgba([color.r(), color.g(), color.b(), 255]);
