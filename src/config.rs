@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 /// Env var override for the default save directory (beats config TOML).
 pub const SAVE_DIR_ENV: &str = "LIGHTSNIP_SAVE_DIR";
 
-/// App display name (About + window titles).
-pub const APP_NAME: &str = "Lightsnip";
+/// App display name (About + window titles). Crate/binary remain `lightsnip`.
+pub const APP_NAME: &str = "HyperShot";
 
 /// Package version (`x.y` semver-lite from Cargo.toml).
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -68,6 +68,28 @@ impl UiTheme {
     }
 }
 
+/// Where annotate opens after capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotateSessionMode {
+    /// Flameshot-style fullscreen overlay on the capture (default).
+    #[default]
+    OnScreen,
+    /// Floating HyperShot preview window (annotate later / larger chrome).
+    Preview,
+}
+
+impl AnnotateSessionMode {
+    pub const ALL: [Self; 2] = [Self::OnScreen, Self::Preview];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OnScreen => "On-screen",
+            Self::Preview => "Preview window",
+        }
+    }
+}
+
 /// Clamp an intensity preference into `0.0..=1.0`.
 pub fn clamp_intensity(v: f32) -> f32 {
     if !v.is_finite() {
@@ -117,6 +139,8 @@ pub struct Config {
     /// Escape dismisses annotate (after clearing an in-progress draft). Default on.
     /// When false, only the Exit button closes without save/copy.
     pub esc_to_exit: bool,
+    /// Default annotate surface after capture: on-screen overlay vs preview window.
+    pub annotate_session_mode: AnnotateSessionMode,
 }
 
 impl Default for Config {
@@ -138,6 +162,7 @@ impl Default for Config {
             window_background_blur_intensity: 0.50,
             follow_window_tiling: false,
             esc_to_exit: true,
+            annotate_session_mode: AnnotateSessionMode::OnScreen,
         }
     }
 }
@@ -272,6 +297,7 @@ mod tests {
         assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
+        assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
     }
 
     #[test]
@@ -283,7 +309,7 @@ mod tests {
         );
         assert!(parts[0].parse::<u32>().is_ok());
         assert!(parts[1].parse::<u32>().is_ok());
-        assert_eq!(APP_NAME, "Lightsnip");
+        assert_eq!(APP_NAME, "HyperShot");
     }
 
     #[test]
@@ -304,6 +330,7 @@ mod tests {
         cfg.window_background_blur_intensity = 0.8;
         cfg.follow_window_tiling = true;
         cfg.esc_to_exit = false;
+        cfg.annotate_session_mode = AnnotateSessionMode::Preview;
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -338,6 +365,7 @@ shortcut_bind_command = "lightsnip region"
         assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
+        assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
     }
 
     #[test]

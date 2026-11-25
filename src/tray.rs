@@ -21,7 +21,7 @@ mod linux {
         }
 
         fn title(&self) -> String {
-            "lightsnip".into()
+            "HyperShot".into()
         }
 
         fn icon_name(&self) -> String {
@@ -31,7 +31,7 @@ mod linux {
 
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
-                title: "lightsnip".into(),
+                title: "HyperShot".into(),
                 description: "Region · Full · Settings".into(),
                 ..Default::default()
             }
@@ -82,7 +82,7 @@ mod linux {
             .spawn()
             .await
             .context("start StatusNotifierItem tray (is a tray watcher running?)")?;
-        eprintln!("lightsnip tray running (Quit from the tray menu to exit)");
+        eprintln!("HyperShot tray running (Quit from the tray menu to exit)");
         std::future::pending::<()>().await;
         Ok(())
     }
@@ -97,7 +97,7 @@ pub async fn run_tray() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         anyhow::bail!(
-            "tray is Linux-only in v0.6 (StatusNotifierItem / ksni).\n\
+            "tray is Linux-only in v0.7 (StatusNotifierItem / ksni).\n\
              On macOS / Windows use: lightsnip region | full | settings | annotate <png>"
         );
     }
