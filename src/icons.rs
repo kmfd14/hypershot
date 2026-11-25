@@ -90,27 +90,30 @@ impl IconId {
     }
 }
 
-type CacheKey = (IconId, u32, u32);
+/// Cache key is (icon, device px). Color is applied at draw time via tint so one
+/// white alpha-mask texture works on light and dark chrome.
+type CacheKey = (IconId, u32);
 
 fn texture_cache() -> &'static Mutex<HashMap<CacheKey, TextureHandle>> {
     static CACHE: OnceLock<Mutex<HashMap<CacheKey, TextureHandle>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn color_key(c: Color32) -> u32 {
-    u32::from_be_bytes([c.r(), c.g(), c.b(), c.a()])
-}
-
 fn hex_color(c: Color32) -> String {
     format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())
 }
 
-/// Prepare Iconoir SVG: tint `currentColor`, bump stroke slightly for 24→toolbar scale.
+/// Prepare Iconoir SVG: force opaque white strokes (alpha mask), bump stroke weight.
+///
+/// Baking ink into the texture + multiplying `Color32::WHITE` at draw time made
+/// charcoal glyphs disappear on dark on-screen chrome. White mask + tint is the
+/// reliable egui pattern and keeps contrast under caller control.
 fn tinted_svg(raw: &str, color: Color32) -> String {
     let hex = hex_color(color);
     raw.replace("currentColor", &hex)
         // Slightly heavier than Iconoir's 1.5 so 15–16 px logical icons stay readable.
         .replace("stroke-width=\"1.5\"", "stroke-width=\"1.75\"")
+        .replace("stroke-width=\"1.49993\"", "stroke-width=\"1.75\"")
 }
 
 /// Device-pixel size for a logical icon side at the given `pixels_per_point`.
@@ -121,10 +124,17 @@ pub fn icon_device_pixels(logical: f32, pixels_per_point: f32) -> u32 {
     ((logical * ppp * ICON_SUPERSAMPLE).ceil() as u32).clamp(24, 256)
 }
 
-/// Rasterize an Iconoir SVG to premultiplied RGBA at `px × px` device pixels.
+/// Opaque white used for alpha-mask rasterization (tint at draw time).
+const MASK_WHITE: Color32 = Color32::WHITE;
+
+/// Rasterize an Iconoir SVG to a white alpha-mask at `px × px` device pixels.
+///
+/// `color` is accepted for API stability / tests; the mask is always white so
+/// callers tint with `painter.image(..., color)`.
 pub fn rasterize_icon(id: IconId, color: Color32, px: u32) -> Result<ColorImage, String> {
+    let _ = color; // tint happens at draw time
     let px = px.clamp(24, 256);
-    let svg = tinted_svg(id.svg(), color);
+    let svg = tinted_svg(id.svg(), MASK_WHITE);
     let opts = Options::default();
     let tree = Tree::from_str(&svg, &opts).map_err(|e| format!("parse {}: {e}", id.iconoir_name()))?;
 
@@ -141,17 +151,12 @@ pub fn rasterize_icon(id: IconId, color: Color32, px: u32) -> Result<ColorImage,
     let mut rgba = Vec::with_capacity((px * px * 4) as usize);
     for pixel in pixmap.pixels() {
         // tiny-skia is premultiplied; egui ColorImage expects unmultiplied.
+        // Force RGB to white and keep coverage in alpha so tint multiplies cleanly.
         let a = pixel.alpha();
         if a == 0 {
             rgba.extend_from_slice(&[0, 0, 0, 0]);
-        } else if a == 255 {
-            rgba.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue(), 255]);
         } else {
-            let a32 = u32::from(a);
-            rgba.push(((u32::from(pixel.red()) * 255) / a32).min(255) as u8);
-            rgba.push(((u32::from(pixel.green()) * 255) / a32).min(255) as u8);
-            rgba.push(((u32::from(pixel.blue()) * 255) / a32).min(255) as u8);
-            rgba.push(a);
+            rgba.extend_from_slice(&[255, 255, 255, a]);
         }
     }
 
@@ -161,20 +166,15 @@ pub fn rasterize_icon(id: IconId, color: Color32, px: u32) -> Result<ColorImage,
     ))
 }
 
-fn texture_for(
-    ctx: &egui::Context,
-    id: IconId,
-    color: Color32,
-    px: u32,
-) -> Option<TextureHandle> {
-    let key = (id, px, color_key(color));
+fn texture_for(ctx: &egui::Context, id: IconId, px: u32) -> Option<TextureHandle> {
+    let key = (id, px);
     if let Ok(cache) = texture_cache().lock() {
         if let Some(tex) = cache.get(&key) {
             return Some(tex.clone());
         }
     }
 
-    let image = match rasterize_icon(id, color, px) {
+    let image = match rasterize_icon(id, MASK_WHITE, px) {
         Ok(img) => img,
         Err(err) => {
             eprintln!("hypershot icon {}: {err}", id.iconoir_name());
@@ -182,11 +182,7 @@ fn texture_for(
         }
     };
 
-    let name = format!(
-        "iconoir/{}/{px}/{:08x}",
-        id.iconoir_name(),
-        color_key(color)
-    );
+    let name = format!("iconoir/{}/mask/{px}", id.iconoir_name());
     // LINEAR minifies the supersampled glyph cleanly; we never upscale a 1× bitmap.
     let handle = ctx.load_texture(name, image, TextureOptions::LINEAR);
 
@@ -197,12 +193,14 @@ fn texture_for(
 }
 
 /// Paint a DPI-aware Iconoir glyph into `rect` (logical coordinates).
+///
+/// Texture is a white alpha mask; `color` tints it (must contrast the chrome).
 pub fn paint_iconoir(painter: &egui::Painter, rect: Rect, color: Color32, id: IconId) {
     let ctx = painter.ctx();
     let ppp = ctx.pixels_per_point().max(1.0);
     let logical = rect.width().min(rect.height()).max(1.0);
     let px = icon_device_pixels(logical, ppp);
-    let Some(tex) = texture_for(ctx, id, color, px) else {
+    let Some(tex) = texture_for(ctx, id, px) else {
         return;
     };
 
@@ -213,11 +211,13 @@ pub fn paint_iconoir(painter: &egui::Painter, rect: Rect, color: Color32, id: Ic
         (rect.center().y * ppp).round() / ppp,
     );
     let dest = Rect::from_center_size(center, size);
+    // Ensure opaque tint — transparent ink would make glyphs vanish.
+    let tint = Color32::from_rgb(color.r(), color.g(), color.b());
     painter.image(
         tex.id(),
         dest,
         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-        Color32::WHITE,
+        tint,
     );
 }
 
@@ -335,15 +335,29 @@ mod tests {
     fn every_toolbar_svg_rasterizes_at_hidpi() {
         let ink = Color32::from_rgb(0x3A, 0x36, 0x45);
         for id in ALL {
-            // 15 logical @ 2× SSS ≈ toolbar icon on Wayland HiDPI.
+            // 15 logical @ 2× SSS ≈ toolbar icon on HiDPI.
             let img = rasterize_icon(*id, ink, 30).expect(id.iconoir_name());
             assert_eq!(img.size, [30, 30]);
-            let opaque = img.pixels.iter().filter(|c| c.a() > 0).count();
+            let opaque: Vec<_> = img.pixels.iter().filter(|c| c.a() > 0).collect();
             assert!(
-                opaque > 20,
-                "{} should paint visible ink (got {opaque} px)",
-                id.iconoir_name()
+                opaque.len() > 20,
+                "{} should paint visible ink (got {} px)",
+                id.iconoir_name(),
+                opaque.len()
             );
+            // White alpha-mask: after undoing any premultiply, RGB must be white.
+            for c in opaque {
+                let a = u32::from(c.a()).max(1);
+                let r = (u32::from(c.r()) * 255) / a;
+                let g = (u32::from(c.g()) * 255) / a;
+                let b = (u32::from(c.b()) * 255) / a;
+                assert!(
+                    r >= 250 && g >= 250 && b >= 250,
+                    "{} mask must be white (got unmultiplied {r},{g},{b} a={})",
+                    id.iconoir_name(),
+                    c.a()
+                );
+            }
         }
     }
 
@@ -369,5 +383,13 @@ mod tests {
         let out = tinted_svg(raw, Color32::from_rgb(0xAB, 0xCD, 0xEF));
         assert!(out.contains("#ABCDEF"));
         assert!(!out.contains("currentColor"));
+    }
+
+    #[test]
+    fn mask_raster_ignores_requested_ink_rgb() {
+        // API still takes a color, but the mask is always white.
+        let a = rasterize_icon(IconId::Arrow, Color32::RED, 32).unwrap();
+        let b = rasterize_icon(IconId::Arrow, Color32::BLUE, 32).unwrap();
+        assert_eq!(a.pixels, b.pixels);
     }
 }

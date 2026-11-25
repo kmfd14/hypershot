@@ -62,13 +62,18 @@ pub const BTN_SELECTED: Color32 = Color32::from_rgb(0xED, 0xE7, 0xF6);
 pub const BTN_IDLE: Color32 = Color32::TRANSPARENT;
 pub const BTN_HOVER: Color32 = Color32::from_rgb(0xEC, 0xEC, 0xF0);
 
-pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x40);
-pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
+/// Idle icon ink on light chrome (near-black — must beat charcoal-on-dark misses).
+pub const ICON_DARK: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
+/// Idle icon ink on dark chrome (near-white).
+pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFC);
 
 /// High-contrast ink for thickness HUD / toolbar readout on light chrome.
-pub const THICKNESS_INK_ON_LIGHT: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
+pub const THICKNESS_INK_ON_LIGHT: Color32 = ICON_DARK;
 /// High-contrast ink for thickness HUD / toolbar readout on dark chrome.
-pub const THICKNESS_INK_ON_DARK: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFC);
+pub const THICKNESS_INK_ON_DARK: Color32 = ICON_LIGHT;
+
+/// Active-tool icon on dark selected wells (light lavender — purple-on-purple was invisible).
+pub const ICON_ACTIVE_ON_DARK: Color32 = Color32::from_rgb(0xE4, 0xD8, 0xF8);
 
 /// Active-tool purple (border + icon). Soft, not neon.
 pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8E, 0x74, 0xC2);
@@ -492,8 +497,22 @@ pub fn settings_group_frame(dark: bool) -> egui::Frame {
         })
 }
 
+/// Icon ink that stays readable on the well behind the glyph.
+pub fn tool_icon_ink(selected: bool, dark_chrome: bool, well_fill: Color32) -> Color32 {
+    if selected {
+        // Purple-on-dark-purple (PASTEL on BTN_SELECTED_DARK) reads as empty.
+        if dark_chrome || approx_luminance(well_fill) < 140.0 {
+            ICON_ACTIVE_ON_DARK
+        } else {
+            PASTEL_PRIMARY
+        }
+    } else {
+        icon_color_for_fill(well_fill)
+    }
+}
+
 /// Rounded-square tool button. Only `selected` tools get the purple highlight;
-/// idle icons stay charcoal on the bar; hover is a faint gray well.
+/// idle icons use high-contrast ink against the bar; hover is a faint gray well.
 pub fn tool_icon_button(
     ui: &mut egui::Ui,
     selected: bool,
@@ -515,6 +534,17 @@ pub fn tool_icon_button(
 
     let painter = ui.painter_at(rect);
 
+    // Effective fill behind the glyph (toolbar shows through transparent idle wells).
+    let well_fill = if selected && fill_override.is_none() {
+        pal.btn_selected
+    } else if let Some((idle, hover)) = fill_override {
+        if hovered { hover } else { idle }
+    } else if hovered {
+        pal.btn_hover
+    } else {
+        pal.toolbar_fill
+    };
+
     // Active tool: pale purple fill + purple border. Never highlight non-tools via selected.
     if selected && fill_override.is_none() {
         painter.rect_filled(well, radius, pal.btn_selected);
@@ -531,17 +561,9 @@ pub fn tool_icon_button(
         painter.rect_filled(well, radius, pal.btn_hover);
     }
 
-    let icon = if selected && fill_override.is_none() {
-        PASTEL_PRIMARY
-    } else if let Some((idle, hover)) = fill_override {
-        icon_color_for_fill(if hovered { hover } else { idle })
-    } else if dark {
-        ICON_LIGHT
-    } else {
-        ICON_DARK
-    };
+    let icon = tool_icon_ink(selected && fill_override.is_none(), pal.dark, well_fill);
     // Slightly larger glyph well; Iconoir is supersampled for crisp HiDPI.
-    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.56));
+    let icon_rect = Rect::from_center_size(center, Vec2::splat(diameter * 0.60));
     paint_icon(&painter, icon_rect, icon);
 
     response.clicked()
@@ -833,16 +855,47 @@ mod tests {
         assert_eq!(icon_color_for_fill(BTN_SELECTED), ICON_DARK);
         assert_eq!(icon_color_for_fill(BTN_HOVER), ICON_DARK);
         assert_eq!(icon_color_for_fill(Color32::WHITE), ICON_DARK);
+        assert_eq!(icon_color_for_fill(TOOLBAR_FILL), ICON_DARK);
         assert!(approx_luminance(ICON_DARK) < 100.0);
     }
 
     #[test]
     fn dark_and_primary_fills_get_light_icons() {
         assert_eq!(icon_color_for_fill(ACTION_FILL), ICON_LIGHT);
-        // Primary purple is mid-luminance; used as icon ink when selected, not as a fill.
+        assert_eq!(icon_color_for_fill(TOOLBAR_FILL_DARK), ICON_LIGHT);
+        assert_eq!(icon_color_for_fill(BTN_SELECTED_DARK), ICON_LIGHT);
+        // Primary purple is mid-luminance; used as icon ink when selected on light chrome.
         assert!(approx_luminance(ICON_LIGHT) > 200.0);
         assert!(approx_luminance(PASTEL_PRIMARY) > 80.0);
         assert!(approx_luminance(PASTEL_PRIMARY) < 160.0);
+    }
+
+    #[test]
+    fn tool_icon_ink_contrasts_dark_and_light_chrome() {
+        // Idle on dark bar → near-white (charcoal would vanish).
+        assert_eq!(
+            tool_icon_ink(false, true, TOOLBAR_FILL_DARK),
+            ICON_LIGHT
+        );
+        // Idle on light bar → near-black.
+        assert_eq!(tool_icon_ink(false, false, TOOLBAR_FILL), ICON_DARK);
+        // Selected on dark well → light lavender, not mid purple-on-purple.
+        assert_eq!(
+            tool_icon_ink(true, true, BTN_SELECTED_DARK),
+            ICON_ACTIVE_ON_DARK
+        );
+        // Selected on light well → brand purple.
+        assert_eq!(
+            tool_icon_ink(true, false, BTN_SELECTED),
+            PASTEL_PRIMARY
+        );
+        // Luminance delta must stay readable.
+        let dark_delta =
+            (approx_luminance(ICON_LIGHT) - approx_luminance(TOOLBAR_FILL_DARK)).abs();
+        let light_delta =
+            (approx_luminance(ICON_DARK) - approx_luminance(TOOLBAR_FILL)).abs();
+        assert!(dark_delta >= 120.0, "dark chrome ΔL={dark_delta:.1}");
+        assert!(light_delta >= 120.0, "light chrome ΔL={light_delta:.1}");
     }
 
     #[test]
