@@ -1,8 +1,11 @@
 //! Vendored [Iconoir](https://iconoir.com/) toolbar glyphs.
 //!
 //! SVGs live under `assets/icons/` (MIT — see `LICENSE-ICONOIR.md`). At paint
-//! time each glyph is rasterized with `resvg` at `logical_size × pixels_per_point`
-//! so strokes stay sharp on HiDPI / Wayland, then drawn at the logical rect.
+//! time each glyph is rasterized with `resvg` at
+//! `logical_size × pixels_per_point × ICON_SUPERSAMPLE` so strokes stay sharp
+//! on 1080p (1.0) and fractional scales (~1.25–1.5), then drawn at the logical
+//! rect (GPU downsamples the supersampled bitmap — never soft-upscales a tiny
+//! 1× raster).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -10,6 +13,13 @@ use std::sync::{Mutex, OnceLock};
 use eframe::egui::{self, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
+
+/// Extra device-pixel density when rasterizing Iconoir SVGs.
+///
+/// At `pixels_per_point == 1.0` (common 1080p), a 15–17 px logical icon is too
+/// small for thin 1.5-width strokes — LINEAR sampling then looks soft/pixelated.
+/// Always render at ≥2× device pixels and let the GPU minify.
+pub const ICON_SUPERSAMPLE: f32 = 2.0;
 
 /// Stable id for cache keys + texture names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -87,9 +97,17 @@ fn tinted_svg(raw: &str, color: Color32) -> String {
         .replace("stroke-width=\"1.5\"", "stroke-width=\"1.75\"")
 }
 
+/// Device-pixel size for a logical icon side at the given `pixels_per_point`.
+pub fn icon_device_pixels(logical: f32, pixels_per_point: f32) -> u32 {
+    let ppp = pixels_per_point.max(1.0);
+    let logical = logical.max(1.0);
+    // Ceil so fractional scales (1.25 / 1.5) never undersample.
+    ((logical * ppp * ICON_SUPERSAMPLE).ceil() as u32).clamp(24, 256)
+}
+
 /// Rasterize an Iconoir SVG to premultiplied RGBA at `px × px` device pixels.
 pub fn rasterize_icon(id: IconId, color: Color32, px: u32) -> Result<ColorImage, String> {
-    let px = px.clamp(12, 256);
+    let px = px.clamp(24, 256);
     let svg = tinted_svg(id.svg(), color);
     let opts = Options::default();
     let tree = Tree::from_str(&svg, &opts).map_err(|e| format!("parse {}: {e}", id.iconoir_name()))?;
@@ -153,6 +171,7 @@ fn texture_for(
         id.iconoir_name(),
         color_key(color)
     );
+    // LINEAR minifies the supersampled glyph cleanly; we never upscale a 1× bitmap.
     let handle = ctx.load_texture(name, image, TextureOptions::LINEAR);
 
     if let Ok(mut cache) = texture_cache().lock() {
@@ -166,8 +185,7 @@ pub fn paint_iconoir(painter: &egui::Painter, rect: Rect, color: Color32, id: Ic
     let ctx = painter.ctx();
     let ppp = ctx.pixels_per_point().max(1.0);
     let logical = rect.width().min(rect.height()).max(1.0);
-    // Device pixels: ceil so we never undersample on fractional scales (1.25 / 1.5 / 2).
-    let px = (logical * ppp).ceil() as u32;
+    let px = icon_device_pixels(logical, ppp);
     let Some(tex) = texture_for(ctx, id, color, px) else {
         return;
     };
@@ -271,7 +289,7 @@ mod tests {
     fn every_toolbar_svg_rasterizes_at_hidpi() {
         let ink = Color32::from_rgb(0x3A, 0x36, 0x45);
         for id in ALL {
-            // 15 logical @ 2× ≈ toolbar icon on Wayland HiDPI.
+            // 15 logical @ 2× SSS ≈ toolbar icon on Wayland HiDPI.
             let img = rasterize_icon(*id, ink, 30).expect(id.iconoir_name());
             assert_eq!(img.size, [30, 30]);
             let opaque = img.pixels.iter().filter(|c| c.a() > 0).count();
@@ -281,6 +299,22 @@ mod tests {
                 id.iconoir_name()
             );
         }
+    }
+
+    #[test]
+    fn supersample_covers_common_display_scales() {
+        // ~15.6–16.8 logical (TOOL_BTN * 0.56) at 1.0 / 1.25 / 1.5.
+        let logical = 16.0_f32;
+        let px_1 = icon_device_pixels(logical, 1.0);
+        let px_125 = icon_device_pixels(logical, 1.25);
+        let px_15 = icon_device_pixels(logical, 1.5);
+        assert_eq!(px_1, 32); // 16 * 1 * 2
+        assert_eq!(px_125, 40); // ceil(16 * 1.25 * 2)
+        assert_eq!(px_15, 48); // 16 * 1.5 * 2
+        // Always denser than the destination device pixels (no soft upscale).
+        assert!(px_1 as f32 >= logical * 1.0 * 1.9);
+        assert!(px_125 as f32 >= logical * 1.25 * 1.9);
+        assert!(px_15 as f32 >= logical * 1.5 * 1.9);
     }
 
     #[test]

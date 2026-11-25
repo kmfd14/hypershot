@@ -1,7 +1,7 @@
 //! On-screen annotate overlay (Flameshot / Lightshot style).
 //!
 //! Fullscreen capture → dimmed desktop → drag-select with live `W x H` →
-//! bottom pill toolbar draws on the region in place. Save / Copy / Enter /
+//! bottom flat toolbar draws on the region in place. Save / Copy / Enter /
 //! Exit match the floating preview. A preview button hands the session off to
 //! the floating HyperShot window.
 //!
@@ -839,7 +839,7 @@ impl eframe::App for OnscreenApp {
                     }
                 }
 
-                // Bottom pill toolbar (only once a region exists).
+                // Bottom flat toolbar (only once a region exists).
                 if let Some(sel) = sel_screen {
                     let bar_w = 480.0_f32;
                     let bar_h = 42.0_f32;
