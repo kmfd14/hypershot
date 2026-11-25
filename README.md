@@ -81,7 +81,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 1. **Capture** — `cargo run --release -- region` / `full`.
 2. **On-screen annotate (default)** — selection handles, `W x H` pill, bottom flat toolbar.
 3. **Region resolution** — live size text while selecting.
-4. **Preview annotate** — floating HyperShot window with Iconoir tool rail. Ctrl+scroll adjusts thickness.
+4. **Preview annotate** — HyperShot window with an embedded **top** Iconoir toolbar. Ctrl+scroll adjusts thickness.
 5. **Save** — file dialog. Cancel keeps the window open.
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.

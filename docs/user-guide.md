@@ -85,9 +85,9 @@ After capture, HyperShot stays on a fullscreen overlay: selection rect with hand
 
 ### Preview window
 
-Settings → Annotate mode → Preview window (or after **Open in preview**). Floating HyperShot window with a content-sized flat tool rail.
+Settings → Annotate mode → Preview window (or after **Open in preview**). HyperShot window with a solid **top** toolbar (always embedded — dock position does not apply here).
 
-1. Flat icon rail attached to the preview — not full window height. Default **left**; change in Settings → User Interface.
+1. Top toolbar strip with high-contrast icons. On-screen dock position (left / right / top / bottom) is set under Settings → User Interface and affects **on-screen** mode only.
 2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step number**, **Text**, **Magnify**, **color picker**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the active draw tool gets the soft purple highlight.
 3. Stroke color defaults to red. Click the swatch for the color wheel. Highlighter uses a translucent marker look. Pixelate ignores stroke color.
 4. Drag on the image to draw. **Ctrl+scroll** adjusts thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
@@ -132,7 +132,7 @@ Or click **Settings** on the annotate bar. Persist with **Save** inside the wind
 1. **Shortcuts** — **Assign…** stores a suggested key **label only**. Paste the bind command into your desktop keyboard settings. **Replace default screenshot** does not activate these keys.
 2. **Session** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray. All off by default. Section help lives on the question-mark control.
 3. **Output** — save directory (text + **Browse…**) + save to clipboard by default.
-4. **User Interface** — annotate mode; toolbar position and theme; title bar; **follow window tiling**; **Esc to exit**; transparency and background blur (toolbar stays opaque).
+4. **User Interface** — annotate mode; **on-screen** toolbar dock + theme; title bar; **follow window tiling**; **Esc to exit**; transparency and background blur (toolbar stays opaque). Preview window always docks tools at the top.
 5. **About** — HyperShot + `x.y` version.
 
 Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
