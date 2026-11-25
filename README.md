@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.5.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.6.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -86,7 +86,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — dark two-pane window (sidebar + content + OK/Cancel/Apply), shortcuts as keycaps (`1.5`).
+9. **Settings** — dark two-pane window (sidebar + content + OK/Cancel/Apply), shortcuts as keycaps (`1.6`).
 10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -208,7 +208,7 @@ Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equiva
 3. **Overlay** — toolbar dock, title bar, tiling, Esc-to-exit, transparency / blur.
 4. **Saving** — save directory + clipboard default.
 5. **Shortcuts · Global** — click a row to assign a suggested key label (not a live system grab); paste the bind command into your desktop.
-6. **About** — HyperShot `1.5`.
+6. **About** — HyperShot `1.6`.
 
 Other sidebar items (History, Recording, Upload, …) are placeholders for later. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 
