@@ -22,8 +22,9 @@ use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 use crate::config::{UiTheme, APP_NAME};
 
 /// How long the post-copy confirmation popup stays on screen.
-const COPIED_TOAST_SECS: f32 = 1.35;
-const COPIED_TOAST_SIZE: Vec2 = Vec2::new(300.0, 64.0);
+const COPIED_TOAST_SECS: f32 = 1.2;
+/// Compact toast — text + quiet padding only.
+const COPIED_TOAST_SIZE: Vec2 = Vec2::new(196.0, 36.0);
 
 // --- Annotate sizes -----------------------------------------------------------
 
@@ -876,9 +877,13 @@ struct CopiedToastApp {
 }
 
 impl eframe::App for CopiedToastApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // Opaque light panel — quiet desktop toast, not a transparent flash.
-        egui::Rgba::from(TOOLBAR_FILL).to_array()
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        let fill = if visuals.dark_mode {
+            TOOLBAR_FILL_DARK
+        } else {
+            TOOLBAR_FILL
+        };
+        egui::Rgba::from(fill).to_array()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -888,30 +893,31 @@ impl eframe::App for CopiedToastApp {
         }
         ctx.request_repaint_after(Duration::from_millis(40));
 
+        let dark = ctx.style().visuals.dark_mode;
+        let (fill, stroke, ink) = if dark {
+            (TOOLBAR_FILL_DARK, TOOLBAR_STROKE_DARK, ICON_LIGHT)
+        } else {
+            (TOOLBAR_FILL, TOOLBAR_STROKE, ICON_DARK)
+        };
+
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(TOOLBAR_FILL))
+            .frame(egui::Frame::NONE.fill(fill))
             .show(ctx, |ui| {
                 let full = ui.max_rect();
                 let painter = ui.painter();
-                // Soft outer edge + purple accent rail (designed confirmation, not a bare notice).
                 painter.rect(
                     full.shrink(0.5),
-                    CornerRadius::same(10),
-                    TOOLBAR_FILL,
-                    Stroke::new(1.0_f32, TOOLBAR_STROKE),
+                    CornerRadius::same(6),
+                    fill,
+                    Stroke::new(1.0_f32, stroke),
                     egui::StrokeKind::Inside,
                 );
-                let accent = Rect::from_min_max(
-                    Pos2::new(full.left() + 1.0, full.top() + 10.0),
-                    Pos2::new(full.left() + 5.0, full.bottom() - 10.0),
-                );
-                painter.rect_filled(accent, CornerRadius::same(2), PASTEL_PRIMARY);
                 painter.text(
                     full.center(),
                     egui::Align2::CENTER_CENTER,
                     "Copied to Clipboard!",
-                    egui::FontId::proportional(15.0),
-                    ICON_DARK,
+                    egui::FontId::proportional(12.5),
+                    ink,
                 );
             });
     }

@@ -938,7 +938,7 @@ const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
         "1.10.0",
         &[
             "Copy closes annotate immediately (no toast delay)",
-            "Designed Copied to Clipboard popup for Copy / Enter only",
+            "Compact system-themed Copied to Clipboard popup (Copy / Enter only)",
         ],
     ),
     (
