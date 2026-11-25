@@ -111,14 +111,22 @@ pub const SETTINGS_SEPARATOR: Color32 = Color32::from_rgb(0xC6, 0xC6, 0xC8);
 pub const SETTINGS_LABEL: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
 pub const SETTINGS_SECONDARY: Color32 = Color32::from_rgb(0x6C, 0x6C, 0x70);
 pub const SETTINGS_FIELD: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xED);
-pub const SETTINGS_PRIMARY: Color32 = Color32::from_rgb(0x00, 0x7A, 0xFF);
+/// Lavender accent (OK, links, active nav) — matches Settings reference chrome.
+pub const SETTINGS_PRIMARY: Color32 = Color32::from_rgb(0x7C, 0x72, 0xC3);
 
-pub const SETTINGS_BG_DARK: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
-pub const SETTINGS_CARD_DARK: Color32 = Color32::from_rgb(0x2C, 0x2C, 0x2E);
-pub const SETTINGS_SEPARATOR_DARK: Color32 = Color32::from_rgb(0x48, 0x48, 0x4A);
+/// Deep charcoal shell for the two-pane Settings window.
+pub const SETTINGS_BG_DARK: Color32 = Color32::from_rgb(0x1A, 0x1B, 0x1E);
+pub const SETTINGS_CARD_DARK: Color32 = Color32::from_rgb(0x22, 0x23, 0x27);
+pub const SETTINGS_SEPARATOR_DARK: Color32 = Color32::from_rgb(0x32, 0x33, 0x38);
 pub const SETTINGS_LABEL_DARK: Color32 = Color32::from_rgb(0xF2, 0xF2, 0xF7);
-pub const SETTINGS_SECONDARY_DARK: Color32 = Color32::from_rgb(0xA1, 0xA1, 0xA6);
-pub const SETTINGS_FIELD_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3C);
+pub const SETTINGS_SECONDARY_DARK: Color32 = Color32::from_rgb(0x9A, 0x9A, 0xA0);
+pub const SETTINGS_FIELD_DARK: Color32 = Color32::from_rgb(0x2A, 0x2B, 0x2F);
+/// Subtle dark-purple rounded highlight for the active sidebar item.
+pub const SETTINGS_NAV_ACTIVE: Color32 = Color32::from_rgb(0x2C, 0x28, 0x3C);
+pub const SETTINGS_KEYCAP: Color32 = Color32::from_rgb(0x2A, 0x2B, 0x2E);
+pub const SETTINGS_FOOTER_BTN: Color32 = Color32::from_rgb(0x2E, 0x2F, 0x33);
+pub const SETTINGS_SIDEBAR_W: f32 = 188.0;
+pub const SETTINGS_FOOTER_H: f32 = 52.0;
 
 /// Runtime annotate colors for the active theme.
 #[derive(Debug, Clone, Copy)]
@@ -361,7 +369,7 @@ fn settings_visuals(dark: bool) -> egui::Visuals {
     visuals.widgets.open.bg_fill = field;
     visuals.widgets.open.weak_bg_fill = field;
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, label);
-    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x00, 0x7A, 0xFF, 0x99);
+    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x7C, 0x72, 0xC3, 0x99);
     visuals.slider_trailing_fill = true;
     visuals.selection.stroke = Stroke::new(1.0_f32, SETTINGS_PRIMARY);
     visuals.text_cursor.stroke = Stroke::new(2.0_f32, SETTINGS_PRIMARY);
@@ -494,7 +502,8 @@ pub fn toolbar_separator(ui: &mut egui::Ui, horizontal: bool) {
     }
 }
 
-/// Grouped settings card.
+/// Grouped settings card (legacy light-card layout; kept for embed helpers).
+#[allow(dead_code)]
 pub fn settings_group_frame(dark: bool) -> egui::Frame {
     let (fill, stroke) = if dark {
         (SETTINGS_CARD_DARK, SETTINGS_SEPARATOR_DARK)
@@ -756,6 +765,7 @@ pub fn contrast_checkbox(ui: &mut egui::Ui, value: &mut bool) -> egui::Response 
 /// Card section title with an Iconoir question-mark help control (tooltip = section help).
 ///
 /// Avoids RichText `"?"` / unicode tofus that can show as empty boxes on some fonts.
+#[allow(dead_code)]
 pub fn section_title_with_help(
     ui: &mut egui::Ui,
     title: &str,
