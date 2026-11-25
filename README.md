@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.7.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.8.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -86,7 +86,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — fixed-size dark two-pane window (sidebar + content + OK/Cancel/Apply), file-name pattern (`1.7`).
+9. **Settings** — fixed-size dark two-pane window (sidebar + content + OK/Cancel/Apply), file-name pattern (`1.8`).
 10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -209,7 +209,7 @@ Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equiva
 4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
 5. **Saving** — save directory + clipboard default.
 6. **File names** — default pattern (`screenshot_%d%m%y`) with `%Y` `%y` `%m` `%d` `%H` `%M` `%S`.
-7. **About** — HyperShot `1.7`.
+7. **About** — HyperShot `1.8`.
 
 Settings stays a fixed, monitor-scaled floating window (not tiled; height does not grow). Checkboxes align in one left column. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 

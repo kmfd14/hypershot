@@ -40,6 +40,14 @@ pub enum IconId {
     Exit,
     Preview,
     Help,
+    /// Settings sidebar: Capture
+    Camera,
+    /// Settings sidebar: Overlay
+    Crop,
+    /// Settings sidebar: Saving
+    Folder,
+    /// Settings sidebar: About
+    InfoCircle,
 }
 
 impl IconId {
@@ -63,6 +71,10 @@ impl IconId {
             Self::Exit => "xmark",
             Self::Preview => "app-window",
             Self::Help => "question-mark",
+            Self::Camera => "camera",
+            Self::Crop => "crop",
+            Self::Folder => "folder",
+            Self::InfoCircle => "info-circle",
         }
     }
 
@@ -85,6 +97,10 @@ impl IconId {
             Self::Exit => include_str!("../assets/icons/xmark.svg"),
             Self::Preview => include_str!("../assets/icons/app-window.svg"),
             Self::Help => include_str!("../assets/icons/question-mark.svg"),
+            Self::Camera => include_str!("../assets/icons/camera.svg"),
+            Self::Crop => include_str!("../assets/icons/crop.svg"),
+            Self::Folder => include_str!("../assets/icons/folder.svg"),
+            Self::InfoCircle => include_str!("../assets/icons/info-circle.svg"),
         }
     }
 }
@@ -336,6 +352,10 @@ mod tests {
         IconId::Exit,
         IconId::Preview,
         IconId::Help,
+        IconId::Camera,
+        IconId::Crop,
+        IconId::Folder,
+        IconId::InfoCircle,
     ];
 
     #[test]
@@ -352,6 +372,10 @@ mod tests {
         assert_eq!(IconId::Exit.iconoir_name(), "xmark");
         assert_eq!(IconId::Save.iconoir_name(), "download");
         assert_eq!(IconId::Help.iconoir_name(), "question-mark");
+        assert_eq!(IconId::Camera.iconoir_name(), "camera");
+        assert_eq!(IconId::Crop.iconoir_name(), "crop");
+        assert_eq!(IconId::Folder.iconoir_name(), "folder");
+        assert_eq!(IconId::InfoCircle.iconoir_name(), "info-circle");
     }
 
     #[test]

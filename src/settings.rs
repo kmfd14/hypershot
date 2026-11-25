@@ -17,6 +17,7 @@ use crate::config::{
     ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
+use crate::icons::{paint_iconoir, IconId};
 use crate::output::render_filename_pattern;
 use crate::ui::{
     self, choice_button, contrast_checkbox, settings_button, settings_text_edit, SETTINGS_BG_DARK,
@@ -731,7 +732,15 @@ impl SettingsApp {
                 .size(12.5)
                 .strong(),
         );
-        ui.add_space(6.0);
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Pattern used when HyperShot picks a save name. Write plain text plus date/time codes below.",
+            )
+            .color(secondary)
+            .size(11.0),
+        );
+        ui.add_space(8.0);
         settings_text_edit(
             ui,
             &mut self.filename_pattern_text,
@@ -741,29 +750,64 @@ impl SettingsApp {
         ui.add_space(8.0);
         let preview = render_filename_pattern(self.filename_pattern_text.trim());
         ui.label(
-            egui::RichText::new(format!("Preview: {preview}"))
+            egui::RichText::new(format!("Preview right now: {preview}"))
                 .color(SETTINGS_PRIMARY)
                 .size(12.0)
                 .monospace(),
         );
-        ui.add_space(10.0);
+        ui.add_space(14.0);
         ui.label(
-            egui::RichText::new("Tokens")
+            egui::RichText::new("Codes you can use")
+                .color(label)
+                .size(12.5)
+                .strong(),
+        );
+        ui.add_space(6.0);
+        for (code, meaning) in [
+            ("%d", "Day of the month (01-31)"),
+            ("%m", "Month (01-12)"),
+            ("%y", "Year, two digits (26 for 2026)"),
+            ("%Y", "Year, four digits (2026)"),
+            ("%H", "Hour, 24-hour clock (00-23)"),
+            ("%M", "Minute (00-59)"),
+            ("%S", "Second (00-59)"),
+            ("%%", "A literal % character"),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(code)
+                        .color(label)
+                        .size(12.0)
+                        .monospace()
+                        .strong(),
+                );
+                ui.label(egui::RichText::new(meaning).color(secondary).size(11.5));
+            });
+        }
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("Example")
                 .color(label)
                 .size(12.5)
                 .strong(),
         );
         ui.add_space(4.0);
-        for line in [
-            "%d day  ·  %m month  ·  %y year (2-digit)  ·  %Y year (4-digit)",
-            "%H hour  ·  %M minute  ·  %S second  ·  %% literal %",
-        ] {
-            ui.label(egui::RichText::new(line).color(secondary).size(11.0));
-        }
-        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("Pattern:  screenshot_%d%m%y")
+                .color(secondary)
+                .size(11.5)
+                .monospace(),
+        );
+        ui.label(
+            egui::RichText::new("Becomes:  screenshot_251125.png")
+                .color(secondary)
+                .size(11.5)
+                .monospace(),
+        );
+        ui.add_space(6.0);
         ui.label(
             egui::RichText::new(
-                "Example: screenshot_%d%m%y → screenshot_251125.png. .png is added if missing. Existing files get _2, _3, …",
+                ".png is added if you leave it off. If that name already exists, HyperShot tries screenshot_251125_2.png, then _3, and so on.",
             )
             .color(secondary)
             .size(11.0),
@@ -835,7 +879,8 @@ fn nav_item(
     label: egui::Color32,
     secondary: egui::Color32,
 ) -> bool {
-    let height = 28.0;
+    const ICON: f32 = 18.0;
+    let height = 32.0;
     let width = ui.available_width().max(SETTINGS_SIDEBAR_W - 20.0);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
     let painter = ui.painter_at(rect);
@@ -851,14 +896,14 @@ fn nav_item(
     }
 
     let icon_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.left() + 16.0, rect.center().y),
-        egui::vec2(14.0, 14.0),
+        egui::pos2(rect.left() + 14.0 + ICON * 0.5, rect.center().y),
+        egui::vec2(ICON, ICON),
     );
     let ink = if active { label } else { secondary };
-    paint_nav_icon(&painter, icon_rect, ink, icon);
+    paint_iconoir(&painter, icon_rect, ink, nav_icon_id(icon));
 
     painter.text(
-        egui::pos2(rect.left() + 30.0, rect.center().y),
+        egui::pos2(rect.left() + 14.0 + ICON + 10.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         name,
         egui::FontId::proportional(if active { 12.5 } else { 12.0 }),
@@ -868,109 +913,15 @@ fn nav_item(
     response.clicked()
 }
 
-fn paint_nav_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, icon: NavIcon) {
-    let stroke = Stroke::new(1.25_f32, color);
-    let c = rect.center();
-    let r = rect.width() * 0.42;
+fn nav_icon_id(icon: NavIcon) -> IconId {
     match icon {
-        NavIcon::General => {
-            for (i, h) in [0.55_f32, 0.9, 0.4].iter().enumerate() {
-                let x = rect.left() + rect.width() * (0.22 + i as f32 * 0.28);
-                let top = c.y - r * h;
-                let bot = c.y + r * 0.85;
-                painter.line_segment([egui::pos2(x, top), egui::pos2(x, bot)], stroke);
-                painter.circle_filled(egui::pos2(x, top + (bot - top) * 0.35), 1.8, color);
-            }
-        }
-        NavIcon::Capture => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.7, r * 1.2)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            painter.circle_stroke(c, r * 0.35, stroke);
-        }
-        NavIcon::Overlay => {
-            let rr = egui::Rect::from_center_size(c, egui::vec2(r * 1.6, r * 1.6));
-            let pts = [
-                rr.left_top(),
-                rr.right_top(),
-                rr.right_bottom(),
-                rr.left_bottom(),
-            ];
-            for i in 0..4 {
-                let a = pts[i];
-                let b = pts[(i + 1) % 4];
-                let mid = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-                painter.line_segment([a, mid], stroke);
-            }
-        }
-        NavIcon::AnnotationWindow => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(r * 1.7, r * 1.3)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Outside,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(c.x - r * 0.85, c.y - r * 0.35),
-                    egui::pos2(c.x + r * 0.85, c.y - r * 0.35),
-                ],
-                stroke,
-            );
-            // Soft inner fill hint (transparency)
-            painter.rect_filled(
-                egui::Rect::from_center_size(
-                    egui::pos2(c.x, c.y + r * 0.2),
-                    egui::vec2(r * 1.1, r * 0.55),
-                ),
-                1.0,
-                egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60),
-            );
-        }
-        NavIcon::Saving => {
-            let folder = egui::Rect::from_center_size(
-                egui::pos2(c.x, c.y + 1.0),
-                egui::vec2(r * 1.7, r * 1.2),
-            );
-            painter.rect_stroke(folder, 1.5, stroke, egui::StrokeKind::Outside);
-            painter.line_segment(
-                [
-                    egui::pos2(folder.left(), folder.top()),
-                    egui::pos2(folder.left() + r * 0.55, folder.top() - r * 0.35),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(folder.left() + r * 0.55, folder.top() - r * 0.35),
-                    egui::pos2(folder.left() + r * 0.95, folder.top()),
-                ],
-                stroke,
-            );
-        }
-        NavIcon::FileNames => {
-            painter.text(
-                c,
-                egui::Align2::CENTER_CENTER,
-                "T",
-                egui::FontId::proportional(13.0),
-                color,
-            );
-        }
-        NavIcon::Info => {
-            painter.circle_stroke(c, r * 0.85, stroke);
-            painter.circle_filled(egui::pos2(c.x, c.y - r * 0.35), 1.4, color);
-            painter.line_segment(
-                [
-                    egui::pos2(c.x, c.y - r * 0.05),
-                    egui::pos2(c.x, c.y + r * 0.45),
-                ],
-                Stroke::new(1.6_f32, color),
-            );
-        }
+        NavIcon::General => IconId::Settings,
+        NavIcon::Capture => IconId::Camera,
+        NavIcon::Overlay => IconId::Crop,
+        NavIcon::AnnotationWindow => IconId::Preview,
+        NavIcon::Saving => IconId::Folder,
+        NavIcon::FileNames => IconId::Text,
+        NavIcon::Info => IconId::InfoCircle,
     }
 }
 
