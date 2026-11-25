@@ -19,7 +19,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuild
 use crate::annotate::{
     clamp_to_image, compose_selection_png, draft_region_corners, draft_shape_for_tool,
     paint_resolution_label, paint_shape, shape_is_meaningful, AnnotateOutcome, Shape, Tool,
-    MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
+    HIGHLIGHTER_DEFAULT_ALPHA, MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
 };
 use crate::config::APP_NAME;
 use crate::settings::{show_settings_window, EmbeddedSettings};
@@ -246,7 +246,7 @@ impl OnscreenApp {
         if c.a() < 255 {
             c
         } else {
-            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 96)
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), HIGHLIGHTER_DEFAULT_ALPHA)
         }
     }
 
@@ -629,21 +629,20 @@ impl OnscreenApp {
                 self.tool = Tool::Magnify;
             }
             glass_color_swatch(ui, &mut self.stroke_color);
-            // Thickness readout (Ctrl+scroll).
+            // Thickness readout (Ctrl+scroll) — number + unit on one line.
             {
                 let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(28.0, TOOL_BTN), Sense::hover());
-                let _ = response.on_hover_text(format!(
-                    "Thickness {:.0}px (Ctrl+scroll)",
-                    self.stroke_width
-                ));
+                    ui.allocate_exact_size(egui::vec2(44.0, TOOL_BTN), Sense::hover());
+                let label = format!("{:.0} px", self.stroke_width);
+                let _ = response.on_hover_text(format!("Thickness {label} (Ctrl+scroll)"));
                 let painter = ui.painter_at(rect);
+                // Overlay toolbar is light pastel; use near-black for contrast.
                 painter.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    format!("{:.0}", self.stroke_width),
-                    egui::FontId::proportional(11.0),
-                    crate::ui::ICON_DARK,
+                    label,
+                    egui::FontId::monospace(11.0),
+                    crate::ui::THICKNESS_INK_ON_LIGHT,
                 );
             }
 
@@ -1072,20 +1071,25 @@ impl eframe::App for OnscreenApp {
                 let screen = ctx.screen_rect();
                 let label = format!("{:.0} px", self.stroke_width);
                 egui::Area::new(egui::Id::new("hypershot_onscreen_thickness_hud"))
-                    .fixed_pos(Pos2::new(screen.center().x - 36.0, screen.top() + 24.0))
+                    .fixed_pos(Pos2::new(screen.center().x - 44.0, screen.top() + 24.0))
                     .order(egui::Order::Foreground)
                     .interactable(false)
                     .show(ctx, |ui| {
                         egui::Frame::new()
                             .fill(Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2))
                             .corner_radius(egui::CornerRadius::same(8))
-                            .inner_margin(egui::Margin::symmetric(12, 6))
+                            .inner_margin(egui::Margin::symmetric(14, 7))
                             .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new(label)
-                                        .color(crate::ui::ICON_DARK)
-                                        .size(13.0)
-                                        .strong(),
+                                ui.set_min_width(60.0);
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(label)
+                                            .color(crate::ui::THICKNESS_INK_ON_LIGHT)
+                                            .size(13.0)
+                                            .strong()
+                                            .monospace(),
+                                    )
+                                    .wrap_mode(egui::TextWrapMode::Extend),
                                 );
                             });
                     });

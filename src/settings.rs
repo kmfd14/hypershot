@@ -748,13 +748,32 @@ fn session_row(
     label: egui::Color32,
     secondary: egui::Color32,
 ) {
+    // Card row: label + wrapped description on the left, checkbox column on the
+    // right. Fixed trailing width keeps every checkbox in one vertical column
+    // and stops long hints from overlapping the control.
+    const CHECK_COL: f32 = 36.0;
+    const GAP: f32 = 12.0;
+    let row_w = ui.available_width();
+    let text_w = (row_w - CHECK_COL - GAP).max(120.0);
     ui.horizontal(|ui| {
-        ui.set_min_height(SETTINGS_CONTROL_HEIGHT.max(36.0));
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new(title).color(label).size(12.5));
-            ui.label(egui::RichText::new(hint).color(secondary).size(10.5));
-        });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.set_min_height(SETTINGS_CONTROL_HEIGHT.max(40.0));
+        ui.allocate_ui_with_layout(
+            egui::vec2(text_w, ui.available_height().max(40.0)),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.label(egui::RichText::new(title).color(label).size(12.5));
+                ui.add(
+                    egui::Label::new(egui::RichText::new(hint).color(secondary).size(10.5))
+                        .wrap_mode(egui::TextWrapMode::Wrap),
+                );
+            },
+        );
+        ui.add_space(GAP);
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.set_min_width(CHECK_COL);
+            ui.set_max_width(CHECK_COL);
+            // Vertically center the checkbox against the title line.
+            ui.add_space(2.0);
             contrast_checkbox(ui, value);
         });
     });

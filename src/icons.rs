@@ -47,7 +47,9 @@ impl IconId {
         match self {
             Self::Arrow => "arrow-up-right",
             Self::Box => "square",
-            Self::Highlighter => "design-nib",
+            // Iconoir has no dedicated highlighter/marker glyph; fill-color
+            // (ink well + drop) reads clearly as translucent marker ink.
+            Self::Highlighter => "fill-color",
             Self::Line => "slash",
             Self::Pixelate => "dots-grid-3x3",
             Self::Step => "number-1-square",
@@ -68,7 +70,7 @@ impl IconId {
         match self {
             Self::Arrow => include_str!("../assets/icons/arrow-up-right.svg"),
             Self::Box => include_str!("../assets/icons/square.svg"),
-            Self::Highlighter => include_str!("../assets/icons/design-nib.svg"),
+            Self::Highlighter => include_str!("../assets/icons/fill-color.svg"),
             Self::Line => include_str!("../assets/icons/slash.svg"),
             Self::Pixelate => include_str!("../assets/icons/dots-grid-3x3.svg"),
             Self::Step => include_str!("../assets/icons/number-1-square.svg"),
@@ -309,7 +311,7 @@ mod tests {
     #[test]
     fn iconoir_names_are_stable() {
         assert_eq!(IconId::Arrow.iconoir_name(), "arrow-up-right");
-        assert_eq!(IconId::Highlighter.iconoir_name(), "design-nib");
+        assert_eq!(IconId::Highlighter.iconoir_name(), "fill-color");
         assert_eq!(IconId::Line.iconoir_name(), "slash");
         assert_eq!(IconId::Pixelate.iconoir_name(), "dots-grid-3x3");
         assert_eq!(IconId::Step.iconoir_name(), "number-1-square");
