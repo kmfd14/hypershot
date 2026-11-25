@@ -1,13 +1,17 @@
 [package]
-name = "lightsnip"
-version = "1.1.0"
+name = "hypershot"
+version = "1.2.0"
 edition = "2024"
-description = "HyperShot — cross-platform screenshot tool with annotation (binary: lightsnip)"
+description = "HyperShot — cross-platform screenshot tool with annotation"
 license = "MIT"
-repository = "https://github.com/kmfd14/lightsnip"
+repository = "https://github.com/kmfd14/HyperShot"
 readme = "README.md"
-keywords = ["screenshot", "wayland", "portal", "annotation", "cross-platform"]
+keywords = ["screenshot", "annotation", "capture", "cross-platform"]
 categories = ["command-line-utilities", "multimedia::images"]
+
+[[bin]]
+name = "hypershot"
+path = "src/main.rs"
 
 [dependencies]
 ab_glyph = "0.2"

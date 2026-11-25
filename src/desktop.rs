@@ -11,8 +11,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
 
-const AUTOSTART_NAME: &str = "lightsnip.desktop";
-const REPLACE_NAME: &str = "lightsnip-screenshot.desktop";
+const AUTOSTART_NAME: &str = "hypershot.desktop";
+const REPLACE_NAME: &str = "hypershot-screenshot.desktop";
 
 /// Apply desktop side effects for the saved config (autostart + replace-default).
 pub fn apply_desktop_integrations(cfg: &Config) -> Result<Vec<String>> {
@@ -38,7 +38,7 @@ fn sync_autostart(enabled: bool) -> Result<Vec<String>> {
         let exe = current_exe_string()?;
         let body = desktop_file(
             "HyperShot",
-            "HyperShot tray (autostart; binary: lightsnip)",
+            "HyperShot tray (autostart)",
             &format!("{exe} tray"),
             false,
         );
@@ -68,7 +68,7 @@ Comment=Region capture with HyperShot (does not rebind PrintScreen)
 Exec={exe} region
 Terminal=false
 Categories=Utility;Graphics;Photography;
-Keywords=screenshot;snip;capture;wayland;
+Keywords=screenshot;snip;capture;hypershot;
 StartupNotify=false
 NoDisplay=false
 "
@@ -177,8 +177,8 @@ mod tests {
 
     #[test]
     fn desktop_file_contains_exec() {
-        let body = desktop_file("lightsnip", "test", "/tmp/lightsnip tray", true);
-        assert!(body.contains("Exec=/tmp/lightsnip tray"));
+        let body = desktop_file("hypershot", "test", "/tmp/hypershot tray", true);
+        assert!(body.contains("Exec=/tmp/hypershot tray"));
         assert!(body.contains("NoDisplay=true"));
     }
 }

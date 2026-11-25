@@ -714,7 +714,9 @@ pub fn contrast_checkbox(ui: &mut egui::Ui, value: &mut bool) -> egui::Response 
     response
 }
 
-/// Card section title with a `?` help control (tooltip = section help).
+/// Card section title with an Iconoir question-mark help control (tooltip = section help).
+///
+/// Avoids RichText `"?"` / unicode tofus that can show as empty boxes on some fonts.
 pub fn section_title_with_help(
     ui: &mut egui::Ui,
     title: &str,
@@ -729,17 +731,24 @@ pub fn section_title_with_help(
                 .size(13.0)
                 .strong(),
         );
-        let help_btn = egui::Button::new(
-            egui::RichText::new("?")
-                .color(secondary)
-                .size(11.0)
-                .strong(),
-        )
-        .fill(Color32::TRANSPARENT)
-        .stroke(Stroke::new(1.0_f32, secondary))
-        .corner_radius(CornerRadius::same(9))
-        .min_size(Vec2::splat(18.0));
-        ui.add(help_btn).on_hover_text(help);
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
+        let hovered = response.hovered();
+        let painter = ui.painter_at(rect);
+        let fill = if hovered {
+            Color32::from_rgba_unmultiplied(secondary.r(), secondary.g(), secondary.b(), 28)
+        } else {
+            Color32::TRANSPARENT
+        };
+        painter.rect(
+            rect,
+            CornerRadius::same(9),
+            fill,
+            Stroke::new(1.0_f32, secondary),
+            egui::StrokeKind::Inside,
+        );
+        let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(12.0));
+        crate::icons::paint_icon_help(&painter, icon_rect, secondary);
+        response.on_hover_text(help);
     });
     ui.add_space(6.0);
 }

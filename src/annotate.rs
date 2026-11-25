@@ -125,10 +125,8 @@ pub(crate) const STEP_RADIUS: f32 = 14.0;
 
 /// Block size for privacy pixelation (image pixels per mosaic cell).
 ///
-/// Classic Flameshot/Lightshot-style mosaic: each cell is the average of the
-/// underlying image. ~20 keeps the region recognizable as soft pixelate while
-/// making fine UI text hard to read. (v0.6 first pass used 48 + heavy grain —
-/// that read as an opaque noise slab, not a mosaic of the image.)
+/// Soft mosaic: each cell is the average of the underlying image. ~20 keeps the
+/// region recognizable while making fine UI text hard to read.
 pub(crate) const PIXELATE_BLOCK: u32 = 20;
 
 /// Max displayed image size inside the floating window (px). Larger captures scale down.
@@ -499,7 +497,7 @@ impl AnnotateApp {
             .path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "lightsnip.png".into());
+            .unwrap_or_else(|| "hypershot.png".into());
         let start_dir = self
             .path
             .parent()
@@ -915,13 +913,10 @@ impl AnnotateApp {
         if self.thickness_hud_until.is_none() {
             return;
         }
-        let screen = ctx.screen_rect();
         let label = thickness_px_label(self.stroke_width);
-        // Wide enough for "48 px" on one line; keep number + unit together.
-        let size = Vec2::new(88.0, 34.0);
-        let pos = Pos2::new(screen.center().x - size.x * 0.5, screen.top() + 24.0);
+        // Snug pill around "N px", centered at the top of the window.
         egui::Area::new(egui::Id::new("hypershot_thickness_hud"))
-            .fixed_pos(pos)
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 24.0))
             .order(egui::Order::Foreground)
             .interactable(false)
             .show(ctx, |ui| {
@@ -938,18 +933,19 @@ impl AnnotateApp {
                 egui::Frame::new()
                     .fill(fill)
                     .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(14, 7))
+                    .inner_margin(egui::Margin::symmetric(12, 7))
                     .show(ui, |ui| {
-                        ui.set_min_width(60.0);
+                        // Shrink-wrap to the label (no min_width) so the pill stays snug.
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(label)
+                                egui::RichText::new(&label)
                                     .color(text)
                                     .size(13.0)
                                     .strong()
                                     .monospace(),
                             )
-                            .wrap_mode(egui::TextWrapMode::Extend),
+                            .wrap_mode(egui::TextWrapMode::Extend)
+                            .selectable(false),
                         );
                     });
             });
