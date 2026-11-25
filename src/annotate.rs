@@ -1,4 +1,4 @@
-//! Floating annotate window (pill tool rail + image canvas).
+//! Floating annotate window (flat rounded-rect tool rail + image canvas).
 //!
 //! Layout: content-sized floating rail attached to the capture preview (not
 //! full window height). Position: left (default) / right / top / bottom via
@@ -7,10 +7,10 @@
 //! leaves the window open). Enter = save dialog + clipboard toast + close.
 //! Copy shows a short clipboard toast, then closes without blanking the preview.
 //!
-//! Chrome: light gray/white pill bar, charcoal icons; only the active tool gets
-//! a soft purple rounded-square highlight. Transparency + blur settings apply
-//! window opacity and a translucent frosted panel on the window/preview area;
-//! the tool rail stays fully opaque.
+//! Chrome: light gray/white flat bar (no border stroke), charcoal icons; only
+//! the active tool gets a soft purple rounded-square highlight. Transparency +
+//! blur settings apply window opacity and a translucent frosted panel on the
+//! window/preview area; the tool rail stays fully opaque.
 //!
 //! Floating (default): centered + `ViewportBuilder::with_always_on_top`.
 //! Follow tiling: skip those hints so a tiling WM can place the window.

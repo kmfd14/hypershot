@@ -16,7 +16,7 @@ cargo run --release -- region
 ```
 
 1. Drag-select a region on the dimmed desktop — live size text like `1280 x 720` updates while you drag (Flameshot-style on-screen overlay by default).
-2. Mark up in place with the bottom pill toolbar (arrow, box, pixelate, step number). Only the **active** tool is purple-highlighted. Use **Open in preview** for the floating window.
+2. Mark up in place with the bottom flat toolbar (arrow, box, pixelate, step number). Only the **active** tool is purple-highlighted. Use **Open in preview** for the floating window.
 3. **Save** → pick a file in the dialog → close. **Enter** → same dialog + copy to clipboard + toast + close. **Copy** → clipboard toast + close (no dialog).
 4. Cancel the save dialog (or **Exit**) to dismiss.
 
@@ -28,20 +28,20 @@ cargo run --release -- settings
 
 No install. No copy into `/usr` or your PATH. Other screenshot apps stay untouched. Optional install, autostart, tray, and “replace default screenshot tool” are separate and **off by default**.
 
-Screenshot tool with capture + annotation. Region or fullscreen → floating annotate window → save or copy. Built in Rust. Minimal pill annotate toolbar + Apple-inspired settings.
+Screenshot tool with capture + annotation. Region or fullscreen → floating annotate window → save or copy. Built in Rust. Minimal flat annotate toolbar + Apple-inspired settings.
 
-## Platform support (v0.8)
+## Platform support (v0.9)
 
 | Platform | Capture | Annotate / Save / Clipboard | Tray | Native ARM |
 | --- | --- | --- | --- | --- |
 | Linux Wayland | **Works** — full capture (portal / `grim`), then in-app region picker with live `W x H` | **Works** | **Works** (SNI / `ksni`) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
-| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) + in-app region picker | **Works** (`arboard` + `rfd`) | Not in v0.8 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
-| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v0.8 | `aarch64-pc-windows-msvc` via CI `cargo check` |
+| macOS | **Best-effort** — `screencapture` (needs Screen Recording permission) + in-app region picker | **Works** (`arboard` + `rfd`) | Not in v0.9 | **Yes** — `aarch64-apple-darwin` (CI on `macos-latest`) |
+| Windows 10/11 | **WIP** — stub error; use Snipping Tool then `annotate` | **Works** (`arboard` + `rfd`) | Not in v0.9 | `aarch64-pc-windows-msvc` via CI `cargo check` |
 
 > [!CAUTION]
 > No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop (Linux XDG helpers only). Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
 >
-> Default annotate is an **on-screen overlay** at the capture (selection handles, resolution pill, bottom pill toolbar). Settings → Annotate mode can switch to the floating preview window. Wayland: fullscreen overlay is best-effort after a full capture; compositors may ignore always-on-top. Toolbar chrome: light gray/white pill, charcoal icons, purple active-only highlight.
+> Default annotate is an **on-screen overlay** at the capture (selection handles, resolution pill, bottom flat toolbar). Settings → Annotate mode can switch to the floating preview window. Wayland: fullscreen overlay is best-effort after a full capture; compositors may ignore always-on-top. Toolbar chrome: light gray/white flat bar (no border), charcoal icons, purple active-only highlight.
 
 ### ARM / cross builds
 
@@ -82,15 +82,15 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 
 ## Features
 
-1. **Capture** — `cargo run --release -- region` / `full` (see [Platform support](#platform-support-v08)).
-2. **On-screen annotate (default)** — dimmed desktop overlay with selection handles, `W x H` pill, bottom pill toolbar; tools draw on the region in place. Button opens the floating preview window.
+1. **Capture** — `cargo run --release -- region` / `full` (see [Platform support](#platform-support-v09)).
+2. **On-screen annotate (default)** — dimmed desktop overlay with selection handles, `W x H` pill, bottom flat toolbar; tools draw on the region in place. Button opens the floating preview window.
 3. **Region resolution** — live size text (`1280 x 720`) while selecting; hidden when not selecting.
-4. **Preview annotate** — floating **HyperShot** window (`annotate path.png`, or Settings → Annotate mode → Preview). Pill icon rail ([Iconoir](https://iconoir.com/) SVGs): arrow, box, pixelate, step, color, undo/redo, clear, settings, save, copy, exit. **Only the active tool** is purple-highlighted.
+4. **Preview annotate** — floating **HyperShot** window (`annotate path.png`, or Settings → Annotate mode → Preview). Flat icon rail ([Iconoir](https://iconoir.com/) SVGs): arrow, box, pixelate, step, color, undo/redo, clear, settings, save, copy, exit. **Only the active tool** is purple-highlighted.
 5. **Save** — file dialog (defaults under configured save dir). Cancel keeps the window open.
 6. **Enter** — save dialog + copy to clipboard + toast + close (always). Esc respects **Esc to exit**; Enter does not.
 7. **Pixelate** — soft classic mosaic (`PIXELATE_BLOCK = 20`, averages the image behind) so fine text is hard to read but the region still looks like the capture; seamless fill (no block borders); undo/redo still work.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — cards with `?` tooltips, annotate mode, folder picker, UI + About (`0.8`).
+9. **Settings** — cards with `?` tooltips, annotate mode, folder picker, UI + About (`0.9`).
 10. **Tray** — Linux only: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -129,7 +129,7 @@ sudo dnf install grim slurp wl-clipboard \
 
 ### Windows 10/11
 
-1. Capture is **WIP** in v0.8.
+1. Capture is **WIP** in v0.9.
 2. Do this instead: Win+Shift+S (or Snipping Tool) → save a PNG →
 
    ```bash
@@ -209,7 +209,7 @@ Config: `~/.config/lightsnip/config.toml` (via `directories`; macOS/Windows use 
 2. **Run at startup** / **Replace default** — Linux XDG `.desktop` helpers; off by default.
 3. **Stay in tray** — Linux SNI tray; off by default.
 4. **User Interface** — annotate mode (on-screen / preview), toolbar / theme / Esc-to-exit / transparency (toolbar stays opaque).
-5. **About** — HyperShot `0.8`.
+5. **About** — HyperShot `0.9`.
 6. **Save directory** + **Save to clipboard** defaults.
 
 ## Documentation

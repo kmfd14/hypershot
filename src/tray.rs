@@ -97,7 +97,7 @@ pub async fn run_tray() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         anyhow::bail!(
-            "tray is Linux-only in v0.8 (StatusNotifierItem / ksni).\n\
+            "tray is Linux-only in v0.9 (StatusNotifierItem / ksni).\n\
              On macOS / Windows use: lightsnip region | full | settings | annotate <png>"
         );
     }
