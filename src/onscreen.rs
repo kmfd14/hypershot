@@ -1,9 +1,9 @@
 //! On-screen annotate overlay.
 //!
 //! Fullscreen capture → dimmed desktop → drag-select with live `W x H` →
-//! bottom flat toolbar draws on the region in place. Save / Copy / Enter /
-//! Exit match the floating preview. A preview button hands the session off to
-//! the floating HyperShot window.
+//! docked flat toolbar (position from Settings) draws on the region in place.
+//! Save / Copy / Enter / Exit match the preview window. A preview button hands
+//! the session off to the HyperShot window (top-embedded toolbar).
 //!
 //! Best-effort fullscreen egui overlay after a full-screen capture. Some
 //! desktops may tile or refuse always-on-top.
@@ -20,7 +20,7 @@ use crate::annotate::{
     paint_resolution_label, paint_shape, shape_is_meaningful, AnnotateOutcome, Shape, Tool,
     HIGHLIGHTER_DEFAULT_ALPHA, MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
 };
-use crate::config::APP_NAME;
+use crate::config::{ToolbarPosition, APP_NAME};
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -28,7 +28,7 @@ use crate::ui::{
     paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
     paint_icon_preview, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
     paint_icon_text, paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE,
-    PASTEL_PRIMARY, TOOL_BTN,
+    PASTEL_PRIMARY, TOOLBAR_WIDTH, TOOL_BTN,
 };
 
 const COPY_TOAST_SECS: f32 = 1.15;
@@ -569,9 +569,18 @@ impl OnscreenApp {
         }
     }
 
-    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.horizontal(|ui| {
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui, horizontal: bool) {
+        let layout = if horizontal {
+            egui::Layout::left_to_right(egui::Align::Center)
+        } else {
+            egui::Layout::top_down(egui::Align::Center)
+        };
+        ui.with_layout(layout, |ui| {
+            if horizontal {
+                ui.spacing_mut().item_spacing.x = 4.0;
+            } else {
+                ui.spacing_mut().item_spacing.y = 4.0;
+            }
             if glass_icon_button(ui, self.tool == Tool::Arrow, "Arrow", None, TOOL_BTN, paint_icon_arrow)
             {
                 self.tool = Tool::Arrow;
@@ -630,8 +639,12 @@ impl OnscreenApp {
             glass_color_swatch(ui, &mut self.stroke_color);
             // Thickness readout (Ctrl+scroll) — number + unit on one line.
             {
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(44.0, TOOL_BTN), Sense::hover());
+                let size = if horizontal {
+                    egui::vec2(44.0, TOOL_BTN)
+                } else {
+                    egui::vec2(TOOL_BTN, 36.0)
+                };
+                let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
                 let label = format!("{:.0} px", self.stroke_width);
                 let _ = response.on_hover_text(format!("Thickness {label} (Ctrl+scroll)"));
                 let painter = ui.painter_at(rect);
@@ -645,7 +658,7 @@ impl OnscreenApp {
                 );
             }
 
-            toolbar_separator(ui, true);
+            toolbar_separator(ui, horizontal);
 
             if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, TOOL_BTN, paint_icon_undo) {
                 self.undo();
@@ -658,7 +671,7 @@ impl OnscreenApp {
                 self.clear_all();
             }
 
-            toolbar_separator(ui, true);
+            toolbar_separator(ui, horizontal);
 
             if glass_icon_button(ui, false, "Settings", None, TOOL_BTN, paint_icon_settings) {
                 self.show_settings = true;
@@ -700,7 +713,7 @@ impl OnscreenApp {
                 }
             }
 
-            toolbar_separator(ui, true);
+            toolbar_separator(ui, horizontal);
 
             if glass_icon_button(ui, false, "Exit without saving", None, TOOL_BTN, paint_icon_exit)
             {
@@ -971,22 +984,48 @@ impl eframe::App for OnscreenApp {
                     }
                 }
 
-                // Bottom flat toolbar (only once a region exists).
+                // Docked toolbar around the selection (Settings → on-screen position).
                 if let Some(sel) = sel_screen {
-                    let bar_w = 620.0_f32;
-                    let bar_h = 42.0_f32;
-                    let bar_pos = Pos2::new(
-                        (sel.center().x - bar_w * 0.5)
-                            .clamp(area.left() + 8.0, area.right() - bar_w - 8.0),
-                        (sel.bottom() + 12.0).min(area.bottom() - bar_h - 8.0),
-                    );
+                    let dock = self.settings.config().toolbar_position;
+                    let horizontal = dock.is_horizontal();
+                    let bar_w = if horizontal { 620.0_f32 } else { TOOLBAR_WIDTH };
+                    let bar_h = if horizontal { 42.0_f32 } else { 520.0_f32 };
+                    let gap = 12.0_f32;
+                    let bar_pos = match dock {
+                        ToolbarPosition::Bottom => Pos2::new(
+                            (sel.center().x - bar_w * 0.5)
+                                .clamp(area.left() + 8.0, area.right() - bar_w - 8.0),
+                            (sel.bottom() + gap).min(area.bottom() - bar_h - 8.0),
+                        ),
+                        ToolbarPosition::Top => Pos2::new(
+                            (sel.center().x - bar_w * 0.5)
+                                .clamp(area.left() + 8.0, area.right() - bar_w - 8.0),
+                            (sel.top() - gap - bar_h).max(area.top() + 8.0),
+                        ),
+                        ToolbarPosition::Left => Pos2::new(
+                            (sel.left() - gap - bar_w).max(area.left() + 8.0),
+                            (sel.center().y - bar_h * 0.5)
+                                .clamp(area.top() + 8.0, area.bottom() - bar_h - 8.0),
+                        ),
+                        ToolbarPosition::Right => Pos2::new(
+                            (sel.right() + gap).min(area.right() - bar_w - 8.0),
+                            (sel.center().y - bar_h * 0.5)
+                                .clamp(area.top() + 8.0, area.bottom() - bar_h - 8.0),
+                        ),
+                    };
                     egui::Area::new(egui::Id::new("hypershot_onscreen_toolbar"))
                         .fixed_pos(bar_pos)
                         .order(egui::Order::Foreground)
                         .show(ui.ctx(), |ui| {
                             glass_toolbar_frame(&pal).show(ui, |ui| {
-                                ui.set_min_width(bar_w - 16.0);
-                                self.draw_toolbar(ui);
+                                if horizontal {
+                                    ui.set_min_width(bar_w - 16.0);
+                                    ui.set_height(TOOLBAR_WIDTH - 16.0);
+                                } else {
+                                    ui.set_width(TOOLBAR_WIDTH - 16.0);
+                                    ui.set_min_height(bar_h - 16.0);
+                                }
+                                self.draw_toolbar(ui, horizontal);
                             });
                         });
                 }

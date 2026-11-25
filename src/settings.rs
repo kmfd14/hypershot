@@ -4,9 +4,9 @@
 //! and suggested bind command only — HyperShot does **not** register a global
 //! hotkey. Bind the command in your desktop keyboard settings. “Replace default
 //! screenshot” only installs a user `.desktop` helper; it does not make Assign…
-//! live and does not steal Print. User Interface: toolbar position, theme, title
-//! bar, tiling vs floating, Esc-to-exit, transparency / blur intensity. About
-//! shows name + version.
+//! live and does not steal Print. User Interface: on-screen toolbar dock,
+//! theme, title bar, tiling vs floating, Esc-to-exit, transparency / blur.
+//! About shows name + version.
 
 use std::path::PathBuf;
 
@@ -403,7 +403,7 @@ impl SettingsApp {
             section_title_with_help(
                 ui,
                 "User Interface",
-                "Annotate mode, toolbar position, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. On-screen marks up right on the capture; Preview opens a floating window. Transparency and blur affect the preview window; the tool rail stays solid.",
+                "Annotate mode, on-screen toolbar dock, theme, title bar, tiling vs floating, Esc-to-exit, and window effects. On-screen marks up on the capture; Preview opens a window with a top toolbar. Transparency and blur affect the preview window; the tool rail stays solid.",
                 label,
                 secondary,
             );
@@ -422,7 +422,7 @@ impl SettingsApp {
             });
             ui.label(
                 egui::RichText::new(
-                    "On-screen (default): mark up right on the capture. Preview window: floating HyperShot annotate.",
+                    "On-screen (default): mark up on the capture. Preview window: HyperShot window with a top toolbar.",
                 )
                 .color(secondary)
                 .size(10.5)
@@ -430,7 +430,7 @@ impl SettingsApp {
             );
             ui.add_space(8.0);
 
-            ui.label(egui::RichText::new("Toolbar position").color(label).size(12.0));
+            ui.label(egui::RichText::new("On-screen toolbar position").color(label).size(12.0));
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
@@ -440,6 +440,14 @@ impl SettingsApp {
                     }
                 }
             });
+            ui.label(
+                egui::RichText::new(
+                    "Applies only to on-screen annotate. Preview window always uses a top toolbar.",
+                )
+                .color(secondary)
+                .size(10.5)
+                .italics(),
+            );
             ui.add_space(8.0);
 
             ui.label(egui::RichText::new("Theme").color(label).size(12.0));
