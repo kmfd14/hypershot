@@ -5,6 +5,7 @@ mod annotate;
 mod capture;
 mod config;
 mod desktop;
+mod icons;
 mod onscreen;
 mod output;
 mod region_select;
