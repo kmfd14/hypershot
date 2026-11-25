@@ -4,7 +4,7 @@
 //! dark reference look: lavender accent, OK / Cancel / Apply.
 //!
 //! Sidebar keeps General, Capture, Overlay, Annotation Window, Saving,
-//! File names, About. Upload / S3 / History / Recording / Camera and the
+//! File, About. Upload / S3 / History / Recording / Camera and the
 //! entire SHORTCUTS group are intentionally omitted.
 
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use eframe::egui::{self, Sense, Stroke, Vec2, ViewportBuilder};
 
 use crate::config::{
     clamp_intensity, config_path, default_filename_pattern, AnnotateSessionMode, Config,
-    ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
+    SaveFileType, ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
 use crate::icons::{paint_iconoir, IconId};
@@ -26,8 +26,35 @@ use crate::ui::{
     SETTINGS_SIDEBAR_W,
 };
 
-/// Design size at ~1080p; scaled to the monitor, then locked.
+/// Design size at ~1080p; scaled to the monitor, then locked (includes custom title bar).
 const SETTINGS_DESIGN: Vec2 = Vec2::new(820.0, 560.0);
+
+/// Shared dark title strip — same for `hypershot settings` and annotate-toolbar Settings.
+const SETTINGS_TITLE_H: f32 = 36.0;
+
+/// Minimal square close control in the title strip.
+const SETTINGS_CLOSE_BTN: f32 = 22.0;
+
+fn settings_window_title() -> String {
+    format!("{APP_NAME} Settings")
+}
+
+/// Shared viewport chrome for the standalone Settings window (and any deferred host).
+fn settings_viewport_builder(size: Vec2) -> ViewportBuilder {
+    ViewportBuilder::default()
+        .with_title(settings_window_title())
+        .with_inner_size([size.x, size.y])
+        .with_min_inner_size([size.x, size.y])
+        .with_max_inner_size([size.x, size.y])
+        .with_resizable(false)
+        .with_maximize_button(false)
+        .with_minimize_button(false)
+        // Custom title strip inside the shell — keep OS chrome off so both entry
+        // points match (standalone CLI and annotate gear).
+        .with_decorations(false)
+        .with_always_on_top()
+        .with_window_type(egui::X11WindowType::Dialog)
+}
 
 /// Open the standalone settings window. Blocks until closed.
 pub fn run_settings_window() -> Result<()> {
@@ -36,23 +63,14 @@ pub fn run_settings_window() -> Result<()> {
     let cfg = Config::load().unwrap_or_default();
     // Start at design size; first frame re-scales to the monitor and locks it.
     let options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_title(format!("{APP_NAME} Settings"))
-            .with_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
-            .with_min_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
-            .with_max_inner_size([SETTINGS_DESIGN.x, SETTINGS_DESIGN.y])
-            .with_resizable(false)
-            .with_maximize_button(false)
-            .with_always_on_top()
-            // Hint floating dialog (helps some WMs; Wayland may still need size lock).
-            .with_window_type(egui::X11WindowType::Dialog),
+        viewport: settings_viewport_builder(SETTINGS_DESIGN),
         centered: true,
         ..Default::default()
     };
 
     let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         eframe::run_native(
-            &format!("{APP_NAME} Settings"),
+            &settings_window_title(),
             options,
             Box::new(move |cc| {
                 ui::apply_settings_visuals(&cc.egui_ctx, UiTheme::Dark);
@@ -111,7 +129,7 @@ enum NavId {
     Overlay,
     AnnotationWindow,
     Saving,
-    FileNames,
+    File,
     About,
 }
 
@@ -123,7 +141,7 @@ impl NavId {
             Self::Overlay => "Overlay",
             Self::AnnotationWindow => "Annotation Window",
             Self::Saving => "Saving",
-            Self::FileNames => "File names",
+            Self::File => "File",
             Self::About => "About",
         }
     }
@@ -136,7 +154,7 @@ enum NavIcon {
     Overlay,
     AnnotationWindow,
     Saving,
-    FileNames,
+    File,
     Info,
 }
 
@@ -151,10 +169,17 @@ struct SettingsApp {
     nav: NavId,
     /// Locked outer size (monitor-scaled). Set on first frame.
     fixed_size: Option<Vec2>,
+    /// When true, title-bar drag issues `ViewportCommand::StartDrag` (standalone
+    /// Settings). When false (annotate overlay), the egui `Window` owns dragging.
+    native_viewport: bool,
 }
 
 impl SettingsApp {
     fn new(cfg: Config) -> Self {
+        Self::new_with_host(cfg, true)
+    }
+
+    fn new_with_host(cfg: Config, native_viewport: bool) -> Self {
         let save_dir_text = cfg.save_directory.display().to_string();
         let filename_pattern_text = cfg.filename_pattern.clone();
         Self {
@@ -166,6 +191,7 @@ impl SettingsApp {
             close_requested: false,
             nav: NavId::General,
             fixed_size: None,
+            native_viewport,
         }
     }
 
@@ -296,9 +322,10 @@ impl SettingsApp {
                 self.save_dir_text = self.cfg.save_directory.display().to_string();
                 self.cfg.save_to_clipboard = defaults.save_to_clipboard;
             }
-            NavId::FileNames => {
+            NavId::File => {
                 self.cfg.filename_pattern = defaults.filename_pattern.clone();
                 self.filename_pattern_text = self.cfg.filename_pattern.clone();
+                self.cfg.default_file_type = defaults.default_file_type;
             }
             NavId::About => {}
         }
@@ -306,6 +333,20 @@ impl SettingsApp {
 
     fn draw_shell(&mut self, ui: &mut egui::Ui) {
         ui::apply_settings_visuals(ui.ctx(), UiTheme::Dark);
+
+        egui::TopBottomPanel::top("hypershot_settings_title")
+            .exact_height(SETTINGS_TITLE_H)
+            .frame(
+                egui::Frame::new()
+                    .fill(SETTINGS_BG_DARK)
+                    .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
+                    .inner_margin(egui::Margin::ZERO),
+            )
+            .show_inside(ui, |ui| {
+                if draw_settings_title_bar(ui, self.native_viewport) {
+                    self.cancel_and_close();
+                }
+            });
 
         // Fixed footer height (status may paint inside; does not grow the shell).
         egui::TopBottomPanel::bottom("hypershot_settings_footer")
@@ -361,7 +402,7 @@ impl SettingsApp {
                     NavIcon::AnnotationWindow,
                 ),
                 (NavId::Saving, "Saving", NavIcon::Saving),
-                (NavId::FileNames, "File names", NavIcon::FileNames),
+                (NavId::File, "File", NavIcon::File),
             ];
 
             let about_h = 32.0;
@@ -437,7 +478,7 @@ impl SettingsApp {
                                 self.page_annotation_window(ui, label, secondary)
                             }
                             NavId::Saving => self.page_saving(ui, label, secondary),
-                            NavId::FileNames => self.page_file_names(ui, label, secondary),
+                            NavId::File => self.page_file(ui, label, secondary),
                             NavId::About => self.page_about(ui, label, secondary),
                         }
                     });
@@ -451,7 +492,7 @@ impl SettingsApp {
             ui.set_min_height(SETTINGS_FOOTER_H - 16.0);
             let link = ui.add(
                 egui::Label::new(
-                    egui::RichText::new("Open config file")
+                    egui::RichText::new("Open Config File")
                         .color(SETTINGS_PRIMARY)
                         .size(13.0),
                 )
@@ -512,7 +553,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.run_at_startup,
-            "Run at startup",
+            "Run at Startup",
             "Start the tray when you log in.",
             label,
             secondary,
@@ -521,7 +562,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.replace_default_screenshot,
-            "Replace default screenshot",
+            "Replace Default Screenshot",
             "Adds a launcher helper only — does not bind keys or steal Print Screen.",
             label,
             secondary,
@@ -530,7 +571,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.stay_in_tray,
-            "Stay in tray",
+            "Stay in Tray",
             "Keep a tray icon while HyperShot is running.",
             label,
             secondary,
@@ -556,7 +597,7 @@ impl SettingsApp {
 
     fn page_capture(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("Annotate mode")
+            egui::RichText::new("Annotate Mode")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -584,7 +625,7 @@ impl SettingsApp {
 
     fn page_overlay(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("On-screen toolbar position")
+            egui::RichText::new("On-Screen Toolbar Position")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -609,7 +650,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.show_title_bar,
-            "Show window title bar",
+            "Show Window Title Bar",
             "Show the normal window title bar. Off makes the window borderless.",
             label,
             secondary,
@@ -618,7 +659,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.follow_window_tiling,
-            "Follow window tiling",
+            "Follow Window Tiling",
             "On: let your window manager place annotate. Off (default): center the window and keep it on top when the desktop allows. Settings itself never tiles.",
             label,
             secondary,
@@ -627,7 +668,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.esc_to_exit,
-            "Esc to exit",
+            "Esc to Exit",
             "When on (default), Escape closes annotate without save/copy (after clearing a draft). Exit always works.",
             label,
             secondary,
@@ -651,7 +692,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.window_transparency,
-            "Window transparency",
+            "Window Transparency",
             "Softens the preview window. Some desktops ignore transparency.",
             label,
             secondary,
@@ -670,7 +711,7 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.window_background_blur,
-            "Window background blur",
+            "Window Background Blur",
             "Frosts the preview area. Does not sample the desktop behind the window.",
             label,
             secondary,
@@ -689,7 +730,7 @@ impl SettingsApp {
 
     fn page_saving(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
         ui.label(
-            egui::RichText::new("Save directory")
+            egui::RichText::new("Save Directory")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -713,21 +754,21 @@ impl SettingsApp {
         session_row(
             ui,
             &mut self.cfg.save_to_clipboard,
-            "Save to clipboard by default",
+            "Save to Clipboard by Default",
             "Copy each save unless you pass --clipboard or --no-clipboard.",
             label,
             secondary,
         );
     }
 
-    fn page_file_names(
+    fn page_file(
         &mut self,
         ui: &mut egui::Ui,
         label: egui::Color32,
         secondary: egui::Color32,
     ) {
         ui.label(
-            egui::RichText::new("Default file name")
+            egui::RichText::new("Default File Name")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -748,7 +789,8 @@ impl SettingsApp {
             "screenshot_%d%m%y",
         );
         ui.add_space(8.0);
-        let preview = render_filename_pattern(self.filename_pattern_text.trim());
+        let preview =
+            render_filename_pattern(self.filename_pattern_text.trim(), self.cfg.default_file_type);
         ui.label(
             egui::RichText::new(format!("Preview right now: {preview}"))
                 .color(SETTINGS_PRIMARY)
@@ -757,7 +799,31 @@ impl SettingsApp {
         );
         ui.add_space(14.0);
         ui.label(
-            egui::RichText::new("Codes you can use")
+            egui::RichText::new("Default File Type")
+                .color(label)
+                .size(12.5)
+                .strong(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Format used for automatic names and the Save dialog default.")
+                .color(secondary)
+                .size(11.0),
+        );
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for file_type in SaveFileType::ALL {
+                if choice_button(ui, self.cfg.default_file_type == file_type, file_type.label())
+                    .clicked()
+                {
+                    self.cfg.default_file_type = file_type;
+                }
+            }
+        });
+        ui.add_space(14.0);
+        ui.label(
+            egui::RichText::new("Codes You Can Use")
                 .color(label)
                 .size(12.5)
                 .strong(),
@@ -798,8 +864,12 @@ impl SettingsApp {
                 .size(11.5)
                 .monospace(),
         );
+        let becomes = format!(
+            "Becomes:  screenshot_251125.{}",
+            self.cfg.default_file_type.extension()
+        );
         ui.label(
-            egui::RichText::new("Becomes:  screenshot_251125.png")
+            egui::RichText::new(becomes)
                 .color(secondary)
                 .size(11.5)
                 .monospace(),
@@ -807,7 +877,7 @@ impl SettingsApp {
         ui.add_space(6.0);
         ui.label(
             egui::RichText::new(
-                ".png is added if you leave it off. If that name already exists, HyperShot tries screenshot_251125_2.png, then _3, and so on.",
+                "The chosen file type is added if you leave the extension off. If that name already exists, HyperShot tries _2, then _3, and so on.",
             )
             .color(secondary)
             .size(11.0),
@@ -834,8 +904,74 @@ impl SettingsApp {
                 .color(secondary)
                 .size(12.0),
         );
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("Changelog")
+                .color(label)
+                .size(14.0)
+                .strong(),
+        );
+        ui.add_space(8.0);
+        for (ver, notes) in CHANGELOG_ENTRIES {
+            ui.label(
+                egui::RichText::new(*ver)
+                    .color(label)
+                    .size(12.5)
+                    .strong(),
+            );
+            ui.add_space(2.0);
+            for note in *notes {
+                ui.label(
+                    egui::RichText::new(format!("· {note}"))
+                        .color(secondary)
+                        .size(11.5),
+                );
+            }
+            ui.add_space(10.0);
+        }
     }
 }
+
+/// Recent version notes for Settings → About (Title Case headers; scannable bullets).
+const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
+    (
+        "1.9.0",
+        &[
+            "File page with Default File Type (PNG / JPEG / WebP)",
+            "About Changelog section",
+            "Title Case settings titles and sidebar labels",
+            "Centered tools in the annotate toolbar",
+            "Matching Settings chrome from CLI and annotate gear",
+        ],
+    ),
+    (
+        "1.8.0",
+        &[
+            "Annotation Window for transparency and blur",
+            "Clearer file name tokens and examples",
+            "Iconoir sidebar navigation icons",
+        ],
+    ),
+    (
+        "1.7.0",
+        &[
+            "Fixed Settings window size (no tiling)",
+            "Default file name pattern wiring",
+            "Settings polish and left-aligned checkboxes",
+        ],
+    ),
+    (
+        "1.6.0",
+        &["Settings two-pane restack and layout polish"],
+    ),
+    (
+        "1.5.0",
+        &[
+            "Dark two-pane Settings chrome",
+            "High-contrast Iconoir toolbar textures",
+        ],
+    ),
+];
 
 fn open_path_in_desktop(path: &std::path::Path) -> bool {
     use std::process::Command;
@@ -920,13 +1056,13 @@ fn nav_icon_id(icon: NavIcon) -> IconId {
         NavIcon::Overlay => IconId::Crop,
         NavIcon::AnnotationWindow => IconId::Preview,
         NavIcon::Saving => IconId::Folder,
-        NavIcon::FileNames => IconId::Text,
+        NavIcon::File => IconId::Text,
         NavIcon::Info => IconId::InfoCircle,
     }
 }
 
 fn reset_defaults_button(ui: &mut egui::Ui) -> egui::Response {
-    let label = egui::RichText::new("Reset to defaults")
+    let label = egui::RichText::new("Reset to Defaults")
         .color(SETTINGS_LABEL_DARK)
         .size(12.0);
     let btn = egui::Button::new(label)
@@ -1063,11 +1199,88 @@ impl eframe::App for SettingsApp {
     }
 }
 
+/// Shared title strip + minimal close (same chrome for CLI and annotate entry).
+///
+/// Returns `true` when the close control is clicked (caller should Cancel).
+fn draw_settings_title_bar(ui: &mut egui::Ui, native_viewport: bool) -> bool {
+    let full = ui.available_rect_before_wrap();
+    let (bar, bar_resp) = ui.allocate_exact_size(
+        egui::vec2(full.width(), SETTINGS_TITLE_H),
+        Sense::click_and_drag(),
+    );
+    let painter = ui.painter_at(bar);
+    painter.rect_filled(bar, 0.0, SETTINGS_BG_DARK);
+    painter.hline(
+        bar.x_range(),
+        bar.bottom() - 0.5,
+        Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK),
+    );
+
+    // Standalone borderless window: drag from the title strip.
+    // Annotate-hosted Window keeps egui's own drag (do not move the capture).
+    if native_viewport && bar_resp.dragged_by(egui::PointerButton::Primary) {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+
+    let title = settings_window_title();
+    painter.text(
+        egui::pos2(bar.left() + 14.0, bar.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::proportional(13.0),
+        SETTINGS_LABEL_DARK,
+    );
+
+    let close_rect = egui::Rect::from_center_size(
+        egui::pos2(bar.right() - 14.0 - SETTINGS_CLOSE_BTN * 0.5, bar.center().y),
+        egui::vec2(SETTINGS_CLOSE_BTN, SETTINGS_CLOSE_BTN),
+    );
+    let close_id = ui.id().with("hypershot_settings_close");
+    let close_resp = ui.interact(close_rect, close_id, Sense::click());
+    let close_hover = close_resp.hovered();
+    if close_hover {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        painter.rect_filled(
+            close_rect,
+            4.0,
+            egui::Color32::from_rgb(0x2A, 0x2B, 0x30),
+        );
+    }
+    // Minimal × — quiet stroke, lavender on hover (matches Settings accent).
+    let ink = if close_hover {
+        SETTINGS_PRIMARY
+    } else {
+        SETTINGS_SECONDARY_DARK
+    };
+    let pad = 6.5_f32;
+    let stroke = Stroke::new(1.25_f32, ink);
+    painter.line_segment(
+        [
+            egui::pos2(close_rect.left() + pad, close_rect.top() + pad),
+            egui::pos2(close_rect.right() - pad, close_rect.bottom() - pad),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(close_rect.right() - pad, close_rect.top() + pad),
+            egui::pos2(close_rect.left() + pad, close_rect.bottom() - pad),
+        ],
+        stroke,
+    );
+    close_resp.on_hover_text("Close").clicked()
+}
+
 /// Draw the settings form inside an egui window (annotate toolbar gear).
+///
+/// Uses the same fixed size, dark chrome, and custom title strip as
+/// [`run_settings_window`] so both entry points look identical.
 pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut EmbeddedSettings) {
     if !*open {
         return;
     }
+
     ui::apply_settings_visuals(ctx, UiTheme::Dark);
     let screen = ctx.screen_rect();
     let size = settings_fixed_size(screen);
@@ -1075,17 +1288,21 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
         (screen.width() - size.x) * 0.5,
         (screen.height() - size.y) * 0.5,
     );
-    egui::Window::new("Settings")
-        .open(open)
+    egui::Window::new(settings_window_title())
+        .id(egui::Id::new("hypershot_settings_embedded"))
+        .title_bar(false)
         .resizable(false)
         .collapsible(false)
-        .default_size(size)
+        .fixed_size(size)
         .min_size(size)
         .max_size(size)
         .default_pos(default_pos)
         .frame(
-            egui::Frame::window(&ctx.style())
+            egui::Frame::new()
                 .fill(SETTINGS_BG_DARK)
+                .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
+                // Match borderless standalone chrome (no soft dialog radius).
+                .corner_radius(egui::CornerRadius::ZERO)
                 .inner_margin(0.0),
         )
         .show(ctx, |ui| {
@@ -1093,6 +1310,12 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
             ui.set_max_size(size);
             state.inner.draw_shell(ui);
         });
+
+    if state.inner.close_requested {
+        *open = false;
+        state.inner.close_requested = false;
+    }
+
     let theme = state.config().theme;
     ui::apply_annotate_visuals(ctx, theme);
 }
@@ -1106,7 +1329,8 @@ impl EmbeddedSettings {
     pub fn load() -> Self {
         let cfg = Config::load().unwrap_or_default();
         Self {
-            inner: SettingsApp::new(cfg),
+            // Hosted inside annotate/onscreen — do not StartDrag the capture viewport.
+            inner: SettingsApp::new_with_host(cfg, false),
         }
     }
 
@@ -1175,8 +1399,37 @@ mod tests {
             NavId::AnnotationWindow.breadcrumb(),
             "Annotation Window"
         );
-        assert_eq!(NavId::FileNames.breadcrumb(), "File names");
+        assert_eq!(NavId::File.breadcrumb(), "File");
         assert_eq!(NavId::About.breadcrumb(), "About");
+    }
+
+    #[test]
+    fn dirty_tracks_default_file_type() {
+        let mut app = SettingsApp::new(Config::default());
+        assert!(!app.is_dirty());
+        app.cfg.default_file_type = crate::config::SaveFileType::Jpeg;
+        assert!(app.is_dirty());
+    }
+
+    #[test]
+    fn changelog_lists_current_version() {
+        assert!(
+            CHANGELOG_ENTRIES
+                .iter()
+                .any(|(ver, _)| *ver == APP_VERSION),
+            "About Changelog must include APP_VERSION {APP_VERSION}"
+        );
+    }
+
+    #[test]
+    fn settings_entry_points_share_title_and_title_bar() {
+        assert_eq!(settings_window_title(), format!("{APP_NAME} Settings"));
+        assert!(SETTINGS_TITLE_H >= 32.0);
+        assert!(SETTINGS_CLOSE_BTN < SETTINGS_TITLE_H);
+        let standalone = SettingsApp::new(Config::default());
+        assert!(standalone.native_viewport);
+        let embedded = EmbeddedSettings::load();
+        assert!(!embedded.inner.native_viewport);
     }
 
     #[test]

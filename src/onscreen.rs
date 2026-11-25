@@ -21,7 +21,9 @@ use crate::annotate::{
     HIGHLIGHTER_DEFAULT_ALPHA, MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
 };
 use crate::config::{ToolbarPosition, APP_NAME};
-use crate::output::default_capture_filename;
+use crate::output::{
+    configured_save_file_type, default_capture_filename, ensure_save_extension, save_rgba_image,
+};
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -337,17 +339,10 @@ impl OnscreenApp {
             &self.shapes,
             sel,
         )?;
-        cropped
-            .save(dest)
-            .with_context(|| format!("write annotated region {}", dest.display()))?;
-        Ok(())
+        save_rgba_image(&cropped, dest)
     }
 
-    fn save_and_close(&mut self) -> Result<()> {
-        let sel = self
-            .selection_rect()
-            .context("select a region before saving")?;
-        let _ = sel;
+    fn pick_save_path(&self) -> Option<PathBuf> {
         let default_dir = self
             .settings
             .config()
@@ -355,13 +350,26 @@ impl OnscreenApp {
             .to_string_lossy()
             .into_owned();
         let default_name = default_capture_filename();
-        let picked = rfd::FileDialog::new()
+        let file_type = configured_save_file_type();
+        let (filter_name, filter_exts) = file_type.dialog_filter();
+        rfd::FileDialog::new()
             .set_title("Save screenshot")
             .set_directory(&default_dir)
             .set_file_name(&default_name)
+            .add_filter(filter_name, filter_exts)
             .add_filter("PNG", &["png"])
-            .save_file();
-        let Some(dest) = picked else {
+            .add_filter("JPEG", &["jpg", "jpeg"])
+            .add_filter("WebP", &["webp"])
+            .save_file()
+            .map(|path| ensure_save_extension(path, file_type))
+    }
+
+    fn save_and_close(&mut self) -> Result<()> {
+        let sel = self
+            .selection_rect()
+            .context("select a region before saving")?;
+        let _ = sel;
+        let Some(dest) = self.pick_save_path() else {
             return Ok(());
         };
         self.write_selection_png(&dest)?;
@@ -380,20 +388,7 @@ impl OnscreenApp {
     }
 
     fn enter_save_and_copy(&mut self) -> Result<()> {
-        let default_dir = self
-            .settings
-            .config()
-            .effective_save_dir()
-            .to_string_lossy()
-            .into_owned();
-        let default_name = default_capture_filename();
-        let picked = rfd::FileDialog::new()
-            .set_title("Save screenshot")
-            .set_directory(&default_dir)
-            .set_file_name(&default_name)
-            .add_filter("PNG", &["png"])
-            .save_file();
-        let Some(dest) = picked else {
+        let Some(dest) = self.pick_save_path() else {
             return Ok(());
         };
         self.write_selection_png(&dest)?;
@@ -561,12 +556,14 @@ impl OnscreenApp {
     }
 
     fn draw_toolbar(&mut self, ui: &mut egui::Ui, horizontal: bool) {
+        // Center tools in the toolbar chrome (main + cross axis).
+        let available = ui.available_size();
         let layout = if horizontal {
-            egui::Layout::left_to_right(egui::Align::Center)
+            egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center)
         } else {
-            egui::Layout::top_down(egui::Align::Center)
+            egui::Layout::top_down(egui::Align::Center).with_main_align(egui::Align::Center)
         };
-        ui.with_layout(layout, |ui| {
+        ui.allocate_ui_with_layout(available, layout, |ui| {
             if horizontal {
                 ui.spacing_mut().item_spacing.x = 4.0;
             } else {

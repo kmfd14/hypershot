@@ -25,7 +25,10 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
 use crate::config::APP_NAME;
-use crate::output::{default_capture_filename, default_save_dir};
+use crate::output::{
+    configured_save_file_type, default_capture_filename, default_save_dir, ensure_save_extension,
+    save_rgba_image,
+};
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
@@ -472,19 +475,15 @@ impl AnnotateApp {
         for shape in &self.shapes {
             rasterize_shape(&mut img, shape);
         }
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("create save dir {}", parent.display()))?;
-        }
-        img.save(&self.path)
-            .with_context(|| format!("write annotated PNG {}", self.path.display()))?;
-        Ok(())
+        save_rgba_image(&img, &self.path)
     }
 
     /// Save-file dialog defaulting to the configured save dir + current filename.
     /// Returns `None` if the user cancels (window stays open).
     fn pick_save_path(&self) -> Option<PathBuf> {
         let default_name = default_capture_filename();
+        let file_type = configured_save_file_type();
+        let (filter_name, filter_exts) = file_type.dialog_filter();
         let start_dir = self
             .path
             .parent()
@@ -495,16 +494,16 @@ impl AnnotateApp {
         let mut dialog = rfd::FileDialog::new()
             .set_title("Save screenshot")
             .set_file_name(&default_name)
-            .add_filter("PNG image", &["png"]);
+            .add_filter(filter_name, filter_exts)
+            .add_filter("PNG", &["png"])
+            .add_filter("JPEG", &["jpg", "jpeg"])
+            .add_filter("WebP", &["webp"]);
         if !start_dir.as_os_str().is_empty() {
             dialog = dialog.set_directory(&start_dir);
         }
-        dialog.save_file().map(|mut path| {
-            if path.extension().is_none() {
-                path.set_extension("png");
-            }
-            path
-        })
+        dialog
+            .save_file()
+            .map(|path| ensure_save_extension(path, file_type))
     }
 
     /// Save button: dialog → write → close. Cancel leaves the window open.
@@ -598,12 +597,14 @@ impl AnnotateApp {
     }
 
     fn draw_toolbar(&mut self, ui: &mut egui::Ui, horizontal: bool) {
+        // Center tools in the toolbar chrome (main + cross axis).
+        let available = ui.available_size();
         let layout = if horizontal {
-            egui::Layout::left_to_right(egui::Align::Center)
+            egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center)
         } else {
-            egui::Layout::top_down(egui::Align::Center)
+            egui::Layout::top_down(egui::Align::Center).with_main_align(egui::Align::Center)
         };
-        ui.with_layout(layout, |ui| {
+        ui.allocate_ui_with_layout(available, layout, |ui| {
             if horizontal {
                 ui.spacing_mut().item_spacing.x = 4.0;
             } else {
@@ -1138,6 +1139,7 @@ impl eframe::App for AnnotateApp {
             .show_separator_line(false)
             .show(ctx, |ui| {
                 ui.set_min_height(embedded_toolbar_height() - 12.0);
+                ui.set_width(ui.available_width());
                 self.draw_toolbar(ui, true);
             });
 

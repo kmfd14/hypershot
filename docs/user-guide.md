@@ -1,6 +1,6 @@
 # HyperShot: user guide
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.8.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.9.0**
 
 **Do this now** (from the repo checkout, graphical desktop):
 
@@ -111,7 +111,7 @@ Settings → Annotate mode → Preview window (or after **Open in preview**). Hy
 
 After **Save** (or after capture when using `--no-annotate`), HyperShot writes a PNG and (by default) copies it to the clipboard.
 
-1. **Default save** — settings save directory + **File names** pattern (default `screenshot_%d%m%y.png`). Existing names get `_2`, `_3`, …
+1. **Default save** — settings save directory + **File** pattern (default `screenshot_%d%m%y`) and file type (PNG / JPEG / WebP). Existing names get `_2`, `_3`, …
 2. **Custom file** — `cargo run --release -- region -o ~/Pictures/snip.png`.
 3. **Custom directory** — `cargo run --release -- full --save-dir ~/Pictures/Screenshots`.
 4. **Env override** — set `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
@@ -134,7 +134,7 @@ Or click **Settings** on the annotate bar. Dark two-pane window: left sidebar, r
 3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling (annotate only), Esc to exit.
 4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
 5. **Saving** — save directory (**Browse…**) + clipboard default.
-6. **File names** — default save pattern (`screenshot_%d%m%y` and tokens `%Y` `%y` `%m` `%d` `%H` `%M` `%S`).
+6. **File** — default save pattern (`screenshot_%d%m%y` and tokens `%Y` `%y` `%m` `%d` `%H` `%M` `%S`) plus default file type (PNG / JPEG / WebP). About includes a Changelog.
 7. **About** — HyperShot + `x.y` version.
 
 Settings uses a **fixed**, monitor-scaled window size (not tiled; height does not grow). Checkboxes sit in one left-aligned column. CLI flags still win for a single run.

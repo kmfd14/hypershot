@@ -94,6 +94,46 @@ impl AnnotateSessionMode {
     }
 }
 
+/// Default image format when saving (Settings → File).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SaveFileType {
+    #[default]
+    Png,
+    Jpeg,
+    Webp,
+}
+
+impl SaveFileType {
+    pub const ALL: [Self; 3] = [Self::Png, Self::Jpeg, Self::Webp];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+            Self::Webp => "WebP",
+        }
+    }
+
+    /// Preferred file extension (no dot).
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+            Self::Webp => "webp",
+        }
+    }
+
+    /// `rfd` filter label + extensions for the save dialog.
+    pub fn dialog_filter(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Self::Png => ("PNG", &["png"]),
+            Self::Jpeg => ("JPEG", &["jpg", "jpeg"]),
+            Self::Webp => ("WebP", &["webp"]),
+        }
+    }
+}
+
 /// Clamp an intensity preference into `0.0..=1.0`.
 pub fn clamp_intensity(v: f32) -> f32 {
     if !v.is_finite() {
@@ -164,9 +204,12 @@ pub struct Config {
     pub esc_to_exit: bool,
     /// Default annotate surface after capture: on-screen overlay vs preview window.
     pub annotate_session_mode: AnnotateSessionMode,
-    /// Default save file-name pattern (strftime-style tokens; see Settings → File names).
+    /// Default save file-name pattern (strftime-style tokens; see Settings → File).
     #[serde(default = "default_filename_pattern")]
     pub filename_pattern: String,
+    /// Default save format (PNG / JPEG / WebP); see Settings → File.
+    #[serde(default)]
+    pub default_file_type: SaveFileType,
 }
 
 impl Default for Config {
@@ -197,6 +240,7 @@ impl Default for Config {
             esc_to_exit: true,
             annotate_session_mode: AnnotateSessionMode::OnScreen,
             filename_pattern: default_filename_pattern(),
+            default_file_type: SaveFileType::Png,
         }
     }
 }
@@ -358,6 +402,7 @@ mod tests {
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
         assert_eq!(cfg.filename_pattern, default_filename_pattern());
+        assert_eq!(cfg.default_file_type, SaveFileType::Png);
     }
 
     #[test]
@@ -394,6 +439,7 @@ mod tests {
         cfg.esc_to_exit = false;
         cfg.annotate_session_mode = AnnotateSessionMode::Preview;
         cfg.filename_pattern = "shot_%Y-%m-%d_%H%M%S".into();
+        cfg.default_file_type = SaveFileType::Webp;
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -433,6 +479,7 @@ shortcut_bind_command = "hypershot region"
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
         assert_eq!(cfg.filename_pattern, default_filename_pattern());
+        assert_eq!(cfg.default_file_type, SaveFileType::Png);
     }
 
     #[test]
