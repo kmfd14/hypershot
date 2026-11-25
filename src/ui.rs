@@ -65,6 +65,11 @@ pub const BTN_HOVER: Color32 = Color32::from_rgb(0xEC, 0xEC, 0xF0);
 pub const ICON_DARK: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x40);
 pub const ICON_LIGHT: Color32 = Color32::from_rgb(0xF7, 0xF5, 0xFA);
 
+/// High-contrast ink for thickness HUD / toolbar readout on light chrome.
+pub const THICKNESS_INK_ON_LIGHT: Color32 = Color32::from_rgb(0x1C, 0x1C, 0x1E);
+/// High-contrast ink for thickness HUD / toolbar readout on dark chrome.
+pub const THICKNESS_INK_ON_DARK: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFC);
+
 /// Active-tool purple (border + icon). Soft, not neon.
 pub const PASTEL_PRIMARY: Color32 = Color32::from_rgb(0x8E, 0x74, 0xC2);
 /// Hover companion for solid purple fills (settings / future action wells).

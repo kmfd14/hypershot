@@ -285,6 +285,9 @@ pub(crate) const MAGNIFY_ZOOM: f32 = 2.5;
 pub(crate) const DEFAULT_TEXT_SIZE: f32 = 18.0;
 /// How long the thickness HUD stays visible after Ctrl+scroll.
 pub(crate) const THICKNESS_HUD_SECS: f32 = 1.1;
+/// Default highlighter alpha when the color picker is fully opaque (~22%).
+/// Low enough that intense hues still leave underlying text readable.
+pub(crate) const HIGHLIGHTER_DEFAULT_ALPHA: u8 = 56;
 
 struct AnnotateApp {
     texture: egui::TextureHandle,
@@ -422,7 +425,7 @@ impl AnnotateApp {
             c
         } else {
             // Marker look: keep hue, force translucent fill when picker is opaque.
-            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 96)
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), HIGHLIGHTER_DEFAULT_ALPHA)
         }
     }
 
@@ -913,8 +916,9 @@ impl AnnotateApp {
             return;
         }
         let screen = ctx.screen_rect();
-        let label = format!("{:.0} px", self.stroke_width);
-        let size = Vec2::new(72.0, 32.0);
+        let label = thickness_px_label(self.stroke_width);
+        // Wide enough for "48 px" on one line; keep number + unit together.
+        let size = Vec2::new(88.0, 34.0);
         let pos = Pos2::new(screen.center().x - size.x * 0.5, screen.top() + 24.0);
         egui::Area::new(egui::Id::new("hypershot_thickness_hud"))
             .fixed_pos(pos)
@@ -927,17 +931,25 @@ impl AnnotateApp {
                     Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2)
                 };
                 let text = if pal.dark {
-                    crate::ui::ICON_LIGHT
+                    crate::ui::THICKNESS_INK_ON_DARK
                 } else {
-                    crate::ui::ICON_DARK
+                    crate::ui::THICKNESS_INK_ON_LIGHT
                 };
                 egui::Frame::new()
                     .fill(fill)
                     .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(12, 6))
+                    .inner_margin(egui::Margin::symmetric(14, 7))
                     .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(label).color(text).size(13.0).strong(),
+                        ui.set_min_width(60.0);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(label)
+                                    .color(text)
+                                    .size(13.0)
+                                    .strong()
+                                    .monospace(),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend),
                         );
                     });
             });
@@ -1815,29 +1827,34 @@ fn average_block(img: &RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32) -> Rgba<u8
     ])
 }
 
+fn thickness_px_label(width: f32) -> String {
+    format!("{:.0} px", width)
+}
+
 fn paint_thickness_indicator(ui: &mut egui::Ui, width: f32, horizontal: bool) {
+    // Wide enough for "48 px" as a single non-wrapping label.
     let (rect, response) = ui.allocate_exact_size(
         if horizontal {
-            egui::vec2(28.0, TOOL_BTN)
+            egui::vec2(44.0, TOOL_BTN)
         } else {
-            egui::vec2(TOOL_BTN, 28.0)
+            egui::vec2(TOOL_BTN, 36.0)
         },
         Sense::hover(),
     );
-    let _ = response.on_hover_text(format!("Thickness {width:.0}px (Ctrl+scroll)"));
+    let label = thickness_px_label(width);
+    let _ = response.on_hover_text(format!("Thickness {label} (Ctrl+scroll)"));
     let painter = ui.painter_at(rect);
     let dark = ui.visuals().dark_mode;
     let ink = if dark {
-        crate::ui::ICON_LIGHT
+        crate::ui::THICKNESS_INK_ON_DARK
     } else {
-        crate::ui::ICON_DARK
+        crate::ui::THICKNESS_INK_ON_LIGHT
     };
-    let label = format!("{:.0}", width);
     painter.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         label,
-        egui::FontId::proportional(11.0),
+        egui::FontId::monospace(11.0),
         ink,
     );
 }
@@ -2429,7 +2446,7 @@ mod tests {
         let hi = Shape::Highlighter {
             from: Pos2::new(0.0, 0.0),
             to: Pos2::new(20.0, 0.0),
-            color: Color32::from_rgba_unmultiplied(0xE2, 0x4A, 0x3B, 96),
+            color: Color32::from_rgba_unmultiplied(0xE2, 0x4A, 0x3B, HIGHLIGHTER_DEFAULT_ALPHA),
             width: 12.0,
         };
         assert!(shape_is_meaningful(&hi));
@@ -2462,13 +2479,26 @@ mod tests {
             &Shape::Highlighter {
                 from: Pos2::new(4.0, 32.0),
                 to: Pos2::new(60.0, 32.0),
-                color: Color32::from_rgba_unmultiplied(255, 255, 0, 96),
+                color: Color32::from_rgba_unmultiplied(255, 255, 0, HIGHLIGHTER_DEFAULT_ALPHA),
                 width: 14.0,
             },
         );
         let mid = img.get_pixel(32, 32).0;
-        assert!(mid[1] > 40, "highlighter should blend yellow: {mid:?}");
-        assert!(mid[0] > 40, "highlighter should blend: {mid:?}");
+        // Soft blend on black: visible yellow tint, well below opaque 255.
+        assert!(mid[1] > 30, "highlighter should blend yellow: {mid:?}");
+        assert!(mid[0] > 30, "highlighter should blend: {mid:?}");
+        assert!(
+            mid[1] < 200,
+            "highlighter should stay translucent (got {mid:?})"
+        );
+    }
+
+    #[test]
+    fn thickness_label_keeps_unit_on_one_line() {
+        let label = thickness_px_label(12.0);
+        assert_eq!(label, "12 px");
+        assert!(!label.contains('\n'));
+        assert_eq!(HIGHLIGHTER_DEFAULT_ALPHA, 56);
     }
 
     #[test]

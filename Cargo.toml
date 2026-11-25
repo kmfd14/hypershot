@@ -1,6 +1,6 @@
 [package]
 name = "lightsnip"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "HyperShot — cross-platform screenshot tool with annotation (binary: lightsnip)"
 license = "MIT"
