@@ -3,9 +3,9 @@
 //! Fixed, monitor-scaled size — never tiled / never auto-grows. Matches the
 //! dark reference look: lavender accent, OK / Cancel / Apply.
 //!
-//! Sidebar keeps General, Capture, Overlay, Saving, File names, About.
-//! Upload / S3 / History / Recording / Camera and the entire SHORTCUTS group
-//! are intentionally omitted.
+//! Sidebar keeps General, Capture, Overlay, Annotation Window, Saving,
+//! File names, About. Upload / S3 / History / Recording / Camera and the
+//! entire SHORTCUTS group are intentionally omitted.
 
 use std::path::PathBuf;
 
@@ -108,6 +108,7 @@ enum NavId {
     General,
     Capture,
     Overlay,
+    AnnotationWindow,
     Saving,
     FileNames,
     About,
@@ -119,6 +120,7 @@ impl NavId {
             Self::General => "General",
             Self::Capture => "Capture",
             Self::Overlay => "Overlay",
+            Self::AnnotationWindow => "Annotation Window",
             Self::Saving => "Saving",
             Self::FileNames => "File names",
             Self::About => "About",
@@ -131,6 +133,7 @@ enum NavIcon {
     General,
     Capture,
     Overlay,
+    AnnotationWindow,
     Saving,
     FileNames,
     Info,
@@ -279,6 +282,8 @@ impl SettingsApp {
                 self.cfg.show_title_bar = defaults.show_title_bar;
                 self.cfg.follow_window_tiling = defaults.follow_window_tiling;
                 self.cfg.esc_to_exit = defaults.esc_to_exit;
+            }
+            NavId::AnnotationWindow => {
                 self.cfg.window_transparency = defaults.window_transparency;
                 self.cfg.window_transparency_intensity = defaults.window_transparency_intensity;
                 self.cfg.window_background_blur = defaults.window_background_blur;
@@ -349,6 +354,11 @@ impl SettingsApp {
                 (NavId::General, "General", NavIcon::General),
                 (NavId::Capture, "Capture", NavIcon::Capture),
                 (NavId::Overlay, "Overlay", NavIcon::Overlay),
+                (
+                    NavId::AnnotationWindow,
+                    "Annotation Window",
+                    NavIcon::AnnotationWindow,
+                ),
                 (NavId::Saving, "Saving", NavIcon::Saving),
                 (NavId::FileNames, "File names", NavIcon::FileNames),
             ];
@@ -422,6 +432,9 @@ impl SettingsApp {
                             NavId::General => self.page_general(ui, label, secondary),
                             NavId::Capture => self.page_capture(ui, label, secondary),
                             NavId::Overlay => self.page_overlay(ui, label, secondary),
+                            NavId::AnnotationWindow => {
+                                self.page_annotation_window(ui, label, secondary)
+                            }
                             NavId::Saving => self.page_saving(ui, label, secondary),
                             NavId::FileNames => self.page_file_names(ui, label, secondary),
                             NavId::About => self.page_about(ui, label, secondary),
@@ -618,12 +631,27 @@ impl SettingsApp {
             label,
             secondary,
         );
-        row_sep(ui);
+    }
+
+    fn page_annotation_window(
+        &mut self,
+        ui: &mut egui::Ui,
+        label: egui::Color32,
+        secondary: egui::Color32,
+    ) {
+        ui.label(
+            egui::RichText::new(
+                "Preview annotate window only. The toolbar stays solid.",
+            )
+            .color(secondary)
+            .size(11.0),
+        );
+        ui.add_space(12.0);
         session_row(
             ui,
             &mut self.cfg.window_transparency,
             "Window transparency",
-            "Softens the preview window. The toolbar stays solid.",
+            "Softens the preview window. Some desktops ignore transparency.",
             label,
             secondary,
         );
@@ -642,7 +670,7 @@ impl SettingsApp {
             ui,
             &mut self.cfg.window_background_blur,
             "Window background blur",
-            "Frosts the preview area. The toolbar stays a solid pastel panel.",
+            "Frosts the preview area. Does not sample the desktop behind the window.",
             label,
             secondary,
         );
@@ -877,6 +905,30 @@ fn paint_nav_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color3
                 let mid = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
                 painter.line_segment([a, mid], stroke);
             }
+        }
+        NavIcon::AnnotationWindow => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(r * 1.7, r * 1.3)),
+                2.0,
+                stroke,
+                egui::StrokeKind::Outside,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - r * 0.85, c.y - r * 0.35),
+                    egui::pos2(c.x + r * 0.85, c.y - r * 0.35),
+                ],
+                stroke,
+            );
+            // Soft inner fill hint (transparency)
+            painter.rect_filled(
+                egui::Rect::from_center_size(
+                    egui::pos2(c.x, c.y + r * 0.2),
+                    egui::vec2(r * 1.1, r * 0.55),
+                ),
+                1.0,
+                egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60),
+            );
         }
         NavIcon::Saving => {
             let folder = egui::Rect::from_center_size(
@@ -1167,6 +1219,11 @@ mod tests {
     #[test]
     fn nav_pages_are_trimmed() {
         assert_eq!(NavId::General.breadcrumb(), "General");
+        assert_eq!(NavId::Overlay.breadcrumb(), "Overlay");
+        assert_eq!(
+            NavId::AnnotationWindow.breadcrumb(),
+            "Annotation Window"
+        );
         assert_eq!(NavId::FileNames.breadcrumb(), "File names");
         assert_eq!(NavId::About.breadcrumb(), "About");
     }

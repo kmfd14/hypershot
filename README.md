@@ -205,10 +205,11 @@ Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equiva
 
 1. **General** — run at startup, replace-default helper, stay in tray, theme.
 2. **Capture** — on-screen vs preview annotate mode.
-3. **Overlay** — toolbar dock, title bar, annotate tiling, Esc-to-exit, transparency / blur.
-4. **Saving** — save directory + clipboard default.
-5. **File names** — default pattern (`screenshot_%d%m%y`) with `%Y` `%y` `%m` `%d` `%H` `%M` `%S`.
-6. **About** — HyperShot `1.7`.
+3. **Overlay** — toolbar dock, title bar, annotate tiling, Esc-to-exit.
+4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
+5. **Saving** — save directory + clipboard default.
+6. **File names** — default pattern (`screenshot_%d%m%y`) with `%Y` `%y` `%m` `%d` `%H` `%M` `%S`.
+7. **About** — HyperShot `1.7`.
 
 Settings stays a fixed, monitor-scaled floating window (not tiled; height does not grow). Checkboxes align in one left column. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 

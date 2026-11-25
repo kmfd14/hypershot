@@ -131,10 +131,11 @@ Or click **Settings** on the annotate bar. Dark two-pane window: left sidebar, r
 
 1. **General** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray, theme. All helpers off by default.
 2. **Capture** — annotate mode (on-screen vs preview window).
-3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling (annotate only), Esc to exit, transparency / blur (toolbar stays opaque).
-4. **Saving** — save directory (**Browse…**) + clipboard default.
-5. **File names** — default save pattern (`screenshot_%d%m%y` and tokens `%Y` `%y` `%m` `%d` `%H` `%M` `%S`).
-6. **About** — HyperShot + `x.y` version.
+3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling (annotate only), Esc to exit.
+4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
+5. **Saving** — save directory (**Browse…**) + clipboard default.
+6. **File names** — default save pattern (`screenshot_%d%m%y` and tokens `%Y` `%y` `%m` `%d` `%H` `%M` `%S`).
+7. **About** — HyperShot + `x.y` version.
 
 Settings uses a **fixed**, monitor-scaled window size (not tiled; height does not grow). Checkboxes sit in one left-aligned column. CLI flags still win for a single run.
 
