@@ -4,8 +4,9 @@
 //! `Area` pill). Dock position in Settings applies only to on-screen annotate.
 //! Exit cancels/discards (Esc does the same when enabled in settings).
 //! Save opens a file dialog, then dismisses after a successful write (cancel
-//! leaves the window open). Enter = save dialog + clipboard toast + close.
-//! Copy shows a short clipboard toast, then closes without blanking the preview.
+//! leaves the window open). Enter = save dialog + copy + close.
+//! Copy closes immediately; the post-close “Copied to Clipboard!” toast lives
+//! in [`crate::ui::show_copied_to_clipboard_toast`] (Copy / Enter only).
 //!
 //! Chrome: light gray/white flat bar (no border stroke), high-contrast icons;
 //! only the active tool gets a soft purple rounded-square highlight.
@@ -38,9 +39,6 @@ use crate::ui::{
     paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE, SETTINGS_BTN,
     TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
-
-/// How long the “copied to clipboard” toast stays visible before close.
-const COPY_TOAST_SECS: f32 = 1.15;
 
 /// Result of the annotate session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,8 +151,8 @@ fn embedded_toolbar_height() -> f32 {
 /// Open a floating annotate window on an existing PNG.
 ///
 /// On Save: file dialog → write chosen path → close.
-/// On Enter: file dialog → write → clipboard toast → close (forces clipboard).
-/// On Copy: write current/`path` → clipboard toast → close.
+/// On Enter: file dialog → write → close (forces clipboard; toast after close).
+/// On Copy: write current/`path` → close immediately (toast after close).
 /// On Exit (or Escape when enabled): clears an in-progress drag first; with no draft,
 /// returns [`AnnotateOutcome::Cancelled`] without modifying the file.
 pub fn run_annotate_overlay(path: &Path) -> Result<AnnotateOutcome> {
@@ -302,8 +300,6 @@ struct AnnotateApp {
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
-    /// After Copy: keep painting preview + toast until this instant, then close.
-    copy_toast_until: Option<Instant>,
     /// Brief HUD after Ctrl+scroll thickness change.
     thickness_hud_until: Option<Instant>,
     show_settings: bool,
@@ -354,7 +350,6 @@ impl AnnotateApp {
             path,
             outcome,
             finished: false,
-            copy_toast_until: None,
             thickness_hud_until: None,
             show_settings: false,
             applied_title_bar: cfg.show_title_bar,
@@ -386,9 +381,6 @@ impl AnnotateApp {
     }
 
     fn cancel_draft_or_session(&mut self) {
-        if self.copy_toast_until.is_some() {
-            return;
-        }
         if self.draft.is_some() || self.drag_start.is_some() || self.text_edit.is_some() {
             self.draft = None;
             self.drag_start = None;
@@ -508,9 +500,6 @@ impl AnnotateApp {
 
     /// Save button: dialog → write → close. Cancel leaves the window open.
     fn save_and_close(&mut self) -> Result<()> {
-        if self.copy_toast_until.is_some() {
-            return Ok(());
-        }
         let Some(path) = self.pick_save_path() else {
             return Ok(());
         };
@@ -520,35 +509,21 @@ impl AnnotateApp {
         Ok(())
     }
 
-    /// Enter: dialog → write → clipboard toast → close (forces clipboard). Cancel keeps open.
+    /// Enter: dialog → write → close (forces clipboard; toast after close). Cancel keeps open.
     fn save_and_copy_close(&mut self) -> Result<()> {
-        if self.copy_toast_until.is_some() {
-            return Ok(());
-        }
         let Some(path) = self.pick_save_path() else {
             return Ok(());
         };
         self.path = path;
         self.write_annotated_png()?;
-        if let Ok(mut slot) = self.outcome.lock() {
-            *slot = AnnotateOutcome::Copied(self.path.clone());
-        }
-        self.copy_toast_until =
-            Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
+        self.set_outcome(AnnotateOutcome::Copied(self.path.clone()));
         Ok(())
     }
 
-    /// Write PNG to the current work path, show clipboard toast, then close.
-    fn copy_with_toast(&mut self) -> Result<()> {
-        if self.copy_toast_until.is_some() {
-            return Ok(());
-        }
+    /// Write PNG to the current work path and close immediately (toast after close).
+    fn copy_and_close(&mut self) -> Result<()> {
         self.write_annotated_png()?;
-        if let Ok(mut slot) = self.outcome.lock() {
-            *slot = AnnotateOutcome::Copied(self.path.clone());
-        }
-        self.copy_toast_until =
-            Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
+        self.set_outcome(AnnotateOutcome::Copied(self.path.clone()));
         Ok(())
     }
 
@@ -748,7 +723,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_copy,
             ) {
-                if let Err(err) = self.copy_with_toast() {
+                if let Err(err) = self.copy_and_close() {
                     eprintln!("annotate copy failed: {err:#}");
                 }
             }
@@ -982,61 +957,6 @@ impl AnnotateApp {
         }
     }
 
-    fn paint_copy_toast(&self, ctx: &egui::Context, pal: &AnnotatePalette) {
-        if self.copy_toast_until.is_none() {
-            return;
-        }
-        let screen = ctx.screen_rect();
-        let toast_size = Vec2::new(280.0, 56.0);
-        let pos = Pos2::new(
-            screen.center().x - toast_size.x * 0.5,
-            screen.center().y - toast_size.y * 0.5,
-        );
-        egui::Area::new(egui::Id::new("hypershot_copy_toast"))
-            .fixed_pos(pos)
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                let fill = if pal.dark {
-                    Color32::from_rgba_unmultiplied(0x2A, 0x28, 0x30, 0xF0)
-                } else {
-                    Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2)
-                };
-                let stroke = pal.toolbar_stroke;
-                let text = if pal.dark {
-                    crate::ui::ICON_LIGHT
-                } else {
-                    crate::ui::ICON_DARK
-                };
-                egui::Frame::new()
-                    .fill(fill)
-                    .stroke(Stroke::new(1.0_f32, stroke))
-                    .corner_radius(egui::CornerRadius::same(10))
-                    .inner_margin(egui::Margin::symmetric(16, 12))
-                    .shadow(egui::Shadow {
-                        offset: [0, 2],
-                        blur: 8,
-                        spread: 0,
-                        color: Color32::from_black_alpha(40),
-                    })
-                    .show(ui, |ui| {
-                        ui.set_min_width(toast_size.x - 32.0);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                egui::RichText::new("Copied to clipboard")
-                                    .color(text)
-                                    .size(14.0)
-                                    .strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new("Closing…")
-                                    .color(pal.muted)
-                                    .size(11.0),
-                            );
-                        });
-                    });
-            });
-    }
 }
 
 impl eframe::App for AnnotateApp {
@@ -1058,23 +978,13 @@ impl eframe::App for AnnotateApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Finish copy toast → close. Keep painting until then (no blank flash).
-        if let Some(until) = self.copy_toast_until {
-            if Instant::now() >= until {
-                self.copy_toast_until = None;
-                self.finished = true;
-            } else {
-                ctx.request_repaint_after(Duration::from_millis(32));
-            }
-        }
-
         if self.finished {
             // Close after this frame's paint so the last content frame is not blank.
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
-        // While closing after Save (no toast), skip interaction but still paint once.
-        let interactive = !self.finished && self.copy_toast_until.is_none();
+        // While closing, skip interaction but still paint once (no blank flash).
+        let interactive = !self.finished;
 
         self.sync_viewport_prefs(ctx);
 
@@ -1100,7 +1010,7 @@ impl eframe::App for AnnotateApp {
                     if self.text_edit.is_some() {
                         // Text editor handles Enter to commit the label.
                     } else if let Err(err) = self.save_and_copy_close() {
-                        // Enter always save+copy (dialog → toast → close). Esc-to-exit affects Esc only.
+                        // Enter always save+copy (dialog → close). Esc-to-exit affects Esc only.
                         eprintln!("annotate save+copy failed: {err:#}");
                     }
                 }
@@ -1163,7 +1073,6 @@ impl eframe::App for AnnotateApp {
                 }
             });
 
-        self.paint_copy_toast(ctx, &pal);
         self.paint_thickness_hud(ctx, &pal);
 
         if let Some(until) = self.thickness_hud_until {

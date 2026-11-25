@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.9.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.10.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -17,7 +17,7 @@ cargo run --release -- region
 
 1. Drag-select a region — live size text like `1280 x 720` updates while you drag.
 2. Mark up with the bottom flat toolbar. Only the **active** tool is purple. Use **Open in preview** for the floating window.
-3. **Save** → pick a file → close. **Enter** → same dialog + copy + toast + close. **Copy** → clipboard toast + close.
+3. **Save** → pick a file → close. **Enter** → same dialog + copy + close. **Copy** → close immediately, then a **Copied to Clipboard!** popup.
 4. Cancel the save dialog (or **Exit**) to dismiss.
 
 PNG default folder: `~/Pictures/hypershot/` (change in Settings).
@@ -83,7 +83,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 3. **Region resolution** — live size text while selecting.
 4. **Preview annotate** — HyperShot window with an embedded **top** Iconoir toolbar. Ctrl+scroll adjusts thickness.
 5. **Save** — file dialog. Cancel keeps the window open.
-6. **Enter** — save dialog + copy + toast + close.
+6. **Enter** — save dialog + copy + close (Copied popup).
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
 9. **Settings** — fixed-size dark two-pane window (sidebar + content + OK/Cancel/Apply), file-name pattern (`1.8`).
@@ -187,9 +187,9 @@ HyperShot does not grab global hotkeys. Bind `hypershot region` / `hypershot ful
 
 Annotate keys:
 
-* **Enter** = save dialog + copy + toast + close
+* **Enter** = save dialog + copy + close (Copied popup)
 * **Save** = save dialog + close
-* **Copy** = clipboard toast + close
+* **Copy** = close immediately + Copied to Clipboard popup
 * **Exit** = cancel; **Esc** = same when Esc-to-exit is on
 * **Ctrl+Z** / **Ctrl+Shift+Z** = undo / redo
 

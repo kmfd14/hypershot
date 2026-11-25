@@ -935,6 +935,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.10.0",
+        &[
+            "Copy closes annotate immediately (no toast delay)",
+            "Designed Copied to Clipboard popup for Copy / Enter only",
+        ],
+    ),
+    (
         "1.9.0",
         &[
             "File page with Default File Type (PNG / JPEG / WebP)",

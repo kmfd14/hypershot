@@ -10,14 +10,20 @@
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
 //! Palette note: restrained purple/gray/white is an owner override (R-37).
 
+use std::time::{Duration, Instant};
+
 use eframe::egui::{
     self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Theme,
-    ThemePreference, Vec2,
+    ThemePreference, Vec2, ViewportBuilder,
 };
 use eframe::egui::color_picker::{color_picker_color32, Alpha};
 use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 
-use crate::config::UiTheme;
+use crate::config::{UiTheme, APP_NAME};
+
+/// How long the post-copy confirmation popup stays on screen.
+const COPIED_TOAST_SECS: f32 = 1.35;
+const COPIED_TOAST_SIZE: Vec2 = Vec2::new(300.0, 64.0);
 
 // --- Annotate sizes -----------------------------------------------------------
 
@@ -821,6 +827,94 @@ pub fn fit_image_rect(area: Rect, img_w: f32, img_h: f32) -> (Rect, f32) {
             (area.height() - display.y) * 0.5,
         );
     (Rect::from_min_size(origin, display), scale)
+}
+
+/// Small always-on-top confirmation after Copy (not Save / Exit).
+///
+/// Annotate windows close immediately on Copy; this popup is the only
+/// “Copied to Clipboard!” feedback, shown once the clipboard write succeeds.
+pub fn show_copied_to_clipboard_toast() {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let x11 = std::env::var_os("DISPLAY").is_some();
+    if !wayland && !x11 {
+        return;
+    }
+
+    let options = eframe::NativeOptions {
+        viewport: ViewportBuilder::default()
+            .with_title(format!("{APP_NAME} — Copied"))
+            .with_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_min_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_max_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_resizable(false)
+            .with_maximize_button(false)
+            .with_minimize_button(false)
+            .with_decorations(false)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_window_type(egui::X11WindowType::Notification),
+        centered: true,
+        ..Default::default()
+    };
+
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = eframe::run_native(
+            &format!("{APP_NAME} — Copied"),
+            options,
+            Box::new(|cc| {
+                apply_annotate_visuals(&cc.egui_ctx, UiTheme::System);
+                Ok(Box::new(CopiedToastApp {
+                    until: Instant::now() + Duration::from_secs_f32(COPIED_TOAST_SECS),
+                }))
+            }),
+        );
+    }));
+}
+
+struct CopiedToastApp {
+    until: Instant,
+}
+
+impl eframe::App for CopiedToastApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // Opaque light panel — quiet desktop toast, not a transparent flash.
+        egui::Rgba::from(TOOLBAR_FILL).to_array()
+    }
+
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if Instant::now() >= self.until {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        ctx.request_repaint_after(Duration::from_millis(40));
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(TOOLBAR_FILL))
+            .show(ctx, |ui| {
+                let full = ui.max_rect();
+                let painter = ui.painter();
+                // Soft outer edge + purple accent rail (designed confirmation, not a bare notice).
+                painter.rect(
+                    full.shrink(0.5),
+                    CornerRadius::same(10),
+                    TOOLBAR_FILL,
+                    Stroke::new(1.0_f32, TOOLBAR_STROKE),
+                    egui::StrokeKind::Inside,
+                );
+                let accent = Rect::from_min_max(
+                    Pos2::new(full.left() + 1.0, full.top() + 10.0),
+                    Pos2::new(full.left() + 5.0, full.bottom() - 10.0),
+                );
+                painter.rect_filled(accent, CornerRadius::same(2), PASTEL_PRIMARY);
+                painter.text(
+                    full.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Copied to Clipboard!",
+                    egui::FontId::proportional(15.0),
+                    ICON_DARK,
+                );
+            });
+    }
 }
 
 #[cfg(test)]
