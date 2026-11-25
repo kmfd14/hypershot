@@ -5,7 +5,7 @@
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![CI](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml)
+[![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
 **Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.3.0**
 
@@ -138,7 +138,7 @@ sudo dnf install grim slurp wl-clipboard \
 2. Clone:
 
    ```bash
-   git clone https://github.com/kmfd14/HyperShot.git
+   git clone https://github.com/kmfd14/hypershot.git
    cd HyperShot
    ```
 
@@ -221,7 +221,7 @@ Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 3. Open a pull request with a clear description of the change.
 4. Run `cargo test` (and CI covers cross targets).
 
-Issues: <https://github.com/kmfd14/HyperShot/issues>
+Issues: <https://github.com/kmfd14/hypershot/issues>
 
 ## License
 
