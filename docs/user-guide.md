@@ -9,7 +9,7 @@ cargo run --release -- region
 ```
 
 1. Drag-select a region on the dimmed desktop — live size text like `1280 x 720` updates while you drag (Esc cancels). Default is Flameshot-style **on-screen** overlay.
-2. Mark up in place with the bottom flat toolbar (Arrow, Box, Pixelate, Step, color, Undo, Redo, Clear, Settings, Open in preview, Save, Copy, Exit). Only the **active** tool is purple-highlighted.
+2. Mark up in place with the bottom flat toolbar (Arrow, Highlighter, Line, Box, Pixelate, Step, Text, Magnify, color, thickness, Undo, Redo, Clear, Settings, Open in preview, Save, Copy, Exit). Only the **active** tool is purple-highlighted. Ctrl+scroll adjusts stroke thickness.
 3. **Save** → file dialog → close. **Enter** → file dialog + clipboard toast + close. **Copy** → toast + close. **Open in preview** hands the session to the floating HyperShot window. Exit dismisses.
 
 PNG path prints to stdout. About 1–2 minutes for first capture after deps.
@@ -80,7 +80,7 @@ If you see `grim/slurp fallback unavailable`, install the missing tools from [De
 After capture, HyperShot stays on a fullscreen overlay over the dimmed capture: selection rect with handles, resolution pill (`W x H` + origin), and a bottom flat toolbar. Tools draw on the selected region in place.
 
 1. Drag to select. Resize with the corner/edge dots (they highlight on hover). Hover the selection border for a move cursor and drag to reposition. Live size text updates while selecting.
-2. Tools: **Arrow**, **Box**, **Pixelate**, **Step**, **color**, **Undo**, **Redo**, **Clear**, **Settings**, **Open in preview**, **Save**, **Copy**, **Exit**. Only the active draw tool is purple-highlighted.
+2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step**, **Text**, **Magnify**, **color**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Open in preview**, **Save**, **Copy**, **Exit**. Only the active draw tool is purple-highlighted. **Ctrl+scroll** changes stroke / marker / text size.
 3. **Open in preview** crops the current session into the floating HyperShot window.
 
 ### Preview window
@@ -88,9 +88,9 @@ After capture, HyperShot stays on a fullscreen overlay over the dimmed capture: 
 Settings → Annotate mode → Preview window (or after **Open in preview**). Floating bordered HyperShot window with a content-sized flat tool rail. You can also annotate a file you already have.
 
 1. Floating flat icon rail (no “Annotate” text label), attached to the preview — not full window height. Default **left**; change to top / bottom / left / right in Settings → User Interface.
-2. Tools: **Arrow**, **Box**, **Pixelate**, **Step number**, **color picker**, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the currently active draw tool gets the soft purple rounded-square highlight.
-3. Stroke color defaults to red. Click the swatch for the color wheel; Arrow, Box, and Step use it. Pixelate ignores stroke color.
-4. Drag on the image to draw or redact. While dragging Box / Pixelate, a live size label (`W x H`) appears near the selection. Pixelate uses a soft mosaic (`PIXELATE_BLOCK = 20`) so fine text is hard to read. Click with **Step** to stamp an incrementing circle (1, 2, …). Undo / Clear reset the step counter. Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
+2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step number**, **Text**, **Magnify**, **color picker**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the currently active draw tool gets the soft purple rounded-square highlight.
+3. Stroke color defaults to red. Click the swatch for the color wheel (alpha supported for highlighter). Arrow, Line, Box, Step, Text, and Magnify use it. Highlighter forces a translucent marker look when alpha is opaque. Pixelate ignores stroke color.
+4. Drag on the image to draw or redact. **Highlighter** is a thick translucent marker stroke; **Line** is a straight stroke without an arrow head; **Magnify** is a circular loupe (baked into Save/Copy); **Text** click-places an editable label. While dragging Box / Pixelate, a live size label (`W x H`) appears near the selection. Pixelate uses a soft mosaic (`PIXELATE_BLOCK = 20`) so fine text is hard to read. Click with **Step** to stamp an incrementing circle (1, 2, …). Undo / Clear reset the step counter. **Ctrl+scroll** adjusts shared stroke thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
 5. **Settings** opens the settings sheet (shortcuts, session, output, User Interface).
 6. **Save** opens a save-file dialog (defaults under the configured save dir). Cancel leaves the window open. Success writes and closes; clipboard follows settings / CLI flags.
 7. **Enter** always runs save dialog + copy + toast + close (Esc-to-exit affects Esc only).
