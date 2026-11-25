@@ -117,10 +117,31 @@ pub struct Config {
     pub replace_default_screenshot: bool,
     /// Keep a StatusNotifierItem tray icon when the tray command is running.
     pub stay_in_tray: bool,
-    /// Suggested desktop bind command (docs only; not a live global grab).
+    /// Suggested desktop bind command for region capture (docs only; not a live global grab).
     pub shortcut_bind_command: String,
-    /// Human-readable key combination to bind in your desktop (e.g. `Super+Shift+S`).
+    /// Suggested keys for region capture (`hypershot region`), e.g. `Super+Shift+X`.
     pub shortcut_keys: String,
+    /// Suggested keys for full-screen capture (`hypershot full`).
+    #[serde(default = "default_shortcut_full_keys")]
+    pub shortcut_full_keys: String,
+    /// Suggested keys for window capture (not implemented yet — label only).
+    #[serde(default)]
+    pub shortcut_window_keys: String,
+    /// Suggested keys for repeat last capture (not implemented yet — label only).
+    #[serde(default)]
+    pub shortcut_repeat_keys: String,
+    /// Suggested keys for copy text from area (not implemented yet — label only).
+    #[serde(default)]
+    pub shortcut_copy_text_keys: String,
+    /// Suggested keys for read QR from area (not implemented yet — label only).
+    #[serde(default)]
+    pub shortcut_qr_keys: String,
+    /// Suggested keys for open history (not implemented yet — label only).
+    #[serde(default)]
+    pub shortcut_history_keys: String,
+    /// Suggested keys for quit HyperShot (tray / process).
+    #[serde(default = "default_shortcut_quit_keys")]
+    pub shortcut_quit_keys: String,
     /// On-screen annotate toolbar dock (left/right/top/bottom). Preview window ignores this (always top).
     pub toolbar_position: ToolbarPosition,
     /// Dark / light / follow OS appearance.
@@ -155,6 +176,13 @@ impl Default for Config {
             stay_in_tray: false,
             shortcut_bind_command: default_shortcut_bind_command(),
             shortcut_keys: default_shortcut_keys(),
+            shortcut_full_keys: default_shortcut_full_keys(),
+            shortcut_window_keys: String::new(),
+            shortcut_repeat_keys: String::new(),
+            shortcut_copy_text_keys: String::new(),
+            shortcut_qr_keys: String::new(),
+            shortcut_history_keys: String::new(),
+            shortcut_quit_keys: default_shortcut_quit_keys(),
             toolbar_position: ToolbarPosition::Bottom,
             theme: UiTheme::System,
             show_title_bar: true,
@@ -279,6 +307,16 @@ pub fn default_shortcut_keys() -> String {
     "Print".to_string()
 }
 
+/// Suggested full-capture combo label.
+pub fn default_shortcut_full_keys() -> String {
+    "Shift+Super+F".to_string()
+}
+
+/// Suggested quit combo label.
+pub fn default_shortcut_quit_keys() -> String {
+    "Ctrl+Alt+Shift+Q".to_string()
+}
+
 fn shell_quote(path: &Path) -> String {
     let s = path.display().to_string();
     if s.chars().any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | '$' | '`')) {
@@ -333,6 +371,8 @@ mod tests {
         cfg.save_directory = PathBuf::from("/tmp/snips");
         cfg.shortcut_bind_command = "hypershot region".into();
         cfg.shortcut_keys = "Super+Shift+S".into();
+        cfg.shortcut_full_keys = "Shift+Super+F".into();
+        cfg.shortcut_quit_keys = "Ctrl+Alt+Shift+Q".into();
         cfg.toolbar_position = ToolbarPosition::Right;
         cfg.theme = UiTheme::Dark;
         cfg.show_title_bar = false;
@@ -372,6 +412,9 @@ shortcut_bind_command = "hypershot region"
         assert_eq!(cfg.toolbar_position, ToolbarPosition::Bottom);
         assert_eq!(cfg.theme, UiTheme::System);
         assert_eq!(cfg.shortcut_keys, "Print");
+        assert_eq!(cfg.shortcut_full_keys, "Shift+Super+F");
+        assert!(cfg.shortcut_window_keys.is_empty());
+        assert_eq!(cfg.shortcut_quit_keys, "Ctrl+Alt+Shift+Q");
         assert!(cfg.show_title_bar);
         assert!((cfg.window_transparency_intensity - 0.75).abs() < f32::EPSILON);
         assert!((cfg.window_background_blur_intensity - 0.50).abs() < f32::EPSILON);

@@ -1,6 +1,6 @@
 # HyperShot: user guide
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.5.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.6.0**
 
 **Do this now** (from the repo checkout, graphical desktop):
 
@@ -87,7 +87,7 @@ After capture, HyperShot stays on a fullscreen overlay: selection rect with hand
 
 Settings → Annotate mode → Preview window (or after **Open in preview**). HyperShot window with a solid **top** toolbar (always embedded — dock position does not apply here).
 
-1. Top toolbar strip with high-contrast icons. On-screen dock position (left / right / top / bottom) is set under Settings → User Interface and affects **on-screen** mode only.
+1. Top toolbar strip with high-contrast icons. On-screen dock position (left / right / top / bottom) is set under Settings → Overlay and affects **on-screen** mode only.
 2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step number**, **Text**, **Magnify**, **color picker**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the active draw tool gets the soft purple highlight.
 3. Stroke color defaults to red. Click the swatch for the color wheel. Highlighter uses a translucent marker look. Pixelate ignores stroke color.
 4. Drag on the image to draw. **Ctrl+scroll** adjusts thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
@@ -127,15 +127,16 @@ If clipboard fails with a warning, install `wl-clipboard` (`wl-copy`) — on Fed
 cargo run --release -- settings
 ```
 
-Or click **Settings** on the annotate bar. Persist with **Save** inside the window. Config path: `~/.config/hypershot/config.toml`.
+Or click **Settings** on the annotate bar. Dark two-pane window: left sidebar, right content, footer with **Open config file** + **OK** / **Cancel** / **Apply**. Apply stays disabled until you change something. Config path: `~/.config/hypershot/config.toml`.
 
-1. **Shortcuts** — **Assign…** stores a suggested key **label only**. Paste the bind command into your desktop keyboard settings. **Replace default screenshot** does not activate these keys.
-2. **Session** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray. All off by default. Section help lives on the question-mark control.
-3. **Output** — save directory (text + **Browse…**) + save to clipboard by default.
-4. **User Interface** — annotate mode; **on-screen** toolbar dock + theme; title bar; **follow window tiling**; **Esc to exit**; transparency and background blur (toolbar stays opaque). Preview window always docks tools at the top.
-5. **About** — HyperShot + `x.y` version.
+1. **General** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray, theme. All helpers off by default.
+2. **Capture** — annotate mode (on-screen vs preview window).
+3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling, Esc to exit, transparency / blur (toolbar stays opaque).
+4. **Saving** — save directory (**Browse…**) + clipboard default.
+5. **Shortcuts · Global** — click a row to assign a suggested key **label only** (shown as keycaps). Paste the bind command into your desktop keyboard settings. Empty rows show a dash.
+6. **About** — HyperShot + `x.y` version.
 
-Change save dir + clipboard default here without editing files by hand. CLI flags still win for a single run.
+Other sidebar pages (File names, History, Recording, Camera, Upload, S3, extra shortcut groups) are stubs for later. CLI flags still win for a single run.
 
 ---
 

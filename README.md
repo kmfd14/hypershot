@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.5.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.6.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -86,7 +86,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — cards with help tooltips, annotate mode, folder picker, UI + About (`1.3`).
+9. **Settings** — dark two-pane window (sidebar + content + OK/Cancel/Apply), shortcuts as keycaps (`1.6`).
 10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -195,18 +195,22 @@ Annotate keys:
 
 ## Settings
 
-`cargo run --release -- settings`, or **Settings** on the annotate bar.
+```bash
+cargo run --release -- settings
+```
+
+Or **Settings** on the annotate bar. Dark two-pane chrome: sidebar sections, content, footer with **Open config file** + **OK** / **Cancel** / **Apply** (Apply stays off until something changes).
 
 Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equivalent).
 
-1. **Shortcuts** — label only (not a live system shortcut).
-2. **Run at startup** / **Replace default** — Linux desktop helpers; off by default.
-3. **Stay in tray** — Linux tray icon; off by default.
-4. **User Interface** — annotate mode, toolbar, theme, Esc-to-exit, transparency (toolbar stays opaque).
-5. **About** — HyperShot `1.3`.
-6. **Save directory** + **Save to clipboard** defaults.
+1. **General** — run at startup, replace-default helper, stay in tray, theme.
+2. **Capture** — on-screen vs preview annotate mode.
+3. **Overlay** — toolbar dock, title bar, tiling, Esc-to-exit, transparency / blur.
+4. **Saving** — save directory + clipboard default.
+5. **Shortcuts · Global** — click a row to assign a suggested key label (not a live system grab); paste the bind command into your desktop.
+6. **About** — HyperShot `1.6`.
 
-Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
+Other sidebar items (History, Recording, Upload, …) are placeholders for later. Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
 
 ## Documentation
 
