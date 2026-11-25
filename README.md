@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/HyperShot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.2.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.3.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -30,13 +30,13 @@ No install required. Other screenshot apps stay untouched. Optional install, aut
 
 Screenshot tool with capture + annotation. Region or fullscreen → annotate → save or copy. Built in Rust. Minimal flat annotate toolbar + clean settings.
 
-## Platform support (v1.2)
+## Platform support (v1.3)
 
 | Platform | Capture | Annotate / Save / Clipboard | Tray | Native ARM |
 | --- | --- | --- | --- | --- |
 | Linux | **Works** — full capture (portal / `grim`), then in-app region picker with live `W x H` | **Works** | **Works** (tray icon) | `aarch64-unknown-linux-gnu` via CI `cargo check` |
-| macOS | **Best-effort** — `screencapture` (needs Screen Recording) + in-app region picker | **Works** | Not in v1.2 | **Yes** — `aarch64-apple-darwin` |
-| Windows 10/11 | **WIP** — use Snipping Tool then `annotate` | **Works** | Not in v1.2 | `aarch64-pc-windows-msvc` via CI `cargo check` |
+| macOS | **Best-effort** — `screencapture` (needs Screen Recording) + in-app region picker | **Works** | Not in v1.3 | **Yes** — `aarch64-apple-darwin` |
+| Windows 10/11 | **WIP** — use Snipping Tool then `annotate` | **Works** | Not in v1.3 | `aarch64-pc-windows-msvc` via CI `cargo check` |
 
 > [!CAUTION]
 > No upload, accounts, or video recording. Global shortcuts and “replace default screenshot tool” depend on your desktop. Headless / cloud VMs usually **compile** but cannot open annotate / settings — use `--no-annotate` or `annotate` on a real display.
@@ -86,7 +86,7 @@ CI runs `cargo test` on Linux x86_64, macOS aarch64, and Windows x86_64, plus `c
 6. **Enter** — save dialog + copy + toast + close.
 7. **Pixelate** — soft mosaic so fine text is hard to read.
 8. **Clipboard** — settings default + `--clipboard` / `--no-clipboard`.
-9. **Settings** — cards with help tooltips, annotate mode, folder picker, UI + About (`1.2`).
+9. **Settings** — cards with help tooltips, annotate mode, folder picker, UI + About (`1.3`).
 10. **Tray** — Linux: `cargo run --release -- tray`.
 
 ## Runtime dependencies
@@ -125,7 +125,7 @@ sudo dnf install grim slurp wl-clipboard \
 
 ### Windows 10/11
 
-1. Capture is **WIP** in v1.2.
+1. Capture is **WIP** in v1.3.
 2. Do this instead: Win+Shift+S (or Snipping Tool) → save a PNG →
 
    ```bash
@@ -203,7 +203,7 @@ Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equiva
 2. **Run at startup** / **Replace default** — Linux desktop helpers; off by default.
 3. **Stay in tray** — Linux tray icon; off by default.
 4. **User Interface** — annotate mode, toolbar, theme, Esc-to-exit, transparency (toolbar stays opaque).
-5. **About** — HyperShot `1.2`.
+5. **About** — HyperShot `1.3`.
 6. **Save directory** + **Save to clipboard** defaults.
 
 Env override: `HYPERSHOT_SAVE_DIR` (legacy `LIGHTSNIP_SAVE_DIR` still works).
