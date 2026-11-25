@@ -21,6 +21,7 @@ use crate::annotate::{
     HIGHLIGHTER_DEFAULT_ALPHA, MAX_STROKE_WIDTH, MIN_STROKE_WIDTH, STROKE_WIDTH, THICKNESS_HUD_SECS,
 };
 use crate::config::{ToolbarPosition, APP_NAME};
+use crate::output::default_capture_filename;
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -353,12 +354,7 @@ impl OnscreenApp {
             .effective_save_dir()
             .to_string_lossy()
             .into_owned();
-        let default_name = self
-            .path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("hypershot.png")
-            .to_string();
+        let default_name = default_capture_filename();
         let picked = rfd::FileDialog::new()
             .set_title("Save screenshot")
             .set_directory(&default_dir)
@@ -390,12 +386,7 @@ impl OnscreenApp {
             .effective_save_dir()
             .to_string_lossy()
             .into_owned();
-        let default_name = self
-            .path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("hypershot.png")
-            .to_string();
+        let default_name = default_capture_filename();
         let picked = rfd::FileDialog::new()
             .set_title("Save screenshot")
             .set_directory(&default_dir)

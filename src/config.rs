@@ -164,6 +164,9 @@ pub struct Config {
     pub esc_to_exit: bool,
     /// Default annotate surface after capture: on-screen overlay vs preview window.
     pub annotate_session_mode: AnnotateSessionMode,
+    /// Default save file-name pattern (strftime-style tokens; see Settings → File names).
+    #[serde(default = "default_filename_pattern")]
+    pub filename_pattern: String,
 }
 
 impl Default for Config {
@@ -193,8 +196,14 @@ impl Default for Config {
             follow_window_tiling: false,
             esc_to_exit: true,
             annotate_session_mode: AnnotateSessionMode::OnScreen,
+            filename_pattern: default_filename_pattern(),
         }
     }
+}
+
+/// Default PNG name pattern (`screenshot_250125.png` style with day/month/year).
+pub fn default_filename_pattern() -> String {
+    "screenshot_%d%m%y".to_string()
 }
 
 impl Config {
@@ -348,6 +357,7 @@ mod tests {
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
+        assert_eq!(cfg.filename_pattern, default_filename_pattern());
     }
 
     #[test]
@@ -383,6 +393,7 @@ mod tests {
         cfg.follow_window_tiling = true;
         cfg.esc_to_exit = false;
         cfg.annotate_session_mode = AnnotateSessionMode::Preview;
+        cfg.filename_pattern = "shot_%Y-%m-%d_%H%M%S".into();
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back, cfg);
@@ -421,6 +432,7 @@ shortcut_bind_command = "hypershot region"
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
+        assert_eq!(cfg.filename_pattern, default_filename_pattern());
     }
 
     #[test]

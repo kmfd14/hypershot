@@ -25,7 +25,7 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 
 use crate::config::APP_NAME;
-use crate::output::default_save_dir;
+use crate::output::{default_capture_filename, default_save_dir};
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
@@ -484,11 +484,7 @@ impl AnnotateApp {
     /// Save-file dialog defaulting to the configured save dir + current filename.
     /// Returns `None` if the user cancels (window stays open).
     fn pick_save_path(&self) -> Option<PathBuf> {
-        let default_name = self
-            .path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "hypershot.png".into());
+        let default_name = default_capture_filename();
         let start_dir = self
             .path
             .parent()
