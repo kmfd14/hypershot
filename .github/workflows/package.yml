@@ -1,0 +1,104 @@
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PACKAGER_VERSION: "0.11.7"
+
+jobs:
+  linux:
+    name: Linux packages (deb, rpm, AppImage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux GUI / portal build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxcursor-dev \
+            libxrandr-dev libxss-dev libglib2.0-dev pkg-config \
+            fuse libfuse2 rpm
+
+      - name: Cache cargo registry and packager tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: package-linux-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install packaging tools
+        run: |
+          cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION" || true
+          cargo install cargo-generate-rpm --locked || true
+          command -v cargo-packager
+          command -v cargo-generate-rpm
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package deb + AppImage
+        run: cargo packager --release --formats deb,appimage
+
+      - name: Package rpm
+        run: cargo generate-rpm
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-linux-packages
+          path: |
+            target/packager/*.deb
+            target/packager/*.AppImage
+            target/generate-rpm/*.rpm
+          if-no-files-found: error
+
+  macos:
+    name: macOS packages (app, dmg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and packager tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: package-macos-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install cargo-packager
+        run: |
+          cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION" || true
+          command -v cargo-packager
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package app + dmg
+        run: cargo packager --release --formats app,dmg
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-macos-dmg
+          path: |
+            target/packager/*.dmg
+            target/packager/*.app
+          if-no-files-found: error

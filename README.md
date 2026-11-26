@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.14.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.22.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -151,6 +151,17 @@ cargo build --release
 cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 ```
 
+### Packages (deb / rpm / AppImage / dmg)
+
+For installers instead of a manual binary copy, see **[docs/packaging.md](./docs/packaging.md)**.
+
+```bash
+./scripts/package.sh all-linux   # Linux: deb + rpm + AppImage
+./scripts/package.sh dmg         # macOS only (or use CI macos job)
+```
+
+CI workflow: `.github/workflows/package.yml` (tags `v*`, `main` pushes, or manual dispatch). Windows installers are later.
+
 ## Quick start
 
 1. Region → annotate → Save dialog:
@@ -218,6 +229,7 @@ Settings stays a fixed, monitor-scaled floating window (not tiled; height does n
 | Guide | Description |
 | --- | --- |
 | [User guide](./docs/user-guide.md) | Capture → annotate → save / clipboard → settings → hotkeys |
+| [Packaging](./docs/packaging.md) | Build deb, rpm, AppImage, and dmg |
 
 ## Contributing
 
