@@ -129,15 +129,29 @@ fn settings_min_size(default: Vec2) -> Vec2 {
     )
 }
 
-/// Keep Settings out of tiling without fighting user resize: dialog chrome +
-/// always-on-top + min size. Do **not** re-lock InnerSize/MaxInnerSize each frame
-/// (that blocked resize and was the old “fixed size” approach).
+/// Keep Settings floating (never participates in desktop tiling).
+///
+/// Settings ignores the annotate-only `follow_window_tiling` pref. Always-on-top
+/// + unmaximize are reasserted; size is only forced back when a tiling WM
+/// (or maximize) has clearly taken over — user resize is still accepted.
 fn apply_settings_viewport_chrome(ctx: &egui::Context, min_size: Vec2) {
     ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min_size));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
     ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
         egui::WindowLevel::AlwaysOnTop,
     ));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+}
+
+/// True when `current` looks like a tiling/maximize stretch away from `intended`.
+fn settings_size_looks_tiled(current: Vec2, intended: Vec2, monitor: Vec2) -> bool {
+    if monitor.y <= 1.0 {
+        return false;
+    }
+    let grew_tall = current.y > intended.y + 48.0;
+    let fills_monitor_h = current.y >= monitor.y * 0.82;
+    // Vertical tile / column: tall fill even if width stayed dialog-sized.
+    grew_tall && fills_monitor_h
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,8 +201,12 @@ struct SettingsApp {
     nav: NavId,
     /// Opening default size (monitor-scaled). Computed once on first frame.
     default_size: Option<Vec2>,
+    /// Last user-accepted (or opening) size — restored if a tiling WM stretches us.
+    intended_size: Option<Vec2>,
     /// Whether the one-shot `InnerSize` open command was already sent.
     initial_size_applied: bool,
+    /// Frames left to re-assert floating size after Apply/OK (WM may tile async).
+    reassert_floating_frames: u8,
     /// When true, title-bar drag issues `ViewportCommand::StartDrag` (standalone
     /// Settings). When false (annotate overlay), the egui `Window` owns dragging.
     native_viewport: bool,
@@ -211,8 +229,17 @@ impl SettingsApp {
             close_requested: false,
             nav: NavId::General,
             default_size: None,
+            intended_size: None,
             initial_size_applied: false,
+            reassert_floating_frames: 0,
             native_viewport,
+        }
+    }
+
+    /// After save: ask the next few frames to keep Settings floating at intended size.
+    fn request_floating_reassert(&mut self) {
+        if self.native_viewport {
+            self.reassert_floating_frames = 8;
         }
     }
 
@@ -264,6 +291,9 @@ impl SettingsApp {
                 }
                 self.status = notes.join(" · ");
                 self.baseline = self.cfg.clone();
+                // Apply/OK can nudge some tiling WMs to adopt a resizable dialog —
+                // reassert floating size for a few frames (Settings never tiles).
+                self.request_floating_reassert();
                 true
             }
             Err(err) => {
@@ -959,6 +989,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.12.0",
+        &[
+            "Settings stays floating on Apply (no tiling stretch)",
+            "Anti-tile size guard while keeping user resize",
+        ],
+    ),
+    (
         "1.11.0",
         &[
             "Resizable Settings window with title-bar drag",
@@ -1222,11 +1259,33 @@ impl eframe::App for SettingsApp {
             .get_or_insert_with(|| settings_default_size(ctx.screen_rect()));
         let min_size = settings_min_size(default);
         apply_settings_viewport_chrome(ctx, min_size);
-        // First frame only: open at the monitor-scaled default. Later frames
-        // leave InnerSize alone so the user can resize freely.
+
+        let current = ctx.screen_rect().size();
+        let monitor = ctx.input(|i| i.viewport().monitor_size).unwrap_or(current);
+        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+
+        // First frame only: open at the monitor-scaled default.
         if !self.initial_size_applied {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(default));
+            self.intended_size = Some(default);
             self.initial_size_applied = true;
+        } else {
+            let intended = self.intended_size.unwrap_or(default);
+            let tiled = maximized || settings_size_looks_tiled(current, intended, monitor);
+            if tiled || self.reassert_floating_frames > 0 {
+                // Snap back to the last good size — do not adopt the tiled size.
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(intended));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::AlwaysOnTop,
+                ));
+                if self.reassert_floating_frames > 0 {
+                    self.reassert_floating_frames -= 1;
+                }
+            } else if (current - intended).length() > 1.0 {
+                // Genuine user resize (edge drag) — remember it.
+                self.intended_size = Some(current);
+            }
         }
 
         ctx.input(|i| {
@@ -1360,6 +1419,11 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
         (screen.width() - size.x) * 0.5,
         (screen.height() - size.y) * 0.5,
     );
+    // Cap growth so a tiled/fullscreen host cannot stretch this dialog full-bleed.
+    let max_size = Vec2::new(
+        (size.x * 1.35).min(screen.width() * 0.92).max(min_size.x),
+        (size.y * 1.35).min(screen.height() * 0.92).max(min_size.y),
+    );
     egui::Window::new(settings_window_title())
         .id(egui::Id::new("hypershot_settings_embedded"))
         .title_bar(false)
@@ -1367,6 +1431,7 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
         .collapsible(false)
         .default_size(size)
         .min_size(min_size)
+        .max_size(max_size)
         .default_pos(default_pos)
         .frame(
             egui::Frame::new()
@@ -1523,5 +1588,27 @@ mod tests {
         assert!(min.y <= small.y);
         assert!(min.x >= 560.0);
         assert!(min.y >= 420.0);
+    }
+
+    #[test]
+    fn tiling_stretch_detected_against_intended_size() {
+        let intended = Vec2::new(820.0, 560.0);
+        let monitor = Vec2::new(1920.0, 1080.0);
+        let tiled = Vec2::new(820.0, 1080.0);
+        assert!(settings_size_looks_tiled(tiled, intended, monitor));
+        let user_grow = Vec2::new(900.0, 620.0);
+        assert!(!settings_size_looks_tiled(user_grow, intended, monitor));
+        assert!(!settings_size_looks_tiled(intended, intended, monitor));
+    }
+
+    #[test]
+    fn persist_requests_floating_reassert_on_native() {
+        let mut app = SettingsApp::new(Config::default());
+        assert_eq!(app.reassert_floating_frames, 0);
+        app.request_floating_reassert();
+        assert!(app.reassert_floating_frames > 0);
+        let mut embedded = EmbeddedSettings::load();
+        embedded.inner.request_floating_reassert();
+        assert_eq!(embedded.inner.reassert_floating_frames, 0);
     }
 }
