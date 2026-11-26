@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![CI](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml/badge.svg)](https://github.com/kmfd14/hypershot/actions/workflows/ci.yml)
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.22.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.23.0**
 
 **Do this now** (from the repo checkout, graphical session):
 
@@ -151,16 +151,17 @@ cargo build --release
 cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 ```
 
-### Packages (deb / rpm / AppImage / dmg)
+### Packages (deb / rpm / AppImage / dmg / msi)
 
 For installers instead of a manual binary copy, see **[docs/packaging.md](./docs/packaging.md)**.
 
 ```bash
-./scripts/package.sh all-linux   # Linux: deb + rpm + AppImage
-./scripts/package.sh dmg         # macOS only (or use CI macos job)
+./scripts/package.sh all-linux   # Linux: deb + rpm + AppImage → target/dist/ + SHA256SUMS
+./scripts/package.sh dmg         # macOS only (or CI artifact hypershot-macos-dmg)
+./scripts/package.sh msi         # Windows only (or CI artifact hypershot-windows-msi)
 ```
 
-CI workflow: `.github/workflows/package.yml` (tags `v*`, `main` pushes, or manual dispatch). Windows installers are later.
+CI workflow: `.github/workflows/package.yml` (PR, tags `v*`, `main`, or **Run workflow**). Verify: `cd target/dist && sha256sum -c SHA256SUMS`.
 
 ## Quick start
 
@@ -229,7 +230,7 @@ Settings stays a fixed, monitor-scaled floating window (not tiled; height does n
 | Guide | Description |
 | --- | --- |
 | [User guide](./docs/user-guide.md) | Capture → annotate → save / clipboard → settings → hotkeys |
-| [Packaging](./docs/packaging.md) | Build deb, rpm, AppImage, and dmg |
+| [Packaging](./docs/packaging.md) | Build deb, rpm, AppImage, dmg, and MSI (+ SHA256) |
 
 ## Contributing
 

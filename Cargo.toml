@@ -1,6 +1,6 @@
 [package]
 name = "hypershot"
-version = "1.22.0"
+version = "1.23.0"
 edition = "2024"
 description = "HyperShot — cross-platform screenshot tool with annotation"
 license = "MIT"
@@ -15,8 +15,9 @@ categories = ["command-line-utilities", "multimedia::images"]
 name = "hypershot"
 path = "src/main.rs"
 
-# cargo-packager: deb / AppImage (Linux), app / dmg (macOS). No RPM format.
-# Docs: https://docs.crabnebula.dev/packager/configuration/
+# cargo-packager: deb / AppImage (Linux), app / dmg (macOS), wix MSI (Windows).
+# RPM stays on cargo-generate-rpm. Docs: https://docs.crabnebula.dev/packager/configuration/
+# CI overrides --formats per OS. Local Linux default: deb + AppImage.
 [package.metadata.packager]
 product-name = "HyperShot"
 identifier = "com.kmfd14.hypershot"
@@ -54,6 +55,10 @@ desktop-template = "assets/packaging/hypershot.desktop.hbs"
 files = { "assets/packaging/hypershot-256.png" = "/usr/share/icons/hicolor/256x256/apps/hypershot.png", "assets/packaging/hypershot-128.png" = "/usr/share/icons/hicolor/128x128/apps/hypershot.png", "assets/packaging/hypershot-64.png" = "/usr/share/icons/hicolor/64x64/apps/hypershot.png", "assets/packaging/hypershot-32.png" = "/usr/share/icons/hicolor/32x32/apps/hypershot.png" }
 
 [package.metadata.packager.dmg]
+
+# WiX MSI (Windows). Built on windows-latest via CI or a Windows host.
+[package.metadata.packager.wix]
+languages = ["en-US"]
 
 # cargo-deb (alternative local path for deb)
 [package.metadata.deb]

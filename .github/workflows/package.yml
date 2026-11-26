@@ -2,6 +2,7 @@ name: Package
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [main]
     tags: ["v*"]
@@ -48,20 +49,24 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Package deb + AppImage
-        run: cargo packager --release --formats deb,appimage
+      - name: Package deb + AppImage + rpm
+        run: |
+          cargo packager --release --formats deb,appimage
+          cargo generate-rpm
 
-      - name: Package rpm
-        run: cargo generate-rpm
+      - name: Stage versioned artifacts + SHA256SUMS
+        run: ./scripts/stage-and-hash.sh
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: hypershot-linux-packages
           path: |
-            target/packager/*.deb
-            target/packager/*.AppImage
-            target/generate-rpm/*.rpm
+            target/dist/*.deb
+            target/dist/*.rpm
+            target/dist/*.AppImage
+            target/dist/SHA256SUMS
+            target/dist/*.sha256
           if-no-files-found: error
 
   macos:
@@ -94,11 +99,60 @@ jobs:
       - name: Package app + dmg
         run: cargo packager --release --formats app,dmg
 
+      - name: Stage versioned artifacts + SHA256SUMS
+        run: ./scripts/stage-and-hash.sh
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: hypershot-macos-dmg
           path: |
-            target/packager/*.dmg
-            target/packager/*.app
+            target/dist/*.dmg
+            target/dist/SHA256SUMS
+            target/dist/*.sha256
+          if-no-files-found: error
+
+  windows:
+    name: Windows packages (MSI)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and packager tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: package-windows-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install cargo-packager
+        shell: bash
+        run: |
+          cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION" || true
+          command -v cargo-packager
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package MSI (WiX)
+        run: cargo packager --release --formats wix
+
+      - name: Stage versioned artifacts + SHA256SUMS
+        shell: bash
+        run: ./scripts/stage-and-hash.sh
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-windows-msi
+          path: |
+            target/dist/*.msi
+            target/dist/SHA256SUMS
+            target/dist/*.sha256
           if-no-files-found: error

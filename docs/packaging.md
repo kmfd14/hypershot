@@ -7,15 +7,19 @@ Build installers for optional system installs. Day-to-day development still uses
 | `.deb` | `cargo-packager` or `cargo-deb` | Linux |
 | `.rpm` | `cargo-generate-rpm` | Linux |
 | `.AppImage` | `cargo-packager` | Linux |
-| `.dmg` (+ `.app`) | `cargo-packager` | **macOS** (or GitHub Actions `macos-latest`) |
+| `.dmg` (+ `.app`) | `cargo-packager` | **macOS** / CI `macos-latest` |
+| `.msi` | `cargo-packager` (WiX) | **Windows** / CI `windows-latest` |
 
-This Linux machine cannot produce a DMG. Use the [Package](../.github/workflows/package.yml) workflow on a macOS runner, or build on a Mac.
+Linux hosts build deb / rpm / AppImage locally. DMG and MSI need macOS and Windows (or the Package workflow artifacts).
+
+Every staged file under `target/dist/` includes the crate **version** in its filename and ships with `SHA256SUMS` plus a `.sha256` sidecar.
 
 Config lives in:
 
-- `Cargo.toml` → `[package.metadata.packager]` (deb / AppImage / dmg)
+- `Cargo.toml` → `[package.metadata.packager]` (deb / AppImage / dmg / wix)
 - `Cargo.toml` → `[package.metadata.deb]` and `[package.metadata.generate-rpm]`
 - `assets/packaging/` — icons + desktop entry
+- `scripts/package.sh` / `scripts/stage-and-hash.sh`
 
 ## One-time tool installs
 
@@ -25,84 +29,121 @@ cargo install cargo-deb --locked
 cargo install cargo-generate-rpm --locked
 ```
 
-Linux AppImage builds also need FUSE / `libfuse2` on the builder (CI installs these).
+Linux AppImage builds also need FUSE / `libfuse2` on the builder (CI installs these). Windows MSI needs WiX (cargo-packager fetches tooling on the Windows runner).
 
-## Build each format
+## Build each format (local)
 
-From the repo root, after installing the tools above:
-
-### 1. Deb (Linux)
+From the repo root:
 
 ```bash
-cargo build --release
+./scripts/package.sh all-linux   # deb + rpm + AppImage → target/dist/ + SHA256SUMS
+./scripts/package.sh deb
+./scripts/package.sh rpm
+./scripts/package.sh appimage
+./scripts/package.sh dmg         # macOS only
+./scripts/package.sh msi         # Windows only
+./scripts/package.sh stage       # re-stage + re-hash existing outputs
+```
+
+Equivalent manual steps:
+
+### Deb (Linux)
+
+```bash
+cargo build --release --locked
 cargo packager --release --formats deb
-# or: cargo deb
+./scripts/stage-and-hash.sh
 ```
 
-Artifacts: `target/packager/*.deb` (packager) or `target/debian/*.deb` (cargo-deb).
-
-### 2. RPM (Linux)
+### RPM (Linux)
 
 ```bash
-cargo build --release
+cargo build --release --locked
 cargo generate-rpm
+./scripts/stage-and-hash.sh
 ```
 
-Artifact: `target/generate-rpm/*.rpm`.
-
-### 3. AppImage (Linux)
+### AppImage (Linux)
 
 ```bash
-cargo build --release
+cargo build --release --locked
 cargo packager --release --formats appimage
+./scripts/stage-and-hash.sh
 ```
 
-Artifact: `target/packager/*.AppImage`. Mark executable if needed: `chmod +x …AppImage`.
-
-### 4. DMG (macOS only)
+### DMG (macOS only)
 
 ```bash
-cargo build --release
+cargo build --release --locked
 cargo packager --release --formats app,dmg
+./scripts/stage-and-hash.sh
 ```
 
-Artifacts: `target/packager/*.app` and `target/packager/*.dmg`.
-
-On Linux, trigger CI instead:
-
-1. Push a tag `v*` or run **Actions → Package → Run workflow**.
-2. Download the `hypershot-macos-dmg` artifact.
-
-## Helper script
+### MSI (Windows only)
 
 ```bash
-./scripts/package.sh deb        # Linux
-./scripts/package.sh rpm        # Linux
-./scripts/package.sh appimage   # Linux
-./scripts/package.sh all-linux  # deb + rpm + AppImage
-./scripts/package.sh dmg        # macOS only; errors on Linux
+cargo build --release --locked
+cargo packager --release --formats wix
+./scripts/stage-and-hash.sh
 ```
 
-## CI
+Staged paths look like:
 
-`.github/workflows/package.yml` runs on:
+- `target/dist/hypershot_<version>_amd64.deb`
+- `target/dist/hypershot-<version>-1.x86_64.rpm`
+- `target/dist/hypershot_<version>_x86_64.AppImage`
+- `target/dist/HyperShot_<version>_*.dmg` (CI / macOS)
+- `target/dist/HyperShot_<version>_*.msi` (CI / Windows)
+- `target/dist/SHA256SUMS`
+- `target/dist/<file>.sha256`
 
-- `workflow_dispatch`
-- push tags matching `v*`
-- push to `main` (artifacts only; does not create a GitHub Release unless tagged)
+## Verify checksums
 
-Jobs:
+```bash
+cd target/dist
+sha256sum -c SHA256SUMS          # Linux
+# shasum -a 256 -c SHA256SUMS    # macOS
+```
 
-1. **linux** — build release binary, then deb + rpm + AppImage; upload artifacts
-2. **macos** — build release binary, then app + dmg; upload artifacts
+Or check one file:
 
-Windows installers are out of scope for this packaging pass.
+```bash
+sha256sum -c hypershot_1.23.0_amd64.deb.sha256
+```
+
+## Get DMG / MSI from CI
+
+This Linux machine cannot produce DMG or MSI. Use GitHub Actions:
+
+1. Open **Actions → Package** (`.github/workflows/package.yml`).
+2. Run on a PR push, `main`, a `v*` tag, or **Run workflow**.
+3. Download artifacts:
+   - `hypershot-macos-dmg` — versioned `.dmg` + `SHA256SUMS`
+   - `hypershot-windows-msi` — versioned `.msi` + `SHA256SUMS`
+   - `hypershot-linux-packages` — `.deb` / `.rpm` / `.AppImage` + checksums
+
+From the CLI (after a workflow run finishes):
+
+```bash
+gh run list --workflow=package.yml --branch <branch> --limit 5
+gh run download <run-id> -n hypershot-macos-dmg
+gh run download <run-id> -n hypershot-windows-msi
+```
+
+## CI summary
+
+`.github/workflows/package.yml` jobs:
+
+1. **linux** — deb + rpm + AppImage → stage + hash → upload
+2. **macos** — app + dmg → stage + hash → upload
+3. **windows** — WiX MSI → stage + hash → upload
 
 ## Install tips
 
 - Deb: `sudo apt install ./hypershot_*.deb`
 - RPM: `sudo dnf install ./hypershot-*.rpm`
-- AppImage: `chmod +x HyperShot*.AppImage && ./HyperShot*.AppImage capture`
+- AppImage: `chmod +x hypershot_*.AppImage && ./hypershot_*.AppImage capture`
 - DMG: open the disk image and drag HyperShot into Applications
+- MSI: run the installer on Windows 10/11
 
 Runtime deps (portal / `grim` / clipboard tools) are still needed on Linux; see the main README.
