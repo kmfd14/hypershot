@@ -6,6 +6,7 @@ mod capture;
 mod config;
 mod desktop;
 mod icons;
+mod mode_chooser;
 mod onscreen;
 mod output;
 mod region_select;
@@ -21,7 +22,10 @@ use clap::{Parser, Subcommand};
 
 use annotate::{run_annotate_overlay, AnnotateOutcome};
 use capture::{capture_to_png, CaptureMode};
-use config::{AnnotateSessionMode, Config, APP_NAME};
+use config::{
+    AnnotateSessionMode, Config, DefaultCaptureMode, APP_NAME,
+};
+use mode_chooser::run_mode_chooser;
 use onscreen::{run_onscreen_annotate_with_options, take_preview_handoff};
 use output::{copy_png_to_clipboard, resolve_output_path};
 use region_select::{run_region_select_and_crop, RegionSelectOutcome};
@@ -62,9 +66,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Capture a region, then annotate.
+    /// Screenshot shortcut entry: Ask Screenshot Type chooser, or Default Mode.
+    Capture,
+    /// Capture a region, then annotate (bypasses the mode chooser).
     Region,
-    /// Capture the full / active output, then annotate.
+    /// Capture the full / active output, then annotate (bypasses the mode chooser).
     Full,
     /// Open the annotate overlay on an existing PNG.
     Annotate {
@@ -73,7 +79,7 @@ enum Commands {
     },
     /// Open the settings window (TOML config; no system install required).
     Settings,
-    /// Run the StatusNotifierItem tray (Linux; Region / Full / Settings / Quit).
+    /// Run the StatusNotifierItem tray (Linux; Screenshot / Settings / Quit).
     Tray,
 }
 
@@ -87,9 +93,20 @@ async fn main() -> Result<()> {
     let want_clipboard = want_clipboard(cli.clipboard, cli.no_clipboard, &cfg);
 
     match cli.command {
+        Commands::Capture => {
+            run_capture(
+                None,
+                cli.output,
+                cli.save_dir,
+                &cfg,
+                cli.no_annotate,
+                want_clipboard,
+            )
+            .await?;
+        }
         Commands::Region => {
             run_capture(
-                CaptureMode::Region,
+                Some(CaptureMode::Region),
                 cli.output,
                 cli.save_dir,
                 &cfg,
@@ -100,7 +117,7 @@ async fn main() -> Result<()> {
         }
         Commands::Full => {
             run_capture(
-                CaptureMode::Full,
+                Some(CaptureMode::Full),
                 cli.output,
                 cli.save_dir,
                 &cfg,
@@ -150,8 +167,9 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// `forced`: explicit `region` / `full` CLI. `None` = `capture` (respect Ask / Default Mode).
 async fn run_capture(
-    mode: CaptureMode,
+    forced: Option<CaptureMode>,
     output: Option<PathBuf>,
     save_dir: Option<PathBuf>,
     cfg: &Config,
@@ -161,9 +179,28 @@ async fn run_capture(
     let dir = resolve_save_dir(save_dir, cfg)?;
     let output = resolve_output_path(output, Some(dir))?;
 
-    // Always capture the full output first. On-screen mode selects + annotates
-    // in one overlay; Preview mode crops then opens the floating window.
+    // Always capture the full output first. Chooser / region select / annotate
+    // run on that frame. Full Screen opens the preview window by default.
     capture_to_png(CaptureMode::Full, &output).await?;
+
+    let mode = match forced {
+        Some(mode) => mode,
+        None if cfg.ask_screenshot_type => {
+            let chosen = run_mode_chooser(&output)?;
+            match chosen.as_capture_mode() {
+                Some(mode) => mode,
+                None => {
+                    let _ = tokio::fs::remove_file(&output).await;
+                    eprintln!("capture cancelled");
+                    return Ok(());
+                }
+            }
+        }
+        None => match cfg.default_capture_mode {
+            DefaultCaptureMode::Region => CaptureMode::Region,
+            DefaultCaptureMode::FullScreen => CaptureMode::Full,
+        },
+    };
 
     if no_annotate {
         if mode == CaptureMode::Region {
@@ -186,7 +223,14 @@ async fn run_capture(
     let mut force_clipboard = false;
     let mut final_path = output.clone();
 
-    match cfg.annotate_session_mode {
+    // Full Screen always opens the floating preview window.
+    let session_mode = if mode == CaptureMode::Full {
+        AnnotateSessionMode::Preview
+    } else {
+        cfg.annotate_session_mode
+    };
+
+    match session_mode {
         AnnotateSessionMode::OnScreen => {
             // Region: drag-select on the overlay. Full: pre-select entire frame.
             let preselect_full = mode == CaptureMode::Full;

@@ -63,11 +63,12 @@ COSMIC and tiling sessions often need `grim` + `slurp` even when the portal pack
 
 ## Capture
 
-Pick one mode. Region is the default path. Run from the checkout. You do not need a system binary.
+Run from the checkout. You do not need a system binary.
 
-1. **Region** — `cargo run --release -- region` → full-screen capture, then on-screen overlay: drag-select with live `W x H`, annotate in place (Esc cancels).
-2. **Fullscreen** — `cargo run --release -- full` → active output, then on-screen overlay with the full frame pre-selected.
-3. Settings → **Annotate mode → Preview window** uses a separate region picker + floating HyperShot window instead.
+1. **Screenshot** — `cargo run --release -- capture` → respects Settings → Capture. With **Ask Screenshot Type** on (default), shows a blurred chooser: left = Region Select, right = Full Screen (Esc cancels). Off → **Default Mode** (Region or Full Screen).
+2. **Region** — `cargo run --release -- region` → skips the chooser; on-screen overlay drag-select with live `W x H` (Esc cancels).
+3. **Full Screen** — `cargo run --release -- full` → skips the chooser; opens the floating preview window.
+4. Settings → **Annotate Mode** still chooses on-screen vs preview for Region. Full Screen always opens preview.
 
 If you see `grim/slurp fallback unavailable`, install the missing tools from [Dependencies](#dependencies) and retry.
 
@@ -88,16 +89,17 @@ After capture, HyperShot stays on a fullscreen overlay: selection rect with hand
 Settings → Annotate mode → Preview window (or after **Open in preview**). HyperShot window with a solid **top** toolbar (always embedded — dock position does not apply here).
 
 1. Top toolbar strip with high-contrast icons. On-screen dock position (left / right / top / bottom) is set under Settings → Overlay and affects **on-screen** mode only.
-2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step number**, **Text**, **Magnify**, **color picker**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the active draw tool gets the soft purple highlight.
+2. Tools: **Arrow**, **Highlighter**, **Line**, **Box**, **Pixelate**, **Step number**, **Text**, **Magnify**, **Crop**, **color picker**, thickness readout, **Undo**, **Redo**, **Clear**, **Settings**, **Save**, **Copy**, **Exit**. Only the active draw tool gets the soft purple highlight.
 3. Stroke color defaults to red. Click the swatch for the color wheel. Highlighter uses a translucent marker look. Pixelate ignores stroke color.
-4. Drag on the image to draw. **Ctrl+scroll** adjusts thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
-5. **Settings** opens the settings sheet.
-6. **Save** opens a save-file dialog. Cancel leaves the window open.
-7. **Enter** always runs save dialog + copy + close (Copied popup).
-8. **Copy** closes annotate immediately, then shows a designed Copied to Clipboard popup.
-9. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on).
-10. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/hypershot/….png`.
-11. Skip annotate: `cargo run --release -- region --no-annotate`.
+4. **Crop**: drag/adjust a rect, **Enter** applies (undoable). Esc clears the crop draft.
+5. Drag on the image to draw. **Ctrl+scroll** adjusts thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
+6. **Settings** opens the settings sheet.
+7. **Save** opens a save-file dialog. Cancel leaves the window open.
+8. **Enter** runs save dialog + copy + close (Copied popup), unless Crop is active with a rect.
+9. **Copy** closes annotate immediately, then shows a designed Copied to Clipboard popup.
+10. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on).
+11. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/hypershot/….png`.
+12. Skip annotate: `cargo run --release -- region --no-annotate`.
 
 **Display note:** Linux needs a graphical session. Headless VMs can `cargo build` but usually cannot open annotate / settings.
 
@@ -130,7 +132,7 @@ cargo run --release -- settings
 Or click **Settings** on the annotate bar. Dark two-pane window: left sidebar, right content, footer with **Open config file** + **OK** / **Cancel** / **Apply**. Apply stays disabled until you change something. Config path: `~/.config/hypershot/config.toml`.
 
 1. **General** — run at startup, replace-default launcher helper (does **not** steal Print Screen), stay in tray, theme. All helpers off by default.
-2. **Capture** — annotate mode (on-screen vs preview window).
+2. **Capture** — Ask Screenshot Type, Default Mode, annotate mode (on-screen vs preview window).
 3. **Overlay** — on-screen toolbar dock, title bar, follow window tiling (annotate only), Esc to exit.
 4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
 5. **Saving** — save directory (**Browse…**) + clipboard default.
@@ -147,21 +149,21 @@ Skip unless you want `hypershot` on your `PATH`. Default stays `cargo run` from 
 
 1. `cargo build --release`
 2. Optionally: `cp target/release/hypershot ~/.local/bin/` (user PATH only, not `/usr`)
-3. Then `hypershot region` / `hypershot full` / `hypershot settings` / `hypershot tray`
+3. Then `hypershot capture` / `hypershot region` / `hypershot full` / `hypershot settings` / `hypershot tray`
 
 ---
 
 ## Hotkeys (desktop binds)
 
-1. Use `cargo run --release -- region` (or the built `hypershot region` / `hypershot full` binary).
+1. Prefer `cargo run --release -- capture` (or built `hypershot capture`) for the Print-style shortcut.
 2. Paste that command into your desktop keyboard settings.
-3. After optional install, bind `hypershot region` / `hypershot full` instead.
+3. After optional install, bind `hypershot capture` (or `region` / `full` to skip the chooser).
 
 | Desktop | Where | Sample |
 | --- | --- | --- |
-| Fedora COSMIC | Settings → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
-| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
-| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
+| Fedora COSMIC | Settings → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
+| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
+| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
 | GNOME / KDE | Custom shortcut | Same command |
 
-Annotate keys: Enter = save + copy + close (Copied popup); Save = dialog + close; Copy = close + Copied popup; Exit / Esc (when enabled) = cancel; Ctrl+Z / Ctrl+Shift+Z = undo / redo.
+Annotate keys: Enter = save + copy + close (Copied popup), or apply Crop when Crop is active; Save = dialog + close; Copy = close + Copied popup; Exit / Esc (when enabled) = cancel; Ctrl+Z / Ctrl+Shift+Z = undo / redo (crop undoable). Preview toolbar includes **Crop**.

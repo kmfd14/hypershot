@@ -16,6 +16,7 @@ use eframe::egui::{self, CornerRadius, Sense, Stroke, Vec2, ViewportBuilder};
 
 use crate::config::{
     clamp_intensity, config_path, default_filename_pattern, AnnotateSessionMode, Config,
+    DefaultCaptureMode,
     SaveFileType, ToolbarPosition, UiTheme, APP_NAME, APP_VERSION,
 };
 use crate::desktop::{apply_desktop_integrations, maybe_spawn_tray};
@@ -669,6 +670,43 @@ impl SettingsApp {
     }
 
     fn page_capture(&mut self, ui: &mut egui::Ui, label: egui::Color32, secondary: egui::Color32) {
+        session_row(
+            ui,
+            &mut self.cfg.ask_screenshot_type,
+            "Ask Screenshot Type",
+            "When on (default), the screenshot shortcut shows Region Select or Full Screen. Esc cancels.",
+            label,
+            secondary,
+        );
+        if !self.cfg.ask_screenshot_type {
+            ui.add_space(10.0);
+            ui.label(
+                egui::RichText::new("Default Mode")
+                    .color(label)
+                    .size(12.5)
+                    .strong(),
+            );
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for mode in DefaultCaptureMode::ALL {
+                    if choice_button(ui, self.cfg.default_capture_mode == mode, mode.label())
+                        .clicked()
+                    {
+                        self.cfg.default_capture_mode = mode;
+                    }
+                }
+            });
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "Used when Ask Screenshot Type is off. Full Screen opens the preview window.",
+                )
+                .color(secondary)
+                .size(11.0),
+            );
+        }
+        ui.add_space(14.0);
         ui.label(
             egui::RichText::new("Annotate Mode")
                 .color(label)
@@ -689,7 +727,7 @@ impl SettingsApp {
         ui.add_space(6.0);
         ui.label(
             egui::RichText::new(
-                "On-screen (default): mark up on the capture. Preview window: HyperShot window with a top toolbar.",
+                "On-screen (default): mark up on the capture. Preview window: HyperShot window with a top toolbar. Full Screen capture always opens preview.",
             )
             .color(secondary)
             .size(11.0),
@@ -1007,6 +1045,20 @@ impl SettingsApp {
 
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
+    (
+        "1.21.0",
+        &[
+            "Capture chooser tile tooltips: Selection Screenshot and Full-Screen Screenshot",
+        ],
+    ),
+    (
+        "1.20.0",
+        &[
+            "Ask Screenshot Type chooser (Region Select / Full Screen) on blurred desktop",
+            "Settings → Capture: Ask Screenshot Type and Default Mode",
+            "Full Screen opens the preview window; preview toolbar adds undoable Crop",
+        ],
+    ),
     (
         "1.19.0",
         &[

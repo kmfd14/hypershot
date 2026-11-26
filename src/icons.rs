@@ -294,6 +294,10 @@ pub fn paint_icon_magnify(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Magnify);
 }
 
+pub fn paint_icon_crop(painter: &egui::Painter, rect: Rect, color: Color32) {
+    paint_iconoir(painter, rect, color, IconId::Crop);
+}
+
 pub fn paint_icon_undo(painter: &egui::Painter, rect: Rect, color: Color32) {
     paint_iconoir(painter, rect, color, IconId::Undo);
 }
