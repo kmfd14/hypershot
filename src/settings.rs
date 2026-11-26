@@ -1046,6 +1046,12 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.21.0",
+        &[
+            "Capture chooser tile tooltips: Selection Screenshot and Full-Screen Screenshot",
+        ],
+    ),
+    (
         "1.20.0",
         &[
             "Ask Screenshot Type chooser (Region Select / Full Screen) on blurred desktop",

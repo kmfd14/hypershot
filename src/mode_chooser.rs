@@ -227,8 +227,12 @@ impl eframe::App for ModeChooserApp {
                     TileKind::Full,
                 );
 
-                let left_resp = ui.interact(left, ui.id().with("chooser_region"), Sense::click());
-                let right_resp = ui.interact(right, ui.id().with("chooser_full"), Sense::click());
+                let left_resp = ui
+                    .interact(left, ui.id().with("chooser_region"), Sense::click())
+                    .on_hover_text(TileKind::Region.tooltip());
+                let right_resp = ui
+                    .interact(right, ui.id().with("chooser_full"), Sense::click())
+                    .on_hover_text(TileKind::Full.tooltip());
                 if left_resp.clicked() {
                     self.set_outcome(ModeChooserOutcome::Region);
                 }
@@ -255,6 +259,15 @@ impl eframe::App for ModeChooserApp {
 enum TileKind {
     Region,
     Full,
+}
+
+impl TileKind {
+    fn tooltip(self) -> &'static str {
+        match self {
+            Self::Region => "Selection Screenshot",
+            Self::Full => "Full-Screen Screenshot",
+        }
+    }
 }
 
 fn chooser_control_rect(center: Pos2) -> Rect {
@@ -348,5 +361,11 @@ mod tests {
         assert!((r.width() - 320.0).abs() < 0.1);
         assert!((r.height() - 120.0).abs() < 0.1);
         assert!((r.center().x - 960.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn tile_tooltip_labels_are_title_case() {
+        assert_eq!(TileKind::Region.tooltip(), "Selection Screenshot");
+        assert_eq!(TileKind::Full.tooltip(), "Full-Screen Screenshot");
     }
 }
