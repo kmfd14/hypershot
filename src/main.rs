@@ -10,6 +10,7 @@ mod onscreen;
 mod output;
 mod region_select;
 mod settings;
+mod text_anno;
 mod tray;
 mod ui;
 

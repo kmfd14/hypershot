@@ -1008,6 +1008,43 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.19.0",
+        &[
+            "Fix region select freeze: text fonts install once per window (not every frame)",
+            "Fontconfig discovery uses correct fc-list format",
+        ],
+    ),
+    (
+        "1.18.0",
+        &[
+            "Text Font picker loads real system Sans/Serif/Mono faces (no unbound-serif panic)",
+            "Font ComboBox / Enter no longer exits annotate like save+copy",
+            "On-screen text style strip shrinks to content (no empty width after U)",
+        ],
+    ),
+    (
+        "1.17.0",
+        &[
+            "Text caret follows L/C/R inside the box while editing",
+            "Text box auto-sizes with content; edge drag moves, handles still resize",
+        ],
+    ),
+    (
+        "1.16.0",
+        &[
+            "Text Align L/C/R follows the text-box width (Center/Right no longer clip away)",
+            "Text stays clipped inside the dashed box (no bleed under the bottom)",
+        ],
+    ),
+    (
+        "1.15.0",
+        &[
+            "In-place text box (no popup): type on canvas, wrap, resize handles",
+            "Text style strip under toolbar (Font, Size, Align, Bold/Italic/Underline)",
+            "Enter inserts a new line; Esc or click outside commits the box",
+        ],
+    ),
+    (
         "1.14.0",
         &[
             "Apply no longer grows embedded Settings height (content auto-expand)",

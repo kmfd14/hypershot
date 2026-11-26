@@ -31,6 +31,12 @@ use crate::output::{
     save_rgba_image,
 };
 use crate::settings::{show_settings_window, EmbeddedSettings};
+use crate::text_anno::{
+    aligned_line_x, clamp_text_rect, default_text_box_at, draw_text_style_strip,
+    hit_text_box_chrome, paint_boxed_text, run_text_box_editor, text_box_inner,
+    text_style_strip_frame, wrap_text_for_export, TextBoxDrag, TextBoxSession, TextStyle,
+    TEXT_STYLE_STRIP_H,
+};
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
@@ -63,7 +69,7 @@ pub(crate) enum Tool {
     Pixelate,
     /// Click to stamp a numbered circle (1, 2, …).
     Step,
-    /// Click to place an editable text label.
+    /// Click to place an in-place editable text box.
     Text,
     /// Circular loupe showing a zoomed preview of nearby content.
     Magnify,
@@ -106,10 +112,11 @@ pub(crate) enum Shape {
         color: Color32,
     },
     Text {
-        pos: Pos2,
+        /// Image-space box; text wraps to width.
+        rect: Rect,
         text: String,
         color: Color32,
-        size: f32,
+        style: TextStyle,
     },
     Magnify {
         center: Pos2,
@@ -295,8 +302,12 @@ struct AnnotateApp {
     next_step_number: u32,
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
-    /// In-progress text label edit (image coords + buffer).
-    text_edit: Option<TextEditDraft>,
+    /// In-progress text box edit (image-space rect + buffer).
+    text_edit: Option<TextBoxSession>,
+    /// Live style for the Text tool / active edit (strip under toolbar).
+    text_style: TextStyle,
+    /// Active resize / move drag on the text box.
+    text_drag: Option<TextBoxDrag>,
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
@@ -308,12 +319,6 @@ struct AnnotateApp {
     applied_title_bar: bool,
     applied_transparency: bool,
     applied_follow_tiling: bool,
-}
-
-#[derive(Debug, Clone)]
-struct TextEditDraft {
-    pos: Pos2,
-    buffer: String,
 }
 
 impl AnnotateApp {
@@ -347,6 +352,8 @@ impl AnnotateApp {
             drag_start: None,
             draft: None,
             text_edit: None,
+            text_style: TextStyle::default(),
+            text_drag: None,
             path,
             outcome,
             finished: false,
@@ -381,10 +388,13 @@ impl AnnotateApp {
     }
 
     fn cancel_draft_or_session(&mut self) {
+        // Exit / Esc-to-exit: drop in-progress drafts first. Esc while typing
+        // commits via the dedicated Esc branch (does not call this).
         if self.draft.is_some() || self.drag_start.is_some() || self.text_edit.is_some() {
             self.draft = None;
             self.drag_start = None;
             self.text_edit = None;
+            self.text_drag = None;
         } else {
             self.set_outcome(AnnotateOutcome::Cancelled);
         }
@@ -397,10 +407,6 @@ impl AnnotateApp {
             self.thickness_hud_until =
                 Some(Instant::now() + Duration::from_secs_f32(THICKNESS_HUD_SECS));
         }
-    }
-
-    fn text_size_for_width(&self) -> f32 {
-        (self.stroke_width * 6.0).clamp(10.0, 72.0)
     }
 
     fn highlighter_color(&self) -> Color32 {
@@ -417,16 +423,28 @@ impl AnnotateApp {
         let Some(edit) = self.text_edit.take() else {
             return;
         };
-        let text = edit.buffer.trim().to_string();
-        if text.is_empty() {
+        self.text_drag = None;
+        let text = edit.buffer.trim_end().to_string();
+        if text.trim().is_empty() {
             return;
         }
         self.push_shape(Shape::Text {
-            pos: edit.pos,
+            rect: clamp_text_rect(edit.rect, self.width, self.height),
             text,
             color: self.stroke_color,
-            size: self.text_size_for_width(),
+            style: self.text_style,
         });
+    }
+
+    fn show_text_style_strip(&self) -> bool {
+        self.tool == Tool::Text || self.text_edit.is_some()
+    }
+
+    fn set_tool(&mut self, tool: Tool) {
+        if tool != Tool::Text {
+            self.commit_text_edit();
+        }
+        self.tool = tool;
     }
 
     fn undo(&mut self) {
@@ -453,6 +471,7 @@ impl AnnotateApp {
         self.draft = None;
         self.drag_start = None;
         self.text_edit = None;
+        self.text_drag = None;
         self.next_step_number = 1;
     }
 
@@ -595,7 +614,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_arrow,
             ) {
-                self.tool = Tool::Arrow;
+                self.set_tool(Tool::Arrow);
             }
             if glass_icon_button(
                 ui,
@@ -605,7 +624,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_highlighter,
             ) {
-                self.tool = Tool::Highlighter;
+                self.set_tool(Tool::Highlighter);
             }
             if glass_icon_button(
                 ui,
@@ -615,7 +634,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_line,
             ) {
-                self.tool = Tool::Line;
+                self.set_tool(Tool::Line);
             }
             if glass_icon_button(
                 ui,
@@ -625,7 +644,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_box,
             ) {
-                self.tool = Tool::Rect;
+                self.set_tool(Tool::Rect);
             }
             if glass_icon_button(
                 ui,
@@ -635,7 +654,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_pixelate,
             ) {
-                self.tool = Tool::Pixelate;
+                self.set_tool(Tool::Pixelate);
             }
             if glass_icon_button(
                 ui,
@@ -645,7 +664,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_step,
             ) {
-                self.tool = Tool::Step;
+                self.set_tool(Tool::Step);
             }
             if glass_icon_button(
                 ui,
@@ -655,7 +674,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_text,
             ) {
-                self.tool = Tool::Text;
+                self.set_tool(Tool::Text);
             }
             if glass_icon_button(
                 ui,
@@ -665,7 +684,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_magnify,
             ) {
-                self.tool = Tool::Magnify;
+                self.set_tool(Tool::Magnify);
             }
 
             glass_color_swatch(ui, &mut self.stroke_color);
@@ -776,27 +795,6 @@ impl AnnotateApp {
                 self.height,
             );
         }
-        if let Some(edit) = &self.text_edit {
-            // Live preview of the label being typed.
-            paint_shape(
-                &painter,
-                &Shape::Text {
-                    pos: edit.pos,
-                    text: if edit.buffer.is_empty() {
-                        "Text".into()
-                    } else {
-                        edit.buffer.clone()
-                    },
-                    color: self.stroke_color,
-                    size: self.text_size_for_width(),
-                },
-                to_screen,
-                scale,
-                &self.pixels,
-                self.width,
-                self.height,
-            );
-        }
 
         // Live size label while dragging a region tool (box / pixelate).
         if let Some(ref draft) = self.draft {
@@ -815,10 +813,43 @@ impl AnnotateApp {
             }
         }
 
+        // Text box: place new / click-outside commit (resize+move live in the editor Area).
+        let pointer = response.interact_pointer_pos();
+        let edit_screen = self.text_edit.as_ref().map(|e| {
+            Rect::from_min_max(to_screen(e.rect.min), to_screen(e.rect.max))
+        });
+
+        if (self.tool == Tool::Text || self.text_edit.is_some())
+            && response.clicked()
+            && self.text_drag.is_none()
+        {
+            if let Some(pos) = pointer {
+                if image_rect.contains(pos) {
+                    let inside_box = edit_screen.is_some_and(|r| r.expand(8.0).contains(pos));
+                    let on_chrome = edit_screen
+                        .is_some_and(|r| hit_text_box_chrome(r, pos).is_some());
+                    if inside_box || on_chrome {
+                        // Keep editing — handled by text box editor Area.
+                    } else if self.tool == Tool::Text {
+                        self.commit_text_edit();
+                        let img = clamp_to_image(to_image(pos), self.width, self.height);
+                        self.text_edit = Some(TextBoxSession::new(default_text_box_at(
+                            img,
+                            self.width,
+                            self.height,
+                        )));
+                    } else {
+                        self.commit_text_edit();
+                    }
+                }
+            }
+        }
+
         if self.tool == Tool::Step {
             if response.clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if image_rect.contains(pos) {
+                        self.commit_text_edit();
                         let center = clamp_to_image(to_image(pos), self.width, self.height);
                         let number = self.next_step_number;
                         self.push_shape(Shape::Step {
@@ -830,21 +861,7 @@ impl AnnotateApp {
                     }
                 }
             }
-        } else if self.tool == Tool::Text {
-            if response.clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    if image_rect.contains(pos) {
-                        // Commit any in-progress edit first, then start a new one.
-                        self.commit_text_edit();
-                        let img = clamp_to_image(to_image(pos), self.width, self.height);
-                        self.text_edit = Some(TextEditDraft {
-                            pos: img,
-                            buffer: String::new(),
-                        });
-                    }
-                }
-            }
-        } else {
+        } else if self.tool != Tool::Text && self.text_edit.is_none() {
             if response.drag_started() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if image_rect.contains(pos) {
@@ -868,6 +885,20 @@ impl AnnotateApp {
                     }
                 }
                 self.drag_start = None;
+            }
+        } else if self.tool != Tool::Text && self.text_edit.is_some() {
+            // Other tool selected while a box is open: click outside already commits above;
+            // dragging other tools waits until the edit is committed.
+            if response.drag_started() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    if image_rect.contains(pos) {
+                        let inside = edit_screen.is_some_and(|r| r.contains(pos));
+                        if !inside {
+                            self.commit_text_edit();
+                            self.drag_start = Some(to_image(pos));
+                        }
+                    }
+                }
             }
         }
     }
@@ -918,41 +949,43 @@ impl AnnotateApp {
         let Some(edit) = self.text_edit.as_ref() else {
             return;
         };
-        let screen_pos = Pos2::new(
-            image_rect.min.x + edit.pos.x * scale,
-            image_rect.min.y + edit.pos.y * scale,
+        let screen_rect = Rect::from_min_max(
+            Pos2::new(
+                image_rect.min.x + edit.rect.min.x * scale,
+                image_rect.min.y + edit.rect.min.y * scale,
+            ),
+            Pos2::new(
+                image_rect.min.x + edit.rect.max.x * scale,
+                image_rect.min.y + edit.rect.max.y * scale,
+            ),
         );
-        let font_px = (self.stroke_width * 6.0 * scale).clamp(12.0, 48.0);
         let color = self.stroke_color;
-        let mut buffer = edit.buffer.clone();
-        let mut commit = false;
-        let mut cancel = false;
-        egui::Area::new(egui::Id::new("hypershot_text_edit"))
-            .fixed_pos(screen_pos)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                ui.set_min_width(160.0);
-                let resp = ui.add(
-                    egui::TextEdit::singleline(&mut buffer)
-                        .hint_text("Text")
-                        .font(egui::FontId::proportional(font_px))
-                        .text_color(color)
-                        .frame(true),
-                );
-                resp.request_focus();
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    commit = true;
-                }
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    cancel = true;
-                }
-            });
-        if let Some(edit) = self.text_edit.as_mut() {
-            edit.buffer = buffer;
-        }
-        if cancel {
-            self.text_edit = None;
-        } else if commit {
+        let style = self.text_style;
+        let img_w = self.width;
+        let img_h = self.height;
+        let to_image = |p: Pos2| -> Pos2 {
+            clamp_to_image(
+                Pos2::new((p.x - image_rect.min.x) / scale, (p.y - image_rect.min.y) / scale),
+                img_w,
+                img_h,
+            )
+        };
+        let frame = {
+            let edit = self.text_edit.as_mut().unwrap();
+            run_text_box_editor(
+                ctx,
+                edit,
+                &mut self.text_drag,
+                screen_rect,
+                &to_image,
+                img_w,
+                img_h,
+                scale,
+                color,
+                style,
+            )
+        };
+        if frame.commit_esc {
             self.commit_text_edit();
         }
     }
@@ -994,21 +1027,21 @@ impl eframe::App for AnnotateApp {
                 if i.key_pressed(egui::Key::Escape) {
                     if self.show_settings {
                         self.show_settings = false;
+                    } else if self.text_edit.is_some() {
+                        // Approved text UX: Esc commits the box (does not discard).
+                        self.commit_text_edit();
                     } else if esc_to_exit {
                         self.cancel_draft_or_session();
-                    } else if self.draft.is_some()
-                        || self.drag_start.is_some()
-                        || self.text_edit.is_some()
-                    {
-                        // Esc-to-exit off: still drop an in-progress drag/edit, never close.
+                    } else if self.draft.is_some() || self.drag_start.is_some() {
+                        // Esc-to-exit off: still drop an in-progress drag, never close.
                         self.draft = None;
                         self.drag_start = None;
-                        self.text_edit = None;
                     }
                 }
                 if !self.show_settings && i.key_pressed(egui::Key::Enter) {
-                    if self.text_edit.is_some() {
-                        // Text editor handles Enter to commit the label.
+                    if self.text_edit.is_some() || self.show_text_style_strip() {
+                        // Enter = newline in the box, or Font ComboBox selection —
+                        // never save+copy while Text / style strip is active.
                     } else if let Err(err) = self.save_and_copy_close() {
                         // Enter always save+copy (dialog → close). Esc-to-exit affects Esc only.
                         eprintln!("annotate save+copy failed: {err:#}");
@@ -1052,6 +1085,17 @@ impl eframe::App for AnnotateApp {
                 ui.set_width(ui.available_width());
                 self.draw_toolbar(ui, true);
             });
+
+        // Quiet secondary strip while Text is active / editing.
+        if self.show_text_style_strip() {
+            egui::TopBottomPanel::top("hypershot_text_style_strip")
+                .exact_height(TEXT_STYLE_STRIP_H)
+                .frame(text_style_strip_frame(&pal))
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    draw_text_style_strip(ui, &mut self.text_style, &pal);
+                });
+        }
 
         egui::CentralPanel::default()
             .frame(
@@ -1299,14 +1343,15 @@ pub(crate) fn paint_shape(
             );
         }
         Shape::Text {
-            pos,
+            rect,
             text,
             color,
-            size,
+            style,
         } => {
-            let p = to_screen(*pos);
-            let font = egui::FontId::proportional((*size * scale).clamp(10.0, 96.0));
-            painter.text(p, egui::Align2::LEFT_TOP, text, font, *color);
+            let screen = Rect::from_min_max(to_screen(rect.min), to_screen(rect.max));
+            let mut scaled = *style;
+            scaled.size = (style.size * scale).clamp(8.0, 96.0);
+            paint_boxed_text(painter, screen, text, *color, scaled);
         }
         Shape::Magnify {
             center,
@@ -1405,12 +1450,12 @@ pub(crate) fn rasterize_shape(img: &mut RgbaImage, shape: &Shape) {
             rasterize_step(img, *center, *number, *color);
         }
         Shape::Text {
-            pos,
+            rect,
             text,
             color,
-            size,
+            style,
         } => {
-            rasterize_text(img, *pos, text, *color, *size);
+            rasterize_text(img, *rect, text, *color, *style);
         }
         Shape::Magnify {
             center,
@@ -1791,23 +1836,66 @@ fn rasterize_magnify(
     }
 }
 
-fn annotate_font() -> ab_glyph::FontRef<'static> {
-    ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/fonts/Ubuntu-Light.ttf"))
-        .expect("vendored Ubuntu-Light font")
+fn annotate_font(kind: crate::text_anno::TextFontKind) -> ab_glyph::FontRef<'static> {
+    ab_glyph::FontRef::try_from_slice(crate::text_anno::annotation_font_bytes(kind)).unwrap_or_else(
+        |_| {
+            ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/fonts/Ubuntu-Light.ttf"))
+                .expect("vendored Ubuntu-Light font")
+        },
+    )
 }
 
-fn rasterize_text(img: &mut RgbaImage, pos: Pos2, text: &str, color: Color32, size: f32) {
-    use ab_glyph::PxScale;
-    use imageproc::drawing::draw_text_mut;
-    if text.is_empty() {
+fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, style: TextStyle) {
+    use ab_glyph::{Font, PxScale, ScaleFont};
+    use imageproc::drawing::{draw_line_segment_mut, draw_text_mut};
+    if text.trim().is_empty() {
         return;
     }
-    let font = annotate_font();
-    let scale = PxScale::from(size.max(8.0));
+    let font = annotate_font(style.font);
+    let size = style.size.max(8.0);
+    let scale = PxScale::from(size);
     let rgba = Rgba([color.r(), color.g(), color.b(), color.a().max(1)]);
-    let x = pos.x.round() as i32;
-    let y = pos.y.round() as i32;
-    draw_text_mut(img, rgba, x, y, scale, &font, text);
+    let line_h = size * 1.25;
+    let inner = text_box_inner(rect);
+    let lines = wrap_text_for_export(text, inner.width().max(8.0), size, style.bold);
+    let scaled = font.as_scaled(scale);
+
+    for (i, line) in lines.iter().enumerate() {
+        let y = inner.min.y + i as f32 * line_h;
+        // Stay inside the box: skip any line that would bleed under the bottom.
+        if y + size > inner.max.y + 0.5 {
+            break;
+        }
+        let text_w = if line.is_empty() {
+            0.0
+        } else {
+            line.chars()
+                .map(|c| scaled.h_advance(scaled.glyph_id(c)))
+                .sum::<f32>()
+        };
+        let x = aligned_line_x(inner.min.x, inner.width(), text_w, style.align);
+        let xi = x.round() as i32;
+        let yi = y.round() as i32;
+        if !line.is_empty() {
+            draw_text_mut(img, rgba, xi, yi, scale, &font, line);
+            if style.bold {
+                // Soft faux-bold: second pass one pixel right.
+                draw_text_mut(img, rgba, xi + 1, yi, scale, &font, line);
+            }
+            if style.italic {
+                // Light faux-italic: second pass one pixel right + up.
+                draw_text_mut(img, rgba, xi + 1, yi - 1, scale, &font, line);
+            }
+        }
+        if style.underline {
+            let uy = y + size * 0.92;
+            if uy <= inner.max.y {
+                let x0 = x;
+                let x1 = x + text_w.max(size * 0.4);
+                draw_line_segment_mut(img, (x0, uy), (x1, uy), rgba);
+            }
+        }
+    }
 }
 
 /// Thick stroke that alpha-blends into the destination (highlighter).
@@ -2366,14 +2454,121 @@ mod tests {
         rasterize_shape(
             &mut img,
             &Shape::Text {
-                pos: Pos2::new(4.0, 8.0),
+                rect: Rect::from_min_size(Pos2::new(4.0, 8.0), Vec2::new(110.0, 36.0)),
                 text: "Hi".into(),
                 color: DEFAULT_STROKE,
-                size: 24.0,
+                style: TextStyle {
+                    size: 24.0,
+                    ..TextStyle::default()
+                },
             },
         );
         let lit = img.pixels().filter(|p| p.0[0] > 40).count();
         assert!(lit > 20, "text should paint visible pixels ({lit})");
+    }
+
+    #[test]
+    fn rasterize_text_wraps_inside_box() {
+        let mut img = RgbaImage::from_pixel(160, 120, Rgba([0, 0, 0, 255]));
+        rasterize_shape(
+            &mut img,
+            &Shape::Text {
+                rect: Rect::from_min_size(Pos2::new(4.0, 4.0), Vec2::new(70.0, 100.0)),
+                text: "wrap this long label here".into(),
+                color: DEFAULT_STROKE,
+                style: TextStyle {
+                    size: 16.0,
+                    ..TextStyle::default()
+                },
+            },
+        );
+        let lit = img.pixels().filter(|p| p.0[0] > 40).count();
+        assert!(lit > 40, "wrapped text should paint visible pixels ({lit})");
+    }
+
+    #[test]
+    fn rasterize_text_center_and_right_stay_in_box() {
+        use crate::text_anno::TextAlignKind;
+        let box_rect = Rect::from_min_size(Pos2::new(20.0, 10.0), Vec2::new(120.0, 40.0));
+        for align in [TextAlignKind::Center, TextAlignKind::Right] {
+            let mut img = RgbaImage::from_pixel(200, 80, Rgba([0, 0, 0, 255]));
+            rasterize_shape(
+                &mut img,
+                &Shape::Text {
+                    rect: box_rect,
+                    text: "Hi".into(),
+                    color: DEFAULT_STROKE,
+                    style: TextStyle {
+                        size: 20.0,
+                        align,
+                        ..TextStyle::default()
+                    },
+                },
+            );
+            let lit: Vec<_> = img
+                .enumerate_pixels()
+                .filter(|(_, _, p)| p.0[0] > 40)
+                .map(|(x, y, _)| (x, y))
+                .collect();
+            assert!(!lit.is_empty(), "{align:?} should paint glyphs");
+            let min_x = lit.iter().map(|(x, _)| *x).min().unwrap();
+            let max_x = lit.iter().map(|(x, _)| *x).max().unwrap();
+            let max_y = lit.iter().map(|(_, y)| *y).max().unwrap();
+            assert!(
+                min_x as f32 >= box_rect.min.x - 1.0,
+                "{align:?} bleeds left ({min_x})"
+            );
+            assert!(
+                max_x as f32 <= box_rect.max.x + 1.0,
+                "{align:?} bleeds right ({max_x})"
+            );
+            assert!(
+                max_y as f32 <= box_rect.max.y + 1.0,
+                "{align:?} bleeds below ({max_y})"
+            );
+            if align == TextAlignKind::Right {
+                assert!(
+                    min_x as f32 > box_rect.min.x + 20.0,
+                    "Right align should sit toward the right edge (min_x={min_x})"
+                );
+            }
+            if align == TextAlignKind::Center {
+                let mid = (box_rect.min.x + box_rect.max.x) * 0.5;
+                let cx = (min_x + max_x) as f32 * 0.5;
+                assert!(
+                    (cx - mid).abs() < 30.0,
+                    "Center align should sit near box mid (cx={cx}, mid={mid})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rasterize_text_clips_vertical_overflow() {
+        let mut img = RgbaImage::from_pixel(120, 60, Rgba([0, 0, 0, 255]));
+        let box_rect = Rect::from_min_size(Pos2::new(4.0, 4.0), Vec2::new(100.0, 28.0));
+        rasterize_shape(
+            &mut img,
+            &Shape::Text {
+                rect: box_rect,
+                text: "one\ntwo\nthree\nfour".into(),
+                color: DEFAULT_STROKE,
+                style: TextStyle {
+                    size: 18.0,
+                    ..TextStyle::default()
+                },
+            },
+        );
+        let below = img
+            .enumerate_pixels()
+            .filter(|(x, y, p)| {
+                *x >= box_rect.min.x as u32
+                    && *x < box_rect.max.x as u32
+                    && *y > box_rect.max.y as u32
+                    && p.0[0] > 40
+            })
+            .count();
+        assert_eq!(below, 0, "no glyphs should paint under the box bottom");
     }
 
     #[test]
