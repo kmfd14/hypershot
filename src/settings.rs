@@ -1,7 +1,9 @@
 //! Settings window: dark two-pane chrome (sidebar + content + footer).
 //!
-//! Fixed, monitor-scaled size — never tiled / never auto-grows. Matches the
-//! dark reference look: lavender accent, OK / Cancel / Apply.
+//! Monitor-scaled default size; user-resizable. Content stays clipped to the
+//! viewport so tiling WMs cannot auto-grow the shell. Dialog + always-on-top
+//! keep it out of tiling. Matches the dark reference look: lavender accent,
+//! OK / Cancel / Apply, rounded corners, flat minimal outline.
 //!
 //! Sidebar keeps General, Capture, Overlay, Annotation Window, Saving,
 //! File, About. Upload / S3 / History / Recording / Camera and the
@@ -10,7 +12,7 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use eframe::egui::{self, Sense, Stroke, Vec2, ViewportBuilder};
+use eframe::egui::{self, CornerRadius, Sense, Stroke, Vec2, ViewportBuilder};
 
 use crate::config::{
     clamp_intensity, config_path, default_filename_pattern, AnnotateSessionMode, Config,
@@ -26,7 +28,7 @@ use crate::ui::{
     SETTINGS_SIDEBAR_W,
 };
 
-/// Design size at ~1080p; scaled to the monitor, then locked (includes custom title bar).
+/// Design size at ~1080p; scaled to the monitor as the opening default.
 const SETTINGS_DESIGN: Vec2 = Vec2::new(820.0, 560.0);
 
 /// Shared dark title strip — same for `hypershot settings` and annotate-toolbar Settings.
@@ -35,23 +37,31 @@ const SETTINGS_TITLE_H: f32 = 36.0;
 /// Minimal square close control in the title strip.
 const SETTINGS_CLOSE_BTN: f32 = 22.0;
 
+/// Outer shell radius — matches annotate / settings visuals (`window_corner_radius`).
+const SETTINGS_CORNER: u8 = 10;
+
 fn settings_window_title() -> String {
     format!("{APP_NAME} Settings")
 }
 
+fn settings_corner_radius() -> CornerRadius {
+    CornerRadius::same(SETTINGS_CORNER)
+}
+
 /// Shared viewport chrome for the standalone Settings window (and any deferred host).
-fn settings_viewport_builder(size: Vec2) -> ViewportBuilder {
+fn settings_viewport_builder(size: Vec2, min_size: Vec2) -> ViewportBuilder {
     ViewportBuilder::default()
         .with_title(settings_window_title())
         .with_inner_size([size.x, size.y])
-        .with_min_inner_size([size.x, size.y])
-        .with_max_inner_size([size.x, size.y])
-        .with_resizable(false)
+        .with_min_inner_size([min_size.x, min_size.y])
+        .with_resizable(true)
         .with_maximize_button(false)
         .with_minimize_button(false)
         // Custom title strip inside the shell — keep OS chrome off so both entry
-        // points match (standalone CLI and annotate gear).
+        // points match (standalone CLI and annotate gear). Transparent so the
+        // painted rounded shell can show through (no hard rectangular outline).
         .with_decorations(false)
+        .with_transparent(true)
         .with_always_on_top()
         .with_window_type(egui::X11WindowType::Dialog)
 }
@@ -61,9 +71,9 @@ pub fn run_settings_window() -> Result<()> {
     ensure_display_available()?;
 
     let cfg = Config::load().unwrap_or_default();
-    // Start at design size; first frame re-scales to the monitor and locks it.
+    // Start at design size; first frame re-scales to the monitor as the default.
     let options = eframe::NativeOptions {
-        viewport: settings_viewport_builder(SETTINGS_DESIGN),
+        viewport: settings_viewport_builder(SETTINGS_DESIGN, settings_min_size(SETTINGS_DESIGN)),
         centered: true,
         ..Default::default()
     };
@@ -97,8 +107,8 @@ fn ensure_display_available() -> Result<()> {
     Ok(())
 }
 
-/// Fixed Settings size: design aspect scaled to the monitor so content fits.
-fn settings_fixed_size(screen: egui::Rect) -> Vec2 {
+/// Default Settings size: design aspect scaled to the monitor so content fits.
+fn settings_default_size(screen: egui::Rect) -> Vec2 {
     let sw = screen.width().max(1.0);
     let sh = screen.height().max(1.0);
     // Fit design into ~72% of the work area; clamp so small/large monitors stay usable.
@@ -111,15 +121,48 @@ fn settings_fixed_size(screen: egui::Rect) -> Vec2 {
     )
 }
 
-/// Keep Settings out of tiling: fixed size + not resizable + always-on-top.
-fn enforce_fixed_settings_viewport(ctx: &egui::Context, size: Vec2) {
-    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
-    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(size));
-    ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(size));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+/// Smallest useful Settings size (still fits sidebar + footer).
+fn settings_min_size(default: Vec2) -> Vec2 {
+    Vec2::new(
+        (default.x * 0.82).max(560.0).round(),
+        (default.y * 0.82).max(420.0).round(),
+    )
+}
+
+/// Keep Settings floating (never participates in desktop tiling).
+///
+/// Settings ignores the annotate-only `follow_window_tiling` pref. Do **not**
+/// spam Maximized/Fullscreen every frame — some WMs reset geometry when those
+/// are toggled repeatedly. Size snap-back is handled separately and sparingly.
+fn apply_settings_viewport_chrome(ctx: &egui::Context, min_size: Vec2) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min_size));
     ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
         egui::WindowLevel::AlwaysOnTop,
     ));
+}
+
+/// True when `current` is a clear near-monitor vertical tile away from `intended`.
+///
+/// Requires a real `monitor` size. Never pass `current` as the monitor — that
+/// made every user edge-grow look “tiled” and snap back forever.
+fn settings_size_looks_tiled(
+    current: Vec2,
+    intended: Vec2,
+    monitor: Option<Vec2>,
+) -> bool {
+    let Some(monitor) = monitor.filter(|m| m.y > 1.0 && m.x > 1.0) else {
+        return false;
+    };
+    let grew_tall = current.y > intended.y + 80.0;
+    let fills_monitor_h = current.y >= monitor.y * 0.90;
+    let sudden = current.y >= intended.y * 1.35 || (current.y - intended.y) > 120.0;
+    grew_tall && fills_monitor_h && sudden
+}
+
+/// After Apply/OK, a tiling WM may stretch height without a reliable maximize bit
+/// (especially on Wayland). Only used while `reassert_floating_frames` is active.
+fn settings_apply_height_drifted(current: Vec2, intended: Vec2) -> bool {
+    current.y > intended.y + 40.0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,8 +210,14 @@ struct SettingsApp {
     status: String,
     close_requested: bool,
     nav: NavId,
-    /// Locked outer size (monitor-scaled). Set on first frame.
-    fixed_size: Option<Vec2>,
+    /// Opening default size (monitor-scaled). Computed once on first frame.
+    default_size: Option<Vec2>,
+    /// Last user-accepted (or opening) size — restored if a tiling WM stretches us.
+    intended_size: Option<Vec2>,
+    /// Whether the one-shot `InnerSize` open command was already sent.
+    initial_size_applied: bool,
+    /// Frames left to re-assert floating size after Apply/OK (WM may tile async).
+    reassert_floating_frames: u8,
     /// When true, title-bar drag issues `ViewportCommand::StartDrag` (standalone
     /// Settings). When false (annotate overlay), the egui `Window` owns dragging.
     native_viewport: bool,
@@ -190,8 +239,21 @@ impl SettingsApp {
             status: String::new(),
             close_requested: false,
             nav: NavId::General,
-            fixed_size: None,
+            default_size: None,
+            intended_size: None,
+            initial_size_applied: false,
+            reassert_floating_frames: 0,
             native_viewport,
+        }
+    }
+
+    /// After save: briefly watch for Apply-time tiling stretch, then stop.
+    ///
+    /// Does not lock size forever — only `reassert_floating_frames` frames may
+    /// snap height back if the WM grew the window after Apply/OK.
+    fn request_floating_reassert(&mut self) {
+        if self.native_viewport {
+            self.reassert_floating_frames = 10;
         }
     }
 
@@ -233,7 +295,7 @@ impl SettingsApp {
         self.sync_text_into_cfg();
         match self.cfg.save() {
             Ok(path) => {
-                let mut notes = vec![format!("Saved {}", path.display())];
+                let mut notes = Vec::new();
                 match apply_desktop_integrations(&self.cfg) {
                     Ok(extra) => notes.extend(extra),
                     Err(err) => notes.push(format!("Desktop helpers: {err:#}")),
@@ -241,8 +303,12 @@ impl SettingsApp {
                 if let Err(err) = maybe_spawn_tray(&self.cfg) {
                     notes.push(format!("Tray: {err:#}"));
                 }
-                self.status = notes.join(" · ");
+                // One short line only — a long joined status was wrapping inside the
+                // footer and egui Window auto-expanded height on Apply (embedded).
+                self.status = settings_status_line(&path, &notes);
                 self.baseline = self.cfg.clone();
+                // Standalone only: brief watch for WM stretch after Apply.
+                self.request_floating_reassert();
                 true
             }
             Err(err) => {
@@ -334,12 +400,14 @@ impl SettingsApp {
     fn draw_shell(&mut self, ui: &mut egui::Ui) {
         ui::apply_settings_visuals(ui.ctx(), UiTheme::Dark);
 
+        // Panel fills stay transparent so the outer rounded shell is what you see
+        // in the corners (no square overpaint on the transparent viewport).
         egui::TopBottomPanel::top("hypershot_settings_title")
             .exact_height(SETTINGS_TITLE_H)
             .frame(
                 egui::Frame::new()
-                    .fill(SETTINGS_BG_DARK)
-                    .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::ZERO),
             )
             .show_inside(ui, |ui| {
@@ -353,8 +421,8 @@ impl SettingsApp {
             .exact_height(SETTINGS_FOOTER_H + 8.0)
             .frame(
                 egui::Frame::new()
-                    .fill(SETTINGS_BG_DARK)
-                    .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::symmetric(16, 8)),
             )
             .show_inside(ui, |ui| {
@@ -366,8 +434,8 @@ impl SettingsApp {
             .resizable(false)
             .frame(
                 egui::Frame::new()
-                    .fill(SETTINGS_BG_DARK)
-                    .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::symmetric(10, 12)),
             )
             .show_inside(ui, |ui| {
@@ -377,7 +445,8 @@ impl SettingsApp {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(SETTINGS_BG_DARK)
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::symmetric(20, 14)),
             )
             .show_inside(ui, |ui| {
@@ -539,12 +608,16 @@ impl SettingsApp {
                 }
             });
         });
-        // Status fits inside the fixed footer; truncate visually via single line.
+        // Paint status inside the already-allocated footer — never `ui.label`,
+        // which wraps and grows `last_content_size` (egui Window then auto-expands).
         if !self.status.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.status)
-                    .color(SETTINGS_SECONDARY_DARK)
-                    .size(11.0),
+            let rect = ui.max_rect();
+            ui.painter().text(
+                egui::pos2(rect.left(), rect.bottom() - 2.0),
+                egui::Align2::LEFT_BOTTOM,
+                truncate_status_for_footer(&self.status, rect.width()),
+                egui::FontId::proportional(11.0),
+                SETTINGS_SECONDARY_DARK,
             );
         }
     }
@@ -935,6 +1008,41 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.14.0",
+        &[
+            "Apply no longer grows embedded Settings height (content auto-expand)",
+            "Short Apply status; pinned egui Settings size from on-screen annotate",
+        ],
+    ),
+    (
+        "1.13.0",
+        &[
+            "User Settings resize sticks (no false anti-tile snap-back)",
+            "Apply-only height reassert when a WM stretches after save",
+        ],
+    ),
+    (
+        "1.12.0",
+        &[
+            "Settings stays floating on Apply (no tiling stretch)",
+            "Anti-tile size guard while keeping user resize",
+        ],
+    ),
+    (
+        "1.11.0",
+        &[
+            "Resizable Settings window with title-bar drag",
+            "Rounded Settings corners and flatter minimal outline",
+        ],
+    ),
+    (
+        "1.10.0",
+        &[
+            "Copy closes annotate immediately (no toast delay)",
+            "Compact system-themed Copied to Clipboard popup (Copy / Enter only)",
+        ],
+    ),
+    (
         "1.9.0",
         &[
             "File page with Default File Type (PNG / JPEG / WebP)",
@@ -1168,17 +1276,58 @@ fn session_row(
 }
 
 impl eframe::App for SettingsApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // Transparent clear so rounded corners are not boxed by a hard rect.
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.close_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        // Lock size every frame so a tiling WM cannot slowly stretch height.
-        let size = *self
-            .fixed_size
-            .get_or_insert_with(|| settings_fixed_size(ctx.screen_rect()));
-        enforce_fixed_settings_viewport(ctx, size);
+        let default = *self
+            .default_size
+            .get_or_insert_with(|| settings_default_size(ctx.screen_rect()));
+        let min_size = settings_min_size(default);
+        apply_settings_viewport_chrome(ctx, min_size);
+
+        let current = ctx.screen_rect().size();
+        // Keep Option — never invent a monitor from `current` (see looks_tiled docs).
+        let monitor = ctx.input(|i| i.viewport().monitor_size);
+        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+
+        // First frame only: open at the monitor-scaled default.
+        if !self.initial_size_applied {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(default));
+            self.intended_size = Some(default);
+            self.initial_size_applied = true;
+        } else {
+            let intended = self.intended_size.unwrap_or(default);
+            let reasserting = self.reassert_floating_frames > 0;
+            if reasserting {
+                self.reassert_floating_frames -= 1;
+            }
+
+            // Snap only for: explicit maximize, clear near-monitor tile, or
+            // post-Apply height drift. Never lock InnerSize every frame.
+            let should_snap = maximized
+                || settings_size_looks_tiled(current, intended, monitor)
+                || (reasserting && settings_apply_height_drifted(current, intended));
+
+            if should_snap {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(intended));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::AlwaysOnTop,
+                ));
+            } else if (current - intended).length() > 1.0 {
+                // Genuine user resize — stick at the size they chose.
+                self.intended_size = Some(current);
+            }
+        }
 
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
@@ -1189,11 +1338,21 @@ impl eframe::App for SettingsApp {
         ui::apply_settings_visuals(ctx, UiTheme::Dark);
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(SETTINGS_BG_DARK).inner_margin(0.0))
+            .frame(
+                egui::Frame::new()
+                    .fill(SETTINGS_BG_DARK)
+                    .corner_radius(settings_corner_radius())
+                    .stroke(Stroke::NONE)
+                    .inner_margin(0.0),
+            )
             .show(ctx, |ui| {
-                // Clip shell to the fixed viewport so content never requests growth.
-                ui.set_min_size(ui.available_size());
-                ui.set_max_size(ui.available_size());
+                // Clip to the current viewport so content never requests growth
+                // (avoids the old tiling auto-grow bug without freezing size).
+                let avail = ui.available_size();
+                ui.set_min_size(avail);
+                ui.set_max_size(avail);
+                let clip = ui.max_rect();
+                ui.set_clip_rect(clip);
                 self.draw_shell(ui);
             });
     }
@@ -1204,21 +1363,39 @@ impl eframe::App for SettingsApp {
 /// Returns `true` when the close control is clicked (caller should Cancel).
 fn draw_settings_title_bar(ui: &mut egui::Ui, native_viewport: bool) -> bool {
     let full = ui.available_rect_before_wrap();
+    // Native: Sense::drag so StartDrag fires on press (Wayland needs the
+    // pointer serial; click_and_drag delays past the compositor timeout).
+    // Embedded: Sense::hover so the egui Window Area can own drag-to-move.
+    let sense = if native_viewport {
+        Sense::drag()
+    } else {
+        Sense::hover()
+    };
     let (bar, bar_resp) = ui.allocate_exact_size(
         egui::vec2(full.width(), SETTINGS_TITLE_H),
-        Sense::click_and_drag(),
+        sense,
     );
     let painter = ui.painter_at(bar);
-    painter.rect_filled(bar, 0.0, SETTINGS_BG_DARK);
+    // Title strip sits on the outer rounded shell — no extra fill (avoids squaring corners).
     painter.hline(
         bar.x_range(),
         bar.bottom() - 0.5,
         Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK),
     );
 
-    // Standalone borderless window: drag from the title strip.
-    // Annotate-hosted Window keeps egui's own drag (do not move the capture).
-    if native_viewport && bar_resp.dragged_by(egui::PointerButton::Primary) {
+    let close_rect = egui::Rect::from_center_size(
+        egui::pos2(bar.right() - 14.0 - SETTINGS_CLOSE_BTN * 0.5, bar.center().y),
+        egui::vec2(SETTINGS_CLOSE_BTN, SETTINGS_CLOSE_BTN),
+    );
+    let close_id = ui.id().with("hypershot_settings_close");
+    let close_resp = ui.interact(close_rect, close_id, Sense::click());
+
+    // Standalone borderless window: drag from the title strip on press.
+    // Skip when the pointer is on the close control.
+    if native_viewport
+        && bar_resp.drag_started_by(egui::PointerButton::Primary)
+        && !close_resp.contains_pointer()
+    {
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
@@ -1232,12 +1409,6 @@ fn draw_settings_title_bar(ui: &mut egui::Ui, native_viewport: bool) -> bool {
         SETTINGS_LABEL_DARK,
     );
 
-    let close_rect = egui::Rect::from_center_size(
-        egui::pos2(bar.right() - 14.0 - SETTINGS_CLOSE_BTN * 0.5, bar.center().y),
-        egui::vec2(SETTINGS_CLOSE_BTN, SETTINGS_CLOSE_BTN),
-    );
-    let close_id = ui.id().with("hypershot_settings_close");
-    let close_resp = ui.interact(close_rect, close_id, Sense::click());
     let close_hover = close_resp.hovered();
     if close_hover {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1272,10 +1443,63 @@ fn draw_settings_title_bar(ui: &mut egui::Ui, native_viewport: bool) -> bool {
     close_resp.on_hover_text("Close").clicked()
 }
 
+/// Stable embedded default — do **not** scale from the fullscreen on-screen
+/// host rect (that inflated the dialog and its max toward the whole display).
+fn settings_embedded_default_size() -> Vec2 {
+    SETTINGS_DESIGN
+}
+
+const SETTINGS_EMBEDDED_ID: &str = "hypershot_settings_embedded";
+
+/// True when the pointer is down on a window edge (user edge-resize).
+fn pointer_resizing_window_edge(ctx: &egui::Context, rect: Option<egui::Rect>) -> bool {
+    let Some(rect) = rect else {
+        return false;
+    };
+    let resizing = ctx.input(|i| {
+        if !i.pointer.any_down() {
+            return false;
+        }
+        let Some(pos) = i.pointer.interact_pos() else {
+            return false;
+        };
+        let grip = 10.0_f32;
+        let near_x = (pos.x - rect.left()).abs() <= grip || (pos.x - rect.right()).abs() <= grip;
+        let near_y = (pos.y - rect.top()).abs() <= grip || (pos.y - rect.bottom()).abs() <= grip;
+        (near_x || near_y) && rect.expand(grip).contains(pos)
+    });
+    resizing
+}
+
+/// Short Apply status — never a multi-paragraph join that wraps the footer.
+fn settings_status_line(path: &std::path::Path, notes: &[String]) -> String {
+    let file = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config");
+    if notes.is_empty() {
+        format!("Saved {file}")
+    } else {
+        format!("Saved {file} · {} note(s)", notes.len())
+    }
+}
+
+fn truncate_status_for_footer(status: &str, width: f32) -> String {
+    // ~7px per character at 11pt; keep one line inside the footer.
+    let max_chars = ((width / 7.0).floor() as usize).clamp(12, 96);
+    if status.chars().count() <= max_chars {
+        status.to_string()
+    } else {
+        let mut out: String = status.chars().take(max_chars.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
 /// Draw the settings form inside an egui window (annotate toolbar gear).
 ///
-/// Uses the same fixed size, dark chrome, and custom title strip as
-/// [`run_settings_window`] so both entry points look identical.
+/// Uses the same dark chrome and custom title strip as [`run_settings_window`].
+/// Size is pinned against egui's content auto-expand (Apply must not change height).
 pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut EmbeddedSettings) {
     if !*open {
         return;
@@ -1283,33 +1507,60 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
 
     ui::apply_settings_visuals(ctx, UiTheme::Dark);
     let screen = ctx.screen_rect();
-    let size = settings_fixed_size(screen);
-    let default_pos = egui::pos2(
-        (screen.width() - size.x) * 0.5,
-        (screen.height() - size.y) * 0.5,
+    let default = settings_embedded_default_size();
+    let min_size = settings_min_size(default);
+    let user_max = Vec2::new(
+        screen.width() * 0.92,
+        screen.height() * 0.92,
     );
+    let area_id = egui::Id::new(SETTINGS_EMBEDDED_ID);
+    let last_rect = ctx.memory(|m| m.area_rect(area_id));
+    let user_resizing = pointer_resizing_window_edge(ctx, last_rect);
+
+    let pinned = *state.window_size.get_or_insert(default);
+    // While the user drags an edge, allow growth up to the host. Otherwise clamp
+    // max to the pinned size so content (status text, etc.) cannot auto-expand
+    // the egui Window — that was the Apply height jump from on-screen annotate.
+    let max_size = if user_resizing { user_max } else { pinned };
+    let default_pos = egui::pos2(
+        (screen.width() - pinned.x) * 0.5,
+        (screen.height() - pinned.y) * 0.5,
+    );
+
     egui::Window::new(settings_window_title())
-        .id(egui::Id::new("hypershot_settings_embedded"))
+        .id(area_id)
         .title_bar(false)
-        .resizable(false)
+        .resizable(true)
         .collapsible(false)
-        .fixed_size(size)
-        .min_size(size)
-        .max_size(size)
+        .default_size(pinned)
+        .min_size(min_size)
+        .max_size(max_size)
         .default_pos(default_pos)
         .frame(
             egui::Frame::new()
                 .fill(SETTINGS_BG_DARK)
-                .stroke(Stroke::new(1.0_f32, SETTINGS_SEPARATOR_DARK))
-                // Match borderless standalone chrome (no soft dialog radius).
-                .corner_radius(egui::CornerRadius::ZERO)
+                .stroke(Stroke::NONE)
+                .corner_radius(settings_corner_radius())
                 .inner_margin(0.0),
         )
         .show(ctx, |ui| {
-            ui.set_min_size(size);
-            ui.set_max_size(size);
+            let avail = ui.available_size();
+            ui.set_min_size(avail);
+            ui.set_max_size(avail);
+            ui.set_clip_rect(ui.max_rect());
             state.inner.draw_shell(ui);
         });
+
+    if user_resizing {
+        if let Some(rect) = ctx.memory(|m| m.area_rect(area_id)) {
+            let sz = rect.size();
+            // Stick at the size the user chose.
+            state.window_size = Some(Vec2::new(
+                sz.x.clamp(min_size.x, user_max.x),
+                sz.y.clamp(min_size.y, user_max.y),
+            ));
+        }
+    }
 
     if state.inner.close_requested {
         *open = false;
@@ -1323,6 +1574,8 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
 /// Embeddable settings state for the annotate overlay.
 pub struct EmbeddedSettings {
     inner: SettingsApp,
+    /// Pinned egui Window size — updated only by user edge-resize, never by content.
+    window_size: Option<Vec2>,
 }
 
 impl EmbeddedSettings {
@@ -1331,6 +1584,7 @@ impl EmbeddedSettings {
         Self {
             // Hosted inside annotate/onscreen — do not StartDrag the capture viewport.
             inner: SettingsApp::new_with_host(cfg, false),
+            window_size: None,
         }
     }
 
@@ -1433,18 +1687,94 @@ mod tests {
     }
 
     #[test]
-    fn fixed_size_scales_and_clamps() {
-        let large = settings_fixed_size(egui::Rect::from_min_size(
+    fn default_size_scales_and_clamps() {
+        let large = settings_default_size(egui::Rect::from_min_size(
             egui::pos2(0.0, 0.0),
             egui::vec2(3840.0, 2160.0),
         ));
         assert!(large.x <= SETTINGS_DESIGN.x * 1.15 + 1.0);
         assert!(large.y <= SETTINGS_DESIGN.y * 1.15 + 1.0);
-        let small = settings_fixed_size(egui::Rect::from_min_size(
+        let small = settings_default_size(egui::Rect::from_min_size(
             egui::pos2(0.0, 0.0),
             egui::vec2(1280.0, 720.0),
         ));
         assert!(small.x >= SETTINGS_DESIGN.x * 0.78 - 1.0);
         assert!(small.y >= SETTINGS_DESIGN.y * 0.78 - 1.0);
+        let min = settings_min_size(small);
+        assert!(min.x <= small.x);
+        assert!(min.y <= small.y);
+        assert!(min.x >= 560.0);
+        assert!(min.y >= 420.0);
+    }
+
+    #[test]
+    fn tiling_stretch_detected_against_intended_size() {
+        let intended = Vec2::new(820.0, 560.0);
+        let monitor = Some(Vec2::new(1920.0, 1080.0));
+        let tiled = Vec2::new(820.0, 1080.0);
+        assert!(settings_size_looks_tiled(tiled, intended, monitor));
+        let user_grow = Vec2::new(900.0, 620.0);
+        assert!(!settings_size_looks_tiled(user_grow, intended, monitor));
+        assert!(!settings_size_looks_tiled(intended, intended, monitor));
+        // Missing monitor must not treat user grow as a tile (Wayland-safe).
+        assert!(!settings_size_looks_tiled(tiled, intended, None));
+        assert!(!settings_size_looks_tiled(
+            Vec2::new(900.0, 700.0),
+            intended,
+            None
+        ));
+    }
+
+    #[test]
+    fn apply_height_drift_only_when_taller() {
+        let intended = Vec2::new(820.0, 560.0);
+        assert!(settings_apply_height_drifted(
+            Vec2::new(820.0, 900.0),
+            intended
+        ));
+        assert!(!settings_apply_height_drifted(
+            Vec2::new(900.0, 580.0),
+            intended
+        ));
+        assert!(!settings_apply_height_drifted(intended, intended));
+    }
+
+    #[test]
+    fn persist_requests_floating_reassert_on_native() {
+        let mut app = SettingsApp::new(Config::default());
+        assert_eq!(app.reassert_floating_frames, 0);
+        app.request_floating_reassert();
+        assert!(app.reassert_floating_frames > 0);
+        let mut embedded = EmbeddedSettings::load();
+        embedded.inner.request_floating_reassert();
+        assert_eq!(embedded.inner.reassert_floating_frames, 0);
+    }
+
+    #[test]
+    fn apply_status_stays_one_short_line() {
+        let path = std::path::Path::new("/home/user/.config/hypershot/config.toml");
+        let notes = vec![
+            "Autostart written: /home/user/.config/autostart/hypershot.desktop".into(),
+            "Stay in tray is on: run cargo run -- tray".into(),
+        ];
+        let line = settings_status_line(path, &notes);
+        assert!(line.starts_with("Saved config.toml"));
+        assert!(!line.contains('/'));
+        assert!(line.len() < 80);
+        let long = "x".repeat(200);
+        let truncated = truncate_status_for_footer(&long, 200.0);
+        assert!(truncated.chars().count() <= 96);
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn embedded_default_ignores_fullscreen_host() {
+        assert_eq!(settings_embedded_default_size(), SETTINGS_DESIGN);
+        let fullscreen = settings_default_size(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(3840.0, 2160.0),
+        ));
+        // Embedded must not inherit the large fullscreen-scaled default.
+        assert!(settings_embedded_default_size().y <= fullscreen.y);
     }
 }

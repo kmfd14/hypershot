@@ -10,14 +10,21 @@
 //! Design dials: ENERGY 2 / RHYTHM 2 / MOTION 1 (hover fill only).
 //! Palette note: restrained purple/gray/white is an owner override (R-37).
 
+use std::time::{Duration, Instant};
+
 use eframe::egui::{
     self, Color32, CornerRadius, Id, Margin, Pos2, Rect, Sense, Shadow, Stroke, Theme,
-    ThemePreference, Vec2,
+    ThemePreference, Vec2, ViewportBuilder,
 };
 use eframe::egui::color_picker::{color_picker_color32, Alpha};
 use eframe::egui::popup::{popup_below_widget, PopupCloseBehavior};
 
-use crate::config::UiTheme;
+use crate::config::{UiTheme, APP_NAME};
+
+/// How long the post-copy confirmation popup stays on screen.
+const COPIED_TOAST_SECS: f32 = 1.2;
+/// Compact toast — text + quiet padding only.
+const COPIED_TOAST_SIZE: Vec2 = Vec2::new(196.0, 36.0);
 
 // --- Annotate sizes -----------------------------------------------------------
 
@@ -294,9 +301,12 @@ fn annotate_visuals(dark: bool) -> egui::Visuals {
         w.fg_stroke = Stroke::new(1.0_f32, fg);
         w.corner_radius = CornerRadius::same(8);
     }
+    // Quiet secondary labels / disabled chrome use the muted ink.
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, pal.muted);
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0_f32, pal.toolbar_stroke);
+    // Flatter annotate windows — hairline at most, no heavy outline.
+    visuals.window_stroke = Stroke::new(1.0_f32, with_alpha(pal.toolbar_stroke, 0.35));
     visuals.window_shadow = Shadow {
         offset: [0, 2],
         blur: 8,
@@ -384,7 +394,8 @@ fn settings_visuals(dark: bool) -> egui::Visuals {
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(6);
-    visuals.window_stroke = Stroke::new(1.0_f32, sep);
+    // Flatter Settings shell — no heavy outer outline.
+    visuals.window_stroke = Stroke::NONE;
     visuals.window_shadow = Shadow {
         offset: [0, 1],
         blur: 6,
@@ -821,6 +832,99 @@ pub fn fit_image_rect(area: Rect, img_w: f32, img_h: f32) -> (Rect, f32) {
             (area.height() - display.y) * 0.5,
         );
     (Rect::from_min_size(origin, display), scale)
+}
+
+/// Small always-on-top confirmation after Copy (not Save / Exit).
+///
+/// Annotate windows close immediately on Copy; this popup is the only
+/// “Copied to Clipboard!” feedback, shown once the clipboard write succeeds.
+pub fn show_copied_to_clipboard_toast() {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let x11 = std::env::var_os("DISPLAY").is_some();
+    if !wayland && !x11 {
+        return;
+    }
+
+    let options = eframe::NativeOptions {
+        viewport: ViewportBuilder::default()
+            .with_title(format!("{APP_NAME} — Copied"))
+            .with_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_min_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_max_inner_size([COPIED_TOAST_SIZE.x, COPIED_TOAST_SIZE.y])
+            .with_resizable(false)
+            .with_maximize_button(false)
+            .with_minimize_button(false)
+            .with_decorations(false)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_window_type(egui::X11WindowType::Notification),
+        centered: true,
+        ..Default::default()
+    };
+
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = eframe::run_native(
+            &format!("{APP_NAME} — Copied"),
+            options,
+            Box::new(|cc| {
+                apply_annotate_visuals(&cc.egui_ctx, UiTheme::System);
+                Ok(Box::new(CopiedToastApp {
+                    until: Instant::now() + Duration::from_secs_f32(COPIED_TOAST_SECS),
+                }))
+            }),
+        );
+    }));
+}
+
+struct CopiedToastApp {
+    until: Instant,
+}
+
+impl eframe::App for CopiedToastApp {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        let fill = if visuals.dark_mode {
+            TOOLBAR_FILL_DARK
+        } else {
+            TOOLBAR_FILL
+        };
+        egui::Rgba::from(fill).to_array()
+    }
+
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if Instant::now() >= self.until {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        ctx.request_repaint_after(Duration::from_millis(40));
+
+        let dark = ctx.style().visuals.dark_mode;
+        let (fill, stroke, ink) = if dark {
+            (TOOLBAR_FILL_DARK, TOOLBAR_STROKE_DARK, ICON_LIGHT)
+        } else {
+            (TOOLBAR_FILL, TOOLBAR_STROKE, ICON_DARK)
+        };
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(fill))
+            .show(ctx, |ui| {
+                let full = ui.max_rect();
+                let painter = ui.painter();
+                painter.rect(
+                    full.shrink(0.5),
+                    CornerRadius::same(6),
+                    fill,
+                    Stroke::new(1.0_f32, stroke),
+                    egui::StrokeKind::Inside,
+                );
+                painter.text(
+                    full.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Copied to Clipboard!",
+                    egui::FontId::proportional(12.5),
+                    ink,
+                );
+            });
+    }
 }
 
 #[cfg(test)]

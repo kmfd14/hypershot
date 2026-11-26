@@ -34,7 +34,6 @@ use crate::ui::{
     PASTEL_PRIMARY, TOOLBAR_WIDTH, TOOL_BTN,
 };
 
-const COPY_TOAST_SECS: f32 = 1.15;
 const HANDLE_R: f32 = 5.5;
 const HANDLE_HIT: f32 = 10.0;
 /// Border band (screen px) that affords move — not the interior (drawing).
@@ -166,7 +165,6 @@ struct OnscreenApp {
     path: PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
-    copy_toast_until: Option<Instant>,
     thickness_hud_until: Option<Instant>,
     show_settings: bool,
     settings: EmbeddedSettings,
@@ -223,7 +221,6 @@ impl OnscreenApp {
             path,
             outcome,
             finished: false,
-            copy_toast_until: None,
             thickness_hud_until: None,
             show_settings: false,
             settings,
@@ -377,13 +374,10 @@ impl OnscreenApp {
         Ok(())
     }
 
-    fn copy_with_toast(&mut self) -> Result<()> {
+    fn copy_and_close(&mut self) -> Result<()> {
         let dest = self.path.clone();
         self.write_selection_png(&dest)?;
-        self.copy_toast_until = Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
-        if let Ok(mut slot) = self.outcome.lock() {
-            *slot = AnnotateOutcome::Copied(dest);
-        }
+        self.set_outcome(AnnotateOutcome::Copied(dest));
         Ok(())
     }
 
@@ -393,10 +387,7 @@ impl OnscreenApp {
         };
         self.write_selection_png(&dest)?;
         self.path = dest.clone();
-        self.copy_toast_until = Some(Instant::now() + Duration::from_secs_f32(COPY_TOAST_SECS));
-        if let Ok(mut slot) = self.outcome.lock() {
-            *slot = AnnotateOutcome::Copied(dest);
-        }
+        self.set_outcome(AnnotateOutcome::Copied(dest));
         Ok(())
     }
 
@@ -425,9 +416,6 @@ impl OnscreenApp {
     }
 
     fn cancel_draft_or_session(&mut self) {
-        if self.copy_toast_until.is_some() {
-            return;
-        }
         if self.draft.is_some() || self.drag_start.is_some() {
             self.draft = None;
             self.drag_start = None;
@@ -696,7 +684,7 @@ impl OnscreenApp {
                 TOOL_BTN,
                 paint_icon_copy,
             ) {
-                if let Err(err) = self.copy_with_toast() {
+                if let Err(err) = self.copy_and_close() {
                     eprintln!("copy failed: {err:#}");
                 }
             }
@@ -713,14 +701,6 @@ impl OnscreenApp {
 
 impl eframe::App for OnscreenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(until) = self.copy_toast_until {
-            if Instant::now() >= until {
-                self.copy_toast_until = None;
-                self.finished = true;
-            }
-            ctx.request_repaint_after(Duration::from_millis(50));
-        }
-
         if self.finished {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
@@ -1018,35 +998,6 @@ impl eframe::App for OnscreenApp {
                         });
                 }
             });
-
-        // Copy toast
-        if self.copy_toast_until.is_some() {
-            let screen = ctx.screen_rect();
-            let toast_size = Vec2::new(280.0, 56.0);
-            let pos = Pos2::new(
-                screen.center().x - toast_size.x * 0.5,
-                screen.center().y - toast_size.y * 0.5,
-            );
-            egui::Area::new(egui::Id::new("hypershot_onscreen_toast"))
-                .fixed_pos(pos)
-                .order(egui::Order::Foreground)
-                .interactable(false)
-                .show(ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(Color32::from_rgba_unmultiplied(0xFF, 0xFF, 0xFF, 0xF2))
-                        .stroke(Stroke::new(1.0_f32, pal.toolbar_stroke))
-                        .corner_radius(egui::CornerRadius::same(10))
-                        .inner_margin(egui::Margin::symmetric(16, 12))
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new("Copied to clipboard")
-                                    .color(crate::ui::ICON_DARK)
-                                    .size(14.0)
-                                    .strong(),
-                            );
-                        });
-                });
-        }
 
         // Text editor overlay
         if let Some(edit) = self.text_edit.as_ref() {

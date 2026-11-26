@@ -1,6 +1,6 @@
 # HyperShot: user guide
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.9.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.14.0**
 
 **Do this now** (from the repo checkout, graphical desktop):
 
@@ -10,7 +10,7 @@ cargo run --release -- region
 
 1. Drag-select a region — live size text like `1280 x 720` updates while you drag (Esc cancels). Default is **on-screen** overlay.
 2. Mark up with the bottom flat toolbar (Arrow, Highlighter, Line, Box, Pixelate, Step, Text, Magnify, color, thickness, Undo, Redo, Clear, Settings, Open in preview, Save, Copy, Exit). Only the **active** tool is purple. Ctrl+scroll adjusts stroke thickness.
-3. **Save** → file dialog → close. **Enter** → file dialog + clipboard toast + close. **Copy** → toast + close. **Open in preview** opens the floating HyperShot window. Exit dismisses.
+3. **Save** → file dialog → close. **Enter** → file dialog + copy + close. **Copy** → close immediately, then a **Copied to Clipboard!** popup. **Open in preview** opens the floating HyperShot window. Exit dismisses.
 
 PNG path prints to stdout. About 1–2 minutes for first capture after deps.
 
@@ -93,8 +93,8 @@ Settings → Annotate mode → Preview window (or after **Open in preview**). Hy
 4. Drag on the image to draw. **Ctrl+scroll** adjusts thickness (HUD + toolbar readout). Ctrl+Z undoes; Ctrl+Shift+Z / Ctrl+Y redoes.
 5. **Settings** opens the settings sheet.
 6. **Save** opens a save-file dialog. Cancel leaves the window open.
-7. **Enter** always runs save dialog + copy + toast + close.
-8. **Copy** copies, shows a short toast, then closes.
+7. **Enter** always runs save dialog + copy + close (Copied popup).
+8. **Copy** closes annotate immediately, then shows a designed Copied to Clipboard popup.
 9. **Exit** dismisses without save/copy (same as Escape when **Esc to exit** is on).
 10. Re-open a PNG: `cargo run --release -- annotate ~/Pictures/hypershot/….png`.
 11. Skip annotate: `cargo run --release -- region --no-annotate`.
@@ -164,4 +164,4 @@ Skip unless you want `hypershot` on your `PATH`. Default stays `cargo run` from 
 | Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
 | GNOME / KDE | Custom shortcut | Same command |
 
-Annotate keys: Enter = save + copy + toast + close; Save = dialog + close; Copy = toast + close; Exit / Esc (when enabled) = cancel; Ctrl+Z / Ctrl+Shift+Z = undo / redo.
+Annotate keys: Enter = save + copy + close (Copied popup); Save = dialog + close; Copy = close + Copied popup; Exit / Esc (when enabled) = cancel; Ctrl+Z / Ctrl+Shift+Z = undo / redo.

@@ -25,6 +25,7 @@ use onscreen::{run_onscreen_annotate_with_options, take_preview_handoff};
 use output::{copy_png_to_clipboard, resolve_output_path};
 use region_select::{run_region_select_and_crop, RegionSelectOutcome};
 use settings::{resolve_save_dir, run_settings_window, want_clipboard};
+use ui::show_copied_to_clipboard_toast;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -125,12 +126,12 @@ async fn main() -> Result<()> {
             match run_annotate_overlay(&work_path)? {
                 AnnotateOutcome::Saved(saved) => {
                     cleanup_replaced_capture(&work_path, &saved).await;
-                    finish_output(&saved, want_clipboard).await?;
+                    finish_output(&saved, want_clipboard, false).await?;
                 }
                 AnnotateOutcome::Copied(saved) => {
                     cleanup_replaced_capture(&work_path, &saved).await;
                     // Copy / Enter always forces clipboard, even if config/CLI preferred off.
-                    finish_output(&saved, true).await?;
+                    finish_output(&saved, true, true).await?;
                 }
                 AnnotateOutcome::Cancelled => {
                     eprintln!("annotate cancelled");
@@ -178,7 +179,7 @@ async fn run_capture(
                 }
             }
         }
-        return finish_output(&output, want_clipboard).await;
+        return finish_output(&output, want_clipboard, false).await;
     }
 
     let mut force_clipboard = false;
@@ -297,7 +298,12 @@ async fn run_capture(
         }
     }
 
-    finish_output(&final_path, want_clipboard || force_clipboard).await
+    finish_output(
+        &final_path,
+        want_clipboard || force_clipboard,
+        force_clipboard,
+    )
+    .await
 }
 
 /// If the user saved to a different path than the capture temp file, remove the orphan.
@@ -307,10 +313,19 @@ async fn cleanup_replaced_capture(original: &std::path::Path, saved: &std::path:
     }
 }
 
-async fn finish_output(path: &std::path::Path, want_clipboard: bool) -> Result<()> {
+/// `announce_copy`: show the designed “Copied to Clipboard!” popup (Copy / Enter only).
+async fn finish_output(
+    path: &std::path::Path,
+    want_clipboard: bool,
+    announce_copy: bool,
+) -> Result<()> {
     if want_clipboard {
         match copy_png_to_clipboard(path).await {
-            Ok(true) => {}
+            Ok(true) => {
+                if announce_copy {
+                    show_copied_to_clipboard_toast();
+                }
+            }
             Ok(false) => {
                 eprintln!("clipboard skipped (unexpected)");
             }
