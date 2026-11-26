@@ -1046,6 +1046,20 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.23.0",
+        &[
+            "Windows MSI via cargo-packager WiX; versioned dist artifacts + SHA256SUMS",
+            "Package CI builds Linux, macOS DMG, and Windows MSI",
+        ],
+    ),
+    (
+        "1.22.0",
+        &[
+            "Packaging: deb, rpm, AppImage, and macOS dmg (cargo-packager + cargo-generate-rpm)",
+            "Package CI workflow and docs/packaging.md",
+        ],
+    ),
+    (
         "1.21.0",
         &[
             "Capture chooser tile tooltips: Selection Screenshot and Full-Screen Screenshot",

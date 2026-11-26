@@ -1,10 +1,12 @@
 [package]
 name = "hypershot"
-version = "1.21.0"
+version = "1.23.0"
 edition = "2024"
 description = "HyperShot — cross-platform screenshot tool with annotation"
 license = "MIT"
+authors = ["KM Decena <kmfd14@gmail.com>"]
 repository = "https://github.com/kmfd14/hypershot"
+homepage = "https://github.com/kmfd14/hypershot"
 readme = "README.md"
 keywords = ["screenshot", "annotation", "capture", "cross-platform"]
 categories = ["command-line-utilities", "multimedia::images"]
@@ -12,6 +14,86 @@ categories = ["command-line-utilities", "multimedia::images"]
 [[bin]]
 name = "hypershot"
 path = "src/main.rs"
+
+# cargo-packager: deb / AppImage (Linux), app / dmg (macOS), wix MSI (Windows).
+# RPM stays on cargo-generate-rpm. Docs: https://docs.crabnebula.dev/packager/configuration/
+# CI overrides --formats per OS. Local Linux default: deb + AppImage.
+[package.metadata.packager]
+product-name = "HyperShot"
+identifier = "com.kmfd14.hypershot"
+authors = ["KM Decena"]
+license-file = "LICENSE"
+copyright = "Copyright (c) KM Decena"
+category = "Photography"
+homepage = "https://github.com/kmfd14/hypershot"
+icons = [
+  "assets/packaging/hypershot-32.png",
+  "assets/packaging/hypershot-64.png",
+  "assets/packaging/hypershot-128.png",
+  "assets/packaging/hypershot-256.png",
+  "assets/packaging/hypershot-512.png",
+]
+out-dir = "target/packager"
+formats = ["deb", "appimage"]
+
+[package.metadata.packager.linux]
+generate-desktop-entry = true
+
+[package.metadata.packager.deb]
+section = "graphics"
+priority = "optional"
+depends = [
+  "libxkbcommon0",
+  "libwayland-client0",
+  "libx11-6",
+  "libxi6",
+  "libxcursor1",
+  "libxrandr2",
+  "libglib2.0-0",
+]
+desktop-template = "assets/packaging/hypershot.desktop.hbs"
+files = { "assets/packaging/hypershot-256.png" = "/usr/share/icons/hicolor/256x256/apps/hypershot.png", "assets/packaging/hypershot-128.png" = "/usr/share/icons/hicolor/128x128/apps/hypershot.png", "assets/packaging/hypershot-64.png" = "/usr/share/icons/hicolor/64x64/apps/hypershot.png", "assets/packaging/hypershot-32.png" = "/usr/share/icons/hicolor/32x32/apps/hypershot.png" }
+
+[package.metadata.packager.dmg]
+
+# WiX MSI (Windows). Built on windows-latest via CI or a Windows host.
+[package.metadata.packager.wix]
+languages = ["en-US"]
+
+# cargo-deb (alternative local path for deb)
+[package.metadata.deb]
+name = "hypershot"
+section = "graphics"
+priority = "optional"
+maintainer = "KM Decena <kmfd14@gmail.com>"
+depends = "$auto"
+assets = [
+  ["target/release/hypershot", "usr/bin/", "755"],
+  ["assets/packaging/hypershot.desktop", "usr/share/applications/", "644"],
+  ["assets/packaging/hypershot-256.png", "usr/share/icons/hicolor/256x256/apps/hypershot.png", "644"],
+  ["assets/packaging/hypershot-128.png", "usr/share/icons/hicolor/128x128/apps/hypershot.png", "644"],
+  ["assets/packaging/hypershot-64.png", "usr/share/icons/hicolor/64x64/apps/hypershot.png", "644"],
+  ["assets/packaging/hypershot-32.png", "usr/share/icons/hicolor/32x32/apps/hypershot.png", "644"],
+  ["README.md", "usr/share/doc/hypershot/", "644"],
+  ["LICENSE", "usr/share/doc/hypershot/", "644"],
+]
+
+# cargo-generate-rpm (cargo-packager has no RPM format)
+[package.metadata.generate-rpm]
+name = "hypershot"
+license = "MIT"
+summary = "HyperShot — screenshot tool with annotation"
+url = "https://github.com/kmfd14/hypershot"
+assets = [
+  { source = "target/release/hypershot", dest = "/usr/bin/hypershot", mode = "755" },
+  { source = "assets/packaging/hypershot.desktop", dest = "/usr/share/applications/hypershot.desktop", mode = "644" },
+  { source = "assets/packaging/hypershot-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/hypershot.png", mode = "644" },
+  { source = "assets/packaging/hypershot-128.png", dest = "/usr/share/icons/hicolor/128x128/apps/hypershot.png", mode = "644" },
+  { source = "assets/packaging/hypershot-64.png", dest = "/usr/share/icons/hicolor/64x64/apps/hypershot.png", mode = "644" },
+  { source = "assets/packaging/hypershot-32.png", dest = "/usr/share/icons/hicolor/32x32/apps/hypershot.png", mode = "644" },
+  { source = "README.md", dest = "/usr/share/doc/hypershot/README.md", mode = "644", doc = true },
+  { source = "LICENSE", dest = "/usr/share/licenses/hypershot/LICENSE", mode = "644", doc = true },
+]
 
 [dependencies]
 ab_glyph = "0.2"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=HyperShot
+Comment=Screenshot tool with annotation
+Exec=hypershot capture
+Icon=hypershot
+Terminal=false
+Categories=Graphics;Utility;Photography;
+Keywords=screenshot;capture;annotate;hypershot;
+StartupNotify=false
