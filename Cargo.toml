@@ -1,6 +1,6 @@
 [package]
 name = "hypershot"
-version = "1.12.0"
+version = "1.13.0"
 edition = "2024"
 description = "HyperShot — cross-platform screenshot tool with annotation"
 license = "MIT"

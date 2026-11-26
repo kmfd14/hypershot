@@ -131,27 +131,38 @@ fn settings_min_size(default: Vec2) -> Vec2 {
 
 /// Keep Settings floating (never participates in desktop tiling).
 ///
-/// Settings ignores the annotate-only `follow_window_tiling` pref. Always-on-top
-/// + unmaximize are reasserted; size is only forced back when a tiling WM
-/// (or maximize) has clearly taken over — user resize is still accepted.
+/// Settings ignores the annotate-only `follow_window_tiling` pref. Do **not**
+/// spam Maximized/Fullscreen every frame — some WMs reset geometry when those
+/// are toggled repeatedly. Size snap-back is handled separately and sparingly.
 fn apply_settings_viewport_chrome(ctx: &egui::Context, min_size: Vec2) {
     ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min_size));
     ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
         egui::WindowLevel::AlwaysOnTop,
     ));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
 }
 
-/// True when `current` looks like a tiling/maximize stretch away from `intended`.
-fn settings_size_looks_tiled(current: Vec2, intended: Vec2, monitor: Vec2) -> bool {
-    if monitor.y <= 1.0 {
+/// True when `current` is a clear near-monitor vertical tile away from `intended`.
+///
+/// Requires a real `monitor` size. Never pass `current` as the monitor — that
+/// made every user edge-grow look “tiled” and snap back forever.
+fn settings_size_looks_tiled(
+    current: Vec2,
+    intended: Vec2,
+    monitor: Option<Vec2>,
+) -> bool {
+    let Some(monitor) = monitor.filter(|m| m.y > 1.0 && m.x > 1.0) else {
         return false;
-    }
-    let grew_tall = current.y > intended.y + 48.0;
-    let fills_monitor_h = current.y >= monitor.y * 0.82;
-    // Vertical tile / column: tall fill even if width stayed dialog-sized.
-    grew_tall && fills_monitor_h
+    };
+    let grew_tall = current.y > intended.y + 80.0;
+    let fills_monitor_h = current.y >= monitor.y * 0.90;
+    let sudden = current.y >= intended.y * 1.35 || (current.y - intended.y) > 120.0;
+    grew_tall && fills_monitor_h && sudden
+}
+
+/// After Apply/OK, a tiling WM may stretch height without a reliable maximize bit
+/// (especially on Wayland). Only used while `reassert_floating_frames` is active.
+fn settings_apply_height_drifted(current: Vec2, intended: Vec2) -> bool {
+    current.y > intended.y + 40.0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,10 +247,13 @@ impl SettingsApp {
         }
     }
 
-    /// After save: ask the next few frames to keep Settings floating at intended size.
+    /// After save: briefly watch for Apply-time tiling stretch, then stop.
+    ///
+    /// Does not lock size forever — only `reassert_floating_frames` frames may
+    /// snap height back if the WM grew the window after Apply/OK.
     fn request_floating_reassert(&mut self) {
         if self.native_viewport {
-            self.reassert_floating_frames = 8;
+            self.reassert_floating_frames = 10;
         }
     }
 
@@ -989,6 +1003,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.13.0",
+        &[
+            "User Settings resize sticks (no false anti-tile snap-back)",
+            "Apply-only height reassert when a WM stretches after save",
+        ],
+    ),
+    (
         "1.12.0",
         &[
             "Settings stays floating on Apply (no tiling stretch)",
@@ -1261,7 +1282,8 @@ impl eframe::App for SettingsApp {
         apply_settings_viewport_chrome(ctx, min_size);
 
         let current = ctx.screen_rect().size();
-        let monitor = ctx.input(|i| i.viewport().monitor_size).unwrap_or(current);
+        // Keep Option — never invent a monitor from `current` (see looks_tiled docs).
+        let monitor = ctx.input(|i| i.viewport().monitor_size);
         let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
 
         // First frame only: open at the monitor-scaled default.
@@ -1271,19 +1293,26 @@ impl eframe::App for SettingsApp {
             self.initial_size_applied = true;
         } else {
             let intended = self.intended_size.unwrap_or(default);
-            let tiled = maximized || settings_size_looks_tiled(current, intended, monitor);
-            if tiled || self.reassert_floating_frames > 0 {
-                // Snap back to the last good size — do not adopt the tiled size.
+            let reasserting = self.reassert_floating_frames > 0;
+            if reasserting {
+                self.reassert_floating_frames -= 1;
+            }
+
+            // Snap only for: explicit maximize, clear near-monitor tile, or
+            // post-Apply height drift. Never lock InnerSize every frame.
+            let should_snap = maximized
+                || settings_size_looks_tiled(current, intended, monitor)
+                || (reasserting && settings_apply_height_drifted(current, intended));
+
+            if should_snap {
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(intended));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
                     egui::WindowLevel::AlwaysOnTop,
                 ));
-                if self.reassert_floating_frames > 0 {
-                    self.reassert_floating_frames -= 1;
-                }
             } else if (current - intended).length() > 1.0 {
-                // Genuine user resize (edge drag) — remember it.
+                // Genuine user resize — stick at the size they chose.
                 self.intended_size = Some(current);
             }
         }
@@ -1593,12 +1622,33 @@ mod tests {
     #[test]
     fn tiling_stretch_detected_against_intended_size() {
         let intended = Vec2::new(820.0, 560.0);
-        let monitor = Vec2::new(1920.0, 1080.0);
+        let monitor = Some(Vec2::new(1920.0, 1080.0));
         let tiled = Vec2::new(820.0, 1080.0);
         assert!(settings_size_looks_tiled(tiled, intended, monitor));
         let user_grow = Vec2::new(900.0, 620.0);
         assert!(!settings_size_looks_tiled(user_grow, intended, monitor));
         assert!(!settings_size_looks_tiled(intended, intended, monitor));
+        // Missing monitor must not treat user grow as a tile (Wayland-safe).
+        assert!(!settings_size_looks_tiled(tiled, intended, None));
+        assert!(!settings_size_looks_tiled(
+            Vec2::new(900.0, 700.0),
+            intended,
+            None
+        ));
+    }
+
+    #[test]
+    fn apply_height_drift_only_when_taller() {
+        let intended = Vec2::new(820.0, 560.0);
+        assert!(settings_apply_height_drifted(
+            Vec2::new(820.0, 900.0),
+            intended
+        ));
+        assert!(!settings_apply_height_drifted(
+            Vec2::new(900.0, 580.0),
+            intended
+        ));
+        assert!(!settings_apply_height_drifted(intended, intended));
     }
 
     #[test]
