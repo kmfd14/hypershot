@@ -17,6 +17,9 @@ use crate::ui::{
 /// Hint shown in an empty text box.
 pub(crate) const TEXT_HINT: &str = "Type here";
 
+/// Inner padding inside the dashed text box (matches TextEdit margin).
+pub(crate) const TEXT_BOX_PAD: Vec2 = Vec2::new(4.0, 2.0);
+
 /// Default image-space box size on click.
 pub(crate) const DEFAULT_TEXT_BOX_W: f32 = 180.0;
 pub(crate) const DEFAULT_TEXT_BOX_H: f32 = 48.0;
@@ -452,6 +455,13 @@ pub(crate) fn text_style_strip_frame(pal: &AnnotatePalette) -> Frame {
 }
 
 /// Build a wrapped layout job for preview / paint.
+///
+/// egui’s `halign` positions each row relative to x=0:
+/// - Left → row starts at 0
+/// - Center → row centered on 0
+/// - Right → row ends at 0
+/// So the galley must be placed with [`text_galley_origin`], not the box’s
+/// left edge, or Center/Right will clip away (Right looked empty).
 pub(crate) fn text_layout_job(text: &str, color: Color32, style: TextStyle, wrap_width: f32) -> LayoutJob {
     let mut job = LayoutJob {
         halign: style.align.egui_align(),
@@ -475,6 +485,75 @@ pub(crate) fn text_layout_job(text: &str, color: Color32, style: TextStyle, wrap
     };
     job.append(text, 0.0, fmt);
     job
+}
+
+/// Screen-space origin for a galley laid out with [`text_layout_job`].
+pub(crate) fn text_galley_origin(inner: Rect, align: TextAlignKind) -> Pos2 {
+    match align {
+        TextAlignKind::Left => inner.left_top(),
+        TextAlignKind::Center => Pos2::new(inner.center().x, inner.top()),
+        TextAlignKind::Right => Pos2::new(inner.right(), inner.top()),
+    }
+}
+
+/// Content rect inside the dashed wrapper.
+pub(crate) fn text_box_inner(box_rect: Rect) -> Rect {
+    let mut inner = box_rect.shrink2(TEXT_BOX_PAD);
+    if inner.width() < 1.0 {
+        inner = Rect::from_center_size(box_rect.center(), Vec2::new(1.0, inner.height().max(1.0)));
+    }
+    if inner.height() < 1.0 {
+        inner = Rect::from_center_size(box_rect.center(), Vec2::new(inner.width().max(1.0), 1.0));
+    }
+    inner
+}
+
+/// Paint wrapped, L/C/R-aligned text clipped to `box_rect`.
+pub(crate) fn paint_boxed_text(
+    painter: &egui::Painter,
+    box_rect: Rect,
+    text: &str,
+    color: Color32,
+    style: TextStyle,
+) {
+    if text.is_empty() {
+        return;
+    }
+    let inner = text_box_inner(box_rect);
+    let job = text_layout_job(text, color, style, inner.width());
+    let galley = painter.layout_job(job);
+    let origin = text_galley_origin(inner, style.align);
+    let clip = painter.clip_rect().intersect(box_rect);
+    if clip.width() <= 0.0 || clip.height() <= 0.0 {
+        return;
+    }
+    painter.with_clip_rect(clip).galley(origin, galley, Color32::PLACEHOLDER);
+}
+
+/// Left-aligned layout job for TextEdit (cursor metrics); visuals use [`paint_boxed_text`].
+pub(crate) fn text_edit_layouter_job(
+    text: &str,
+    color: Color32,
+    style: TextStyle,
+    wrap_width: f32,
+    font_px: f32,
+) -> LayoutJob {
+    let mut edit_style = style;
+    edit_style.align = TextAlignKind::Left;
+    let mut job = text_layout_job(text, color, edit_style, wrap_width);
+    for section in &mut job.sections {
+        section.format.font_id = style.font_id(font_px);
+    }
+    job
+}
+
+/// Per-line x origin inside a box (image/export path).
+pub(crate) fn aligned_line_x(box_min_x: f32, box_width: f32, line_width: f32, align: TextAlignKind) -> f32 {
+    match align {
+        TextAlignKind::Left => box_min_x,
+        TextAlignKind::Center => box_min_x + ((box_width - line_width) * 0.5),
+        TextAlignKind::Right => box_min_x + (box_width - line_width),
+    }
 }
 
 /// Word-wrap `text` to roughly `max_width` image pixels for export.
@@ -536,5 +615,29 @@ mod tests {
     fn wrap_keeps_explicit_newlines() {
         let lines = wrap_text_for_export("a\nb\nc", 400.0, 18.0, false);
         assert_eq!(lines, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn galley_origin_follows_box_edges() {
+        let inner = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(100.0, 40.0));
+        assert_eq!(
+            text_galley_origin(inner, TextAlignKind::Left),
+            Pos2::new(10.0, 20.0)
+        );
+        assert_eq!(
+            text_galley_origin(inner, TextAlignKind::Center),
+            Pos2::new(60.0, 20.0)
+        );
+        assert_eq!(
+            text_galley_origin(inner, TextAlignKind::Right),
+            Pos2::new(110.0, 20.0)
+        );
+    }
+
+    #[test]
+    fn aligned_line_x_within_box() {
+        assert!((aligned_line_x(0.0, 100.0, 40.0, TextAlignKind::Left) - 0.0).abs() < 0.01);
+        assert!((aligned_line_x(0.0, 100.0, 40.0, TextAlignKind::Center) - 30.0).abs() < 0.01);
+        assert!((aligned_line_x(0.0, 100.0, 40.0, TextAlignKind::Right) - 60.0).abs() < 0.01);
     }
 }

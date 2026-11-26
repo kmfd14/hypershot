@@ -32,10 +32,10 @@ use crate::output::{
 };
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::text_anno::{
-    apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle, default_text_box_at,
-    draw_text_style_strip, hit_text_box_handle, paint_text_box_chrome, text_layout_job,
-    text_style_strip_frame, wrap_text_for_export, TextBoxHandle, TextStyle, TEXT_HINT,
-    TEXT_STYLE_STRIP_H,
+    aligned_line_x, apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle,
+    default_text_box_at, draw_text_style_strip, hit_text_box_handle, paint_boxed_text,
+    paint_text_box_chrome, text_box_inner, text_edit_layouter_job, text_style_strip_frame,
+    wrap_text_for_export, TextBoxHandle, TextStyle, TEXT_HINT, TEXT_STYLE_STRIP_H,
 };
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
@@ -996,6 +996,31 @@ impl AnnotateApp {
         let color = self.stroke_color;
         let style = self.text_style;
         let font_px = (style.size * scale).clamp(10.0, 72.0);
+        let mut scaled = style;
+        scaled.size = font_px;
+
+        // Visual text (L/C/R + clip). TextEdit below stays left-laid-out for
+        // caret metrics; its glyphs are transparent so alignment isn’t wrong.
+        {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("hypershot_text_edit_paint"),
+            ));
+            if edit.buffer.is_empty() {
+                let mut hint_style = scaled;
+                hint_style.align = crate::text_anno::TextAlignKind::Left;
+                paint_boxed_text(
+                    &painter,
+                    screen_rect,
+                    TEXT_HINT,
+                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 0x88),
+                    hint_style,
+                );
+            } else {
+                paint_boxed_text(&painter, screen_rect, &edit.buffer, color, scaled);
+            }
+        }
+
         let mut buffer = edit.buffer.clone();
         let mut commit_esc = false;
         egui::Area::new(egui::Id::new("hypershot_text_edit"))
@@ -1004,20 +1029,21 @@ impl AnnotateApp {
             .show(ctx, |ui| {
                 ui.set_min_size(screen_rect.size());
                 ui.set_max_size(screen_rect.size());
+                ui.set_clip_rect(screen_rect);
                 let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                    let mut job = text_layout_job(text, color, style, wrap_width);
-                    // Scale font for screen while editing.
-                    for section in &mut job.sections {
-                        section.format.font_id =
-                            style.font_id(font_px);
-                    }
+                    let job = text_edit_layouter_job(
+                        text,
+                        Color32::TRANSPARENT,
+                        style,
+                        wrap_width,
+                        font_px,
+                    );
                     ui.fonts(|f| f.layout_job(job))
                 };
                 let resp = ui.add_sized(
                     screen_rect.size(),
                     egui::TextEdit::multiline(&mut buffer)
-                        .hint_text(TEXT_HINT)
-                        .text_color(color)
+                        .text_color(Color32::TRANSPARENT)
                         .frame(false)
                         .margin(egui::Margin::symmetric(4, 2))
                         .layouter(&mut layouter),
@@ -1396,9 +1422,7 @@ pub(crate) fn paint_shape(
             let screen = Rect::from_min_max(to_screen(rect.min), to_screen(rect.max));
             let mut scaled = *style;
             scaled.size = (style.size * scale).clamp(8.0, 96.0);
-            let job = text_layout_job(text, *color, scaled, screen.width().max(4.0));
-            let galley = painter.layout_job(job);
-            painter.galley(screen.min, galley, Color32::PLACEHOLDER);
+            paint_boxed_text(painter, screen, text, *color, scaled);
         }
         Shape::Magnify {
             center,
@@ -1899,12 +1923,14 @@ fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, s
     let scale = PxScale::from(size);
     let rgba = Rgba([color.r(), color.g(), color.b(), color.a().max(1)]);
     let line_h = size * 1.25;
-    let lines = wrap_text_for_export(text, rect.width().max(8.0), size, style.bold);
+    let inner = text_box_inner(rect);
+    let lines = wrap_text_for_export(text, inner.width().max(8.0), size, style.bold);
     let scaled = font.as_scaled(scale);
 
     for (i, line) in lines.iter().enumerate() {
-        let y = rect.min.y + i as f32 * line_h;
-        if y > rect.max.y + line_h {
+        let y = inner.min.y + i as f32 * line_h;
+        // Stay inside the box: skip any line that would bleed under the bottom.
+        if y + size > inner.max.y + 0.5 {
             break;
         }
         let text_w = if line.is_empty() {
@@ -1914,15 +1940,7 @@ fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, s
                 .map(|c| scaled.h_advance(scaled.glyph_id(c)))
                 .sum::<f32>()
         };
-        let x = match style.align {
-            crate::text_anno::TextAlignKind::Left => rect.min.x,
-            crate::text_anno::TextAlignKind::Center => {
-                rect.min.x + ((rect.width() - text_w) * 0.5).max(0.0)
-            }
-            crate::text_anno::TextAlignKind::Right => {
-                (rect.max.x - text_w).max(rect.min.x)
-            }
-        };
+        let x = aligned_line_x(inner.min.x, inner.width(), text_w, style.align);
         let xi = x.round() as i32;
         let yi = y.round() as i32;
         if !line.is_empty() {
@@ -1938,14 +1956,11 @@ fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, s
         }
         if style.underline {
             let uy = y + size * 0.92;
-            let x0 = x;
-            let x1 = x + text_w.max(size * 0.4);
-            draw_line_segment_mut(
-                img,
-                (x0, uy),
-                (x1, uy),
-                rgba,
-            );
+            if uy <= inner.max.y {
+                let x0 = x;
+                let x1 = x + text_w.max(size * 0.4);
+                draw_line_segment_mut(img, (x0, uy), (x1, uy), rgba);
+            }
         }
     }
 }
@@ -2536,6 +2551,91 @@ mod tests {
         );
         let lit = img.pixels().filter(|p| p.0[0] > 40).count();
         assert!(lit > 40, "wrapped text should paint visible pixels ({lit})");
+    }
+
+    #[test]
+    fn rasterize_text_center_and_right_stay_in_box() {
+        use crate::text_anno::TextAlignKind;
+        let box_rect = Rect::from_min_size(Pos2::new(20.0, 10.0), Vec2::new(120.0, 40.0));
+        for align in [TextAlignKind::Center, TextAlignKind::Right] {
+            let mut img = RgbaImage::from_pixel(200, 80, Rgba([0, 0, 0, 255]));
+            rasterize_shape(
+                &mut img,
+                &Shape::Text {
+                    rect: box_rect,
+                    text: "Hi".into(),
+                    color: DEFAULT_STROKE,
+                    style: TextStyle {
+                        size: 20.0,
+                        align,
+                        ..TextStyle::default()
+                    },
+                },
+            );
+            let lit: Vec<_> = img
+                .enumerate_pixels()
+                .filter(|(_, _, p)| p.0[0] > 40)
+                .map(|(x, y, _)| (x, y))
+                .collect();
+            assert!(!lit.is_empty(), "{align:?} should paint glyphs");
+            let min_x = lit.iter().map(|(x, _)| *x).min().unwrap();
+            let max_x = lit.iter().map(|(x, _)| *x).max().unwrap();
+            let max_y = lit.iter().map(|(_, y)| *y).max().unwrap();
+            assert!(
+                min_x as f32 >= box_rect.min.x - 1.0,
+                "{align:?} bleeds left ({min_x})"
+            );
+            assert!(
+                max_x as f32 <= box_rect.max.x + 1.0,
+                "{align:?} bleeds right ({max_x})"
+            );
+            assert!(
+                max_y as f32 <= box_rect.max.y + 1.0,
+                "{align:?} bleeds below ({max_y})"
+            );
+            if align == TextAlignKind::Right {
+                assert!(
+                    min_x as f32 > box_rect.min.x + 20.0,
+                    "Right align should sit toward the right edge (min_x={min_x})"
+                );
+            }
+            if align == TextAlignKind::Center {
+                let mid = (box_rect.min.x + box_rect.max.x) * 0.5;
+                let cx = (min_x + max_x) as f32 * 0.5;
+                assert!(
+                    (cx - mid).abs() < 30.0,
+                    "Center align should sit near box mid (cx={cx}, mid={mid})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rasterize_text_clips_vertical_overflow() {
+        let mut img = RgbaImage::from_pixel(120, 60, Rgba([0, 0, 0, 255]));
+        let box_rect = Rect::from_min_size(Pos2::new(4.0, 4.0), Vec2::new(100.0, 28.0));
+        rasterize_shape(
+            &mut img,
+            &Shape::Text {
+                rect: box_rect,
+                text: "one\ntwo\nthree\nfour".into(),
+                color: DEFAULT_STROKE,
+                style: TextStyle {
+                    size: 18.0,
+                    ..TextStyle::default()
+                },
+            },
+        );
+        let below = img
+            .enumerate_pixels()
+            .filter(|(x, y, p)| {
+                *x >= box_rect.min.x as u32
+                    && *x < box_rect.max.x as u32
+                    && *y > box_rect.max.y as u32
+                    && p.0[0] > 40
+            })
+            .count();
+        assert_eq!(below, 0, "no glyphs should paint under the box bottom");
     }
 
     #[test]

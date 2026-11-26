@@ -27,8 +27,9 @@ use crate::output::{
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::text_anno::{
     apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle, default_text_box_at,
-    draw_text_style_strip, hit_text_box_handle, paint_text_box_chrome, text_layout_job,
-    text_style_strip_frame, TextBoxHandle, TextStyle, TEXT_HINT, TEXT_STYLE_STRIP_H,
+    draw_text_style_strip, hit_text_box_handle, paint_boxed_text, paint_text_box_chrome,
+    text_edit_layouter_job, text_style_strip_frame, TextAlignKind, TextBoxHandle, TextStyle,
+    TEXT_HINT, TEXT_STYLE_STRIP_H,
 };
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -1077,13 +1078,8 @@ impl eframe::App for OnscreenApp {
         // In-place text editor (on-canvas box).
         if let Some(edit) = self.text_edit.as_ref() {
             let screen = ctx.screen_rect();
-            let scale_x = screen.width() / self.img_w.max(1) as f32;
-            let scale_y = screen.height() / self.img_h.max(1) as f32;
-            // Fullscreen capture maps 1:1 image→screen in paint_canvas; use same.
-            let image_rect = screen; // overwritten below from last layout via fitted math
             let (fitted, fitted_scale) =
                 fit_image_rect(screen, self.img_w as f32, self.img_h as f32);
-            let _ = (scale_x, scale_y, image_rect);
             let screen_rect = Rect::from_min_max(
                 Pos2::new(
                     fitted.min.x + edit.rect.min.x * fitted_scale,
@@ -1097,6 +1093,29 @@ impl eframe::App for OnscreenApp {
             let color = self.stroke_color;
             let style = self.text_style;
             let font_px = (style.size * fitted_scale).clamp(10.0, 72.0);
+            let mut scaled = style;
+            scaled.size = font_px;
+
+            {
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("hypershot_onscreen_text_edit_paint"),
+                ));
+                if edit.buffer.is_empty() {
+                    let mut hint_style = scaled;
+                    hint_style.align = TextAlignKind::Left;
+                    paint_boxed_text(
+                        &painter,
+                        screen_rect,
+                        TEXT_HINT,
+                        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 0x88),
+                        hint_style,
+                    );
+                } else {
+                    paint_boxed_text(&painter, screen_rect, &edit.buffer, color, scaled);
+                }
+            }
+
             let mut buffer = edit.buffer.clone();
             let mut commit_esc = false;
             egui::Area::new(egui::Id::new("hypershot_onscreen_text_edit"))
@@ -1105,18 +1124,21 @@ impl eframe::App for OnscreenApp {
                 .show(ctx, |ui| {
                     ui.set_min_size(screen_rect.size());
                     ui.set_max_size(screen_rect.size());
+                    ui.set_clip_rect(screen_rect);
                     let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                        let mut job = text_layout_job(text, color, style, wrap_width);
-                        for section in &mut job.sections {
-                            section.format.font_id = style.font_id(font_px);
-                        }
+                        let job = text_edit_layouter_job(
+                            text,
+                            Color32::TRANSPARENT,
+                            style,
+                            wrap_width,
+                            font_px,
+                        );
                         ui.fonts(|f| f.layout_job(job))
                     };
                     let resp = ui.add_sized(
                         screen_rect.size(),
                         egui::TextEdit::multiline(&mut buffer)
-                            .hint_text(TEXT_HINT)
-                            .text_color(color)
+                            .text_color(Color32::TRANSPARENT)
                             .frame(false)
                             .margin(egui::Margin::symmetric(4, 2))
                             .layouter(&mut layouter),

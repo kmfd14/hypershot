@@ -1008,6 +1008,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.16.0",
+        &[
+            "Text Align L/C/R follows the text-box width (Center/Right no longer clip away)",
+            "Text stays clipped inside the dashed box (no bleed under the bottom)",
+        ],
+    ),
+    (
         "1.15.0",
         &[
             "In-place text box (no popup): type on canvas, wrap, resize handles",
