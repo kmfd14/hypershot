@@ -1021,17 +1021,13 @@ impl eframe::App for OnscreenApp {
                             });
                         });
                     if self.show_text_style_strip() {
-                        let strip_w = if horizontal {
-                            (bar_w).max(420.0)
-                        } else {
-                            420.0_f32
-                        };
                         let strip_h = TEXT_STYLE_STRIP_H;
+                        // Content-sized strip — no forced min width (dead space after U).
                         let strip_pos = if horizontal {
                             Pos2::new(bar_pos.x, bar_pos.y + bar_h + 4.0)
                         } else {
                             Pos2::new(
-                                (bar_pos.x + bar_w + 4.0).min(area.right() - strip_w - 8.0),
+                                (bar_pos.x + bar_w + 4.0).min(area.right() - 8.0),
                                 bar_pos.y,
                             )
                         };
@@ -1040,7 +1036,6 @@ impl eframe::App for OnscreenApp {
                             .order(egui::Order::Foreground)
                             .show(ui.ctx(), |ui| {
                                 text_style_strip_frame(&pal).show(ui, |ui| {
-                                    ui.set_min_width(strip_w - 12.0);
                                     ui.set_height(strip_h - 8.0);
                                     draw_text_style_strip(ui, &mut self.text_style, &pal);
                                 });
@@ -1162,8 +1157,9 @@ impl eframe::App for OnscreenApp {
                 }
             }
             if i.key_pressed(egui::Key::Enter) {
-                if self.text_edit.is_some() {
-                    // Enter inserts a newline inside the text box.
+                if self.text_edit.is_some() || self.show_text_style_strip() {
+                    // Enter = newline in the box, or Font ComboBox selection —
+                    // never save+copy while Text / style strip is active.
                 } else if let Err(err) = self.enter_save_and_copy() {
                     eprintln!("enter save/copy failed: {err:#}");
                 }

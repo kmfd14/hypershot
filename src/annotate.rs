@@ -1039,8 +1039,9 @@ impl eframe::App for AnnotateApp {
                     }
                 }
                 if !self.show_settings && i.key_pressed(egui::Key::Enter) {
-                    if self.text_edit.is_some() {
-                        // Enter inserts a newline inside the text box.
+                    if self.text_edit.is_some() || self.show_text_style_strip() {
+                        // Enter = newline in the box, or Font ComboBox selection —
+                        // never save+copy while Text / style strip is active.
                     } else if let Err(err) = self.save_and_copy_close() {
                         // Enter always save+copy (dialog → close). Esc-to-exit affects Esc only.
                         eprintln!("annotate save+copy failed: {err:#}");
@@ -1835,9 +1836,13 @@ fn rasterize_magnify(
     }
 }
 
-fn annotate_font() -> ab_glyph::FontRef<'static> {
-    ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/fonts/Ubuntu-Light.ttf"))
-        .expect("vendored Ubuntu-Light font")
+fn annotate_font(kind: crate::text_anno::TextFontKind) -> ab_glyph::FontRef<'static> {
+    ab_glyph::FontRef::try_from_slice(crate::text_anno::annotation_font_bytes(kind)).unwrap_or_else(
+        |_| {
+            ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/fonts/Ubuntu-Light.ttf"))
+                .expect("vendored Ubuntu-Light font")
+        },
+    )
 }
 
 fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, style: TextStyle) {
@@ -1846,7 +1851,7 @@ fn rasterize_text(img: &mut RgbaImage, rect: Rect, text: &str, color: Color32, s
     if text.trim().is_empty() {
         return;
     }
-    let font = annotate_font();
+    let font = annotate_font(style.font);
     let size = style.size.max(8.0);
     let scale = PxScale::from(size);
     let rgba = Rgba([color.r(), color.g(), color.b(), color.a().max(1)]);

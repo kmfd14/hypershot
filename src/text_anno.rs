@@ -4,8 +4,12 @@
 //! Esc or click-outside commits. Style strip appears under the main toolbar
 //! while the Text tool is active or a box is being edited. egui text only.
 
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+
 use eframe::egui::{
-    self, Align, Color32, FontFamily, FontId, Frame, Pos2, Rect, Sense, Stroke, TextFormat, Vec2,
+    self, Align, Color32, FontData, FontDefinitions, FontFamily, FontId, Frame, Pos2, Rect, Sense,
+    Stroke, TextFormat, Vec2,
 };
 use eframe::egui::text::{LayoutJob, TextWrapping};
 
@@ -13,6 +17,11 @@ use crate::ui::{
     AnnotatePalette, BTN_HOVER, BTN_HOVER_DARK, BTN_SELECTED, BTN_SELECTED_DARK, ICON_DARK,
     ICON_LIGHT, MUTED, MUTED_DARK, PASTEL_PRIMARY, TOOL_WELL_RADIUS,
 };
+
+/// egui [`FontFamily::Name`] keys registered by [`install_text_annotation_fonts`].
+const FAMILY_SANS: &str = "hypershot-sans";
+const FAMILY_SERIF: &str = "hypershot-serif";
+const FAMILY_MONO: &str = "hypershot-mono";
 
 /// Hint shown in an empty text box.
 pub(crate) const TEXT_HINT: &str = "Type here";
@@ -54,10 +63,292 @@ impl TextFontKind {
 
     pub(crate) fn family(self) -> FontFamily {
         match self {
-            Self::Sans => FontFamily::Proportional,
-            // egui falls back if a named face is missing.
-            Self::Serif => FontFamily::Name("serif".into()),
-            Self::Mono => FontFamily::Monospace,
+            Self::Sans => FontFamily::Name(FAMILY_SANS.into()),
+            Self::Serif => FontFamily::Name(FAMILY_SERIF.into()),
+            Self::Mono => FontFamily::Name(FAMILY_MONO.into()),
+        }
+    }
+
+    fn family_key(self) -> &'static str {
+        match self {
+            Self::Sans => FAMILY_SANS,
+            Self::Serif => FAMILY_SERIF,
+            Self::Mono => FAMILY_MONO,
+        }
+    }
+}
+
+/// Load system TTF/OTF bytes for annotation text (Sans / Serif / Mono).
+///
+/// Walks known font directories and preferred face names, validating with
+/// `ab_glyph` so variable fonts that fail to parse are skipped. Falls back to
+/// the vendored Ubuntu Light face when nothing usable is found.
+pub(crate) fn install_text_annotation_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    for kind in TextFontKind::ALL {
+        bind_annotation_family(&mut fonts, kind);
+    }
+    ctx.set_fonts(fonts);
+}
+
+fn bind_annotation_family(fonts: &mut FontDefinitions, kind: TextFontKind) {
+    let key = kind.family_key();
+    let mut chain = Vec::new();
+    if let Some(bytes) = load_system_font_bytes(kind) {
+        fonts
+            .font_data
+            .insert(key.to_owned(), Arc::new(FontData::from_owned(bytes)));
+        chain.push(key.to_owned());
+    }
+    // Built-in fallbacks so FontFamily::Name is always bound (never panic).
+    let builtin = match kind {
+        TextFontKind::Mono => "Hack",
+        TextFontKind::Sans | TextFontKind::Serif => "Ubuntu-Light",
+    };
+    if !chain.iter().any(|n| n == builtin) {
+        chain.push(builtin.to_owned());
+    }
+    if let Some(prop) = fonts.families.get(&FontFamily::Proportional).cloned() {
+        for name in prop {
+            if !chain.contains(&name) {
+                chain.push(name);
+            }
+        }
+    }
+    fonts
+        .families
+        .insert(FontFamily::Name(key.into()), chain);
+}
+
+/// Bytes for export rasterization — same discovery as the live egui faces.
+pub(crate) fn annotation_font_bytes(kind: TextFontKind) -> &'static [u8] {
+    static SANS: OnceLock<Vec<u8>> = OnceLock::new();
+    static SERIF: OnceLock<Vec<u8>> = OnceLock::new();
+    static MONO: OnceLock<Vec<u8>> = OnceLock::new();
+    let slot = match kind {
+        TextFontKind::Sans => &SANS,
+        TextFontKind::Serif => &SERIF,
+        TextFontKind::Mono => &MONO,
+    };
+    slot.get_or_init(|| {
+        load_system_font_bytes(kind).unwrap_or_else(|| {
+            include_bytes!("../assets/fonts/Ubuntu-Light.ttf").to_vec()
+        })
+    })
+    .as_slice()
+}
+
+fn load_system_font_bytes(kind: TextFontKind) -> Option<Vec<u8>> {
+    for path in discover_font_paths(kind) {
+        if let Some(bytes) = read_usable_font(&path) {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+fn read_usable_font(path: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    // Skip variable / broken faces that ab_glyph (and egui) cannot parse.
+    ab_glyph::FontRef::try_from_slice(&bytes).ok()?;
+    Some(bytes)
+}
+
+fn discover_font_paths(kind: TextFontKind) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    // Prefer fontconfig when available (Linux), then probe well-known paths.
+    out.extend(fontconfig_paths(kind));
+    for root in system_font_roots() {
+        for name in preferred_file_names(kind) {
+            let p = root.join(name);
+            if p.is_file() {
+                out.push(p);
+            }
+        }
+        // Shallow + one-level walk for distro layout (…/liberation-serif-fonts/*.ttf).
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && face_name_matches(kind, &path) {
+                    out.push(path);
+                } else if path.is_dir() {
+                    if let Ok(nested) = std::fs::read_dir(&path) {
+                        for nest in nested.flatten() {
+                            let np = nest.path();
+                            if np.is_file() && face_name_matches(kind, &np) {
+                                out.push(np);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn fontconfig_paths(kind: TextFontKind) -> Vec<PathBuf> {
+    let families: &[&str] = match kind {
+        TextFontKind::Sans => &[
+            "Adwaita Sans",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+            "Open Sans",
+            "Cantarell",
+            "Ubuntu",
+            "Segoe UI",
+            "Arial",
+            "Helvetica Neue",
+            "Helvetica",
+        ],
+        TextFontKind::Serif => &[
+            "Liberation Serif",
+            "DejaVu Serif",
+            "Noto Serif",
+            "FreeSerif",
+            "Nimbus Roman",
+            "Times New Roman",
+            "Times",
+            "Georgia",
+        ],
+        TextFontKind::Mono => &[
+            "Adwaita Mono",
+            "Noto Sans Mono",
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "Ubuntu Mono",
+            "Source Code Pro",
+            "Consolas",
+            "Menlo",
+            "Courier New",
+        ],
+    };
+    let mut paths = Vec::new();
+    for family in families {
+        let Ok(output) = std::process::Command::new("fc-list")
+            .args([family, ":file", "-f", "%{file}\n"])
+            .output()
+        else {
+            break; // no fontconfig
+        };
+        if !output.status.success() {
+            continue;
+        }
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let p = PathBuf::from(line.trim());
+            if p.is_file() {
+                // Prefer Regular / Roman; skip Italic-only when Regular exists later.
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let lower = name.to_ascii_lowercase();
+                if lower.contains("bold") || lower.contains("italic") || lower.contains("oblique")
+                {
+                    continue;
+                }
+                paths.push(p);
+            }
+        }
+        if !paths.is_empty() {
+            break;
+        }
+    }
+    paths
+}
+
+fn system_font_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    #[cfg(target_os = "linux")]
+    {
+        roots.push(PathBuf::from("/usr/share/fonts"));
+        roots.push(PathBuf::from("/usr/local/share/fonts"));
+        if let Ok(home) = std::env::var("HOME") {
+            roots.push(PathBuf::from(home).join(".local/share/fonts"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        roots.push(PathBuf::from("/System/Library/Fonts"));
+        roots.push(PathBuf::from("/Library/Fonts"));
+        if let Ok(home) = std::env::var("HOME") {
+            roots.push(PathBuf::from(home).join("Library/Fonts"));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        roots.push(PathBuf::from(r"C:\Windows\Fonts"));
+    }
+    roots
+}
+
+fn preferred_file_names(kind: TextFontKind) -> &'static [&'static str] {
+    match kind {
+        TextFontKind::Sans => &[
+            "AdwaitaSans-Regular.ttf",
+            "LiberationSans-Regular.ttf",
+            "DejaVuSans.ttf",
+            "OpenSans-Regular.ttf",
+            "NotoSans-Regular.ttf",
+            "arial.ttf",
+            "Arial.ttf",
+            "segoeui.ttf",
+            "Helvetica.ttc",
+        ],
+        TextFontKind::Serif => &[
+            "LiberationSerif-Regular.ttf",
+            "DejaVuSerif.ttf",
+            "FreeSerif.ttf",
+            "NimbusRoman-Regular.otf",
+            "times.ttf",
+            "Times New Roman.ttf",
+            "Georgia.ttf",
+            "Times.ttc",
+        ],
+        TextFontKind::Mono => &[
+            "AdwaitaMono-Regular.ttf",
+            "NotoSansMono-Regular.ttf",
+            "DejaVuSansMono.ttf",
+            "LiberationMono-Regular.ttf",
+            "consola.ttf",
+            "Consolas.ttf",
+            "Menlo.ttc",
+            "Courier New.ttf",
+        ],
+    }
+}
+
+fn face_name_matches(kind: TextFontKind, path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !(name.ends_with(".ttf") || name.ends_with(".otf")) {
+        return false;
+    }
+    if name.contains("bold") || name.contains("italic") || name.contains("oblique") {
+        return false;
+    }
+    // Skip variable-font filenames like `NotoSerif[wght].ttf` — often unusable.
+    if name.contains('[') {
+        return false;
+    }
+    match kind {
+        TextFontKind::Sans => {
+            (name.contains("sans") && !name.contains("mono"))
+                || name == "arial.ttf"
+                || name.starts_with("segoeui")
+        }
+        TextFontKind::Serif => {
+            name.contains("serif")
+                || name.contains("nimbusroman")
+                || name.starts_with("times")
+                || name.starts_with("georgia")
+        }
+        TextFontKind::Mono => {
+            name.contains("mono")
+                || name.contains("consola")
+                || name.contains("menlo")
+                || name.contains("courier")
         }
     }
 }
@@ -807,6 +1098,7 @@ pub(crate) fn run_text_box_editor(
 
             // Keyboard editing while focused.
             let mut edited = false;
+            let popup_open = ui.memory(|m| m.any_popup_open());
             if ui.memory(|m| m.has_focus(id)) {
                 ui.input(|i| {
                     for event in &i.events {
@@ -828,7 +1120,8 @@ pub(crate) fn run_text_box_editor(
                                 pressed: true,
                                 modifiers,
                                 ..
-                            } if !modifiers.ctrl && !modifiers.command => {
+                            } if !modifiers.ctrl && !modifiers.command && !popup_open => {
+                                // Skip when Font ComboBox consumes Enter.
                                 insert_at_cursor(session, "\n");
                                 edited = true;
                             }
@@ -1074,5 +1367,44 @@ mod tests {
         let next = autosize_text_box(r, Vec2::new(100.0, 90.0), 1.0, 400, 400);
         assert!(next.height() > r.height());
         assert!(next.height() >= 90.0);
+    }
+
+    #[test]
+    fn annotation_font_families_are_bound() {
+        let mut fonts = FontDefinitions::default();
+        for kind in TextFontKind::ALL {
+            bind_annotation_family(&mut fonts, kind);
+            let key = FontFamily::Name(kind.family_key().into());
+            let chain = fonts
+                .families
+                .get(&key)
+                .expect("FontFamily::Name must be bound");
+            assert!(
+                !chain.is_empty(),
+                "{:?} family chain empty",
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn annotation_font_bytes_parse() {
+        for kind in TextFontKind::ALL {
+            let bytes = annotation_font_bytes(kind);
+            assert!(
+                ab_glyph::FontRef::try_from_slice(bytes).is_ok(),
+                "{:?} bytes must parse",
+                kind
+            );
+        }
+    }
+
+    #[test]
+    fn serif_prefers_real_system_face_when_present() {
+        // On this CI/dev image Liberation Serif (or similar) should win over the
+        // old unbound FontFamily::Name("serif") panic path.
+        let bytes = annotation_font_bytes(TextFontKind::Serif);
+        assert!(!bytes.is_empty());
+        let _ = ab_glyph::FontRef::try_from_slice(bytes).expect("serif face");
     }
 }

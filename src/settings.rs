@@ -1008,6 +1008,14 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.18.0",
+        &[
+            "Text Font picker loads real system Sans/Serif/Mono faces (no unbound-serif panic)",
+            "Font ComboBox / Enter no longer exits annotate like save+copy",
+            "On-screen text style strip shrinks to content (no empty width after U)",
+        ],
+    ),
+    (
         "1.17.0",
         &[
             "Text caret follows L/C/R inside the box while editing",
