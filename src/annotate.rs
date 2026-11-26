@@ -39,11 +39,11 @@ use crate::text_anno::{
 };
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
-    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
-    paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
-    paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step, paint_icon_text,
-    paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE, SETTINGS_BTN,
-    TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
+    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_crop,
+    paint_icon_exit, paint_icon_highlighter, paint_icon_line, paint_icon_magnify,
+    paint_icon_pixelate, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
+    paint_icon_text, paint_icon_undo, toolbar_separator, AnnotatePalette, DEFAULT_STROKE,
+    PASTEL_PRIMARY, SETTINGS_BTN, TOOLBAR_GUTTER, TOOLBAR_WIDTH, TOOL_BTN, WINDOW_PAD,
 };
 
 /// Result of the annotate session.
@@ -73,6 +73,40 @@ pub(crate) enum Tool {
     Text,
     /// Circular loupe showing a zoomed preview of nearby content.
     Magnify,
+    /// Drag/adjust a crop rect; Enter confirms (undoable image change).
+    Crop,
+}
+
+/// Snapshot of the base image + marks before a crop (for Undo).
+#[derive(Clone)]
+struct ImageSnapshot {
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+    shapes: Vec<Shape>,
+    next_step_number: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CropDragKind {
+    /// Creating a new rect from empty.
+    Create,
+    /// Moving the whole crop rect.
+    Move,
+    /// Corner / edge resize.
+    Resize(CropHandle),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CropHandle {
+    Nw,
+    Ne,
+    Sw,
+    Se,
+    N,
+    S,
+    E,
+    W,
 }
 
 /// Shape is `Clone` (not `Copy`) because [`Shape::Text`] owns a `String`.
@@ -142,9 +176,9 @@ const MAX_DISPLAY_H: f32 = 800.0;
 
 /// Approximate width of the horizontal top toolbar (for window sizing).
 fn toolbar_content_width() -> f32 {
-    // 8 tools + color + thickness + undo + redo + clear + settings + save + copy + exit
+    // 9 tools + color + thickness + undo + redo + clear + settings + save + copy + exit
     // + 3 separators
-    let n_btns = 16.0_f32;
+    let n_btns = 17.0_f32;
     let seps = 3.0 * 8.0;
     let gaps = 18.0 * 6.0;
     n_btns * TOOL_BTN + seps + gaps
@@ -308,6 +342,14 @@ struct AnnotateApp {
     text_style: TextStyle,
     /// Active resize / move drag on the text box.
     text_drag: Option<TextBoxDrag>,
+    /// Pending crop rect in image space (min/max corners).
+    crop_rect: Option<Rect>,
+    crop_drag: Option<CropDragKind>,
+    /// Pointer offset for crop move (image space).
+    crop_move_grab: Option<Vec2>,
+    /// Pre-crop image snapshots (Undo restores these after shape undo is empty).
+    crop_undo: Vec<ImageSnapshot>,
+    crop_redo: Vec<ImageSnapshot>,
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
@@ -354,6 +396,11 @@ impl AnnotateApp {
             text_edit: None,
             text_style: TextStyle::default(),
             text_drag: None,
+            crop_rect: None,
+            crop_drag: None,
+            crop_move_grab: None,
+            crop_undo: Vec::new(),
+            crop_redo: Vec::new(),
             path,
             outcome,
             finished: false,
@@ -364,6 +411,79 @@ impl AnnotateApp {
             applied_follow_tiling: cfg.follow_window_tiling,
             settings,
         }
+    }
+
+    fn current_snapshot(&self) -> ImageSnapshot {
+        ImageSnapshot {
+            pixels: self.pixels.clone(),
+            width: self.width,
+            height: self.height,
+            shapes: self.shapes.clone(),
+            next_step_number: self.next_step_number,
+        }
+    }
+
+    fn restore_snapshot(&mut self, ctx: &egui::Context, snap: ImageSnapshot) {
+        self.pixels = snap.pixels;
+        self.width = snap.width;
+        self.height = snap.height;
+        self.shapes = snap.shapes;
+        self.next_step_number = snap.next_step_number;
+        self.draft = None;
+        self.drag_start = None;
+        self.crop_rect = None;
+        self.crop_drag = None;
+        self.crop_move_grab = None;
+        self.reload_texture(ctx);
+    }
+
+    fn reload_texture(&mut self, ctx: &egui::Context) {
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+            [self.width as usize, self.height as usize],
+            &self.pixels,
+        );
+        self.texture =
+            ctx.load_texture("capture", color_image, egui::TextureOptions::LINEAR);
+    }
+
+    /// Apply pending crop rect to the base image (undoable).
+    fn confirm_crop(&mut self, ctx: &egui::Context) -> bool {
+        let Some(rect) = self.crop_rect else {
+            return false;
+        };
+        let x0 = rect.min.x.floor().max(0.0) as u32;
+        let y0 = rect.min.y.floor().max(0.0) as u32;
+        let x1 = rect.max.x.ceil().min(self.width as f32) as u32;
+        let y1 = rect.max.y.ceil().min(self.height as f32) as u32;
+        let w = x1.saturating_sub(x0);
+        let h = y1.saturating_sub(y0);
+        if w < 2 || h < 2 {
+            return false;
+        }
+        if w == self.width && h == self.height && x0 == 0 && y0 == 0 {
+            self.crop_rect = None;
+            return false;
+        }
+        let Some(src) = RgbaImage::from_raw(self.width, self.height, self.pixels.clone()) else {
+            return false;
+        };
+        self.crop_undo.push(self.current_snapshot());
+        self.crop_redo.clear();
+        self.redo_stack.clear();
+        let cropped = image::imageops::crop_imm(&src, x0, y0, w, h).to_image();
+        self.pixels = cropped.into_raw();
+        self.width = w;
+        self.height = h;
+        // Marks were in old image space — drop them with the crop.
+        self.shapes.clear();
+        self.next_step_number = 1;
+        self.crop_rect = None;
+        self.crop_drag = None;
+        self.crop_move_grab = None;
+        self.draft = None;
+        self.drag_start = None;
+        self.reload_texture(ctx);
+        true
     }
 
     /// Next stamp = max(existing step numbers) + 1, or 1 when none remain.
@@ -390,7 +510,11 @@ impl AnnotateApp {
     fn cancel_draft_or_session(&mut self) {
         // Exit / Esc-to-exit: drop in-progress drafts first. Esc while typing
         // commits via the dedicated Esc branch (does not call this).
-        if self.draft.is_some() || self.drag_start.is_some() || self.text_edit.is_some() {
+        if self.crop_rect.is_some() || self.crop_drag.is_some() {
+            self.crop_rect = None;
+            self.crop_drag = None;
+            self.crop_move_grab = None;
+        } else if self.draft.is_some() || self.drag_start.is_some() || self.text_edit.is_some() {
             self.draft = None;
             self.drag_start = None;
             self.text_edit = None;
@@ -444,21 +568,44 @@ impl AnnotateApp {
         if tool != Tool::Text {
             self.commit_text_edit();
         }
+        if tool != Tool::Crop {
+            self.crop_rect = None;
+            self.crop_drag = None;
+            self.crop_move_grab = None;
+        }
         self.tool = tool;
     }
 
-    fn undo(&mut self) {
+    fn undo(&mut self, ctx: &egui::Context) {
         if let Some(shape) = self.shapes.pop() {
             self.redo_stack.push(shape);
+            self.draft = None;
+            self.drag_start = None;
+            self.sync_step_counter();
+            return;
+        }
+        if let Some(snap) = self.crop_undo.pop() {
+            self.crop_redo.push(self.current_snapshot());
+            self.restore_snapshot(ctx, snap);
+            return;
         }
         self.draft = None;
         self.drag_start = None;
         self.sync_step_counter();
     }
 
-    fn redo(&mut self) {
+    fn redo(&mut self, ctx: &egui::Context) {
         if let Some(shape) = self.redo_stack.pop() {
             self.shapes.push(shape);
+            self.draft = None;
+            self.drag_start = None;
+            self.sync_step_counter();
+            return;
+        }
+        if let Some(snap) = self.crop_redo.pop() {
+            self.crop_undo.push(self.current_snapshot());
+            self.restore_snapshot(ctx, snap);
+            return;
         }
         self.draft = None;
         self.drag_start = None;
@@ -472,12 +619,16 @@ impl AnnotateApp {
         self.drag_start = None;
         self.text_edit = None;
         self.text_drag = None;
+        self.crop_rect = None;
+        self.crop_drag = None;
+        self.crop_move_grab = None;
         self.next_step_number = 1;
     }
 
     fn push_shape(&mut self, shape: Shape) {
         self.shapes.push(shape);
         self.redo_stack.clear();
+        self.crop_redo.clear();
     }
 
     fn write_annotated_png(&mut self) -> Result<()> {
@@ -686,6 +837,16 @@ impl AnnotateApp {
             ) {
                 self.set_tool(Tool::Magnify);
             }
+            if glass_icon_button(
+                ui,
+                self.tool == Tool::Crop,
+                "Crop (Enter to apply)",
+                None,
+                TOOL_BTN,
+                paint_icon_crop,
+            ) {
+                self.set_tool(Tool::Crop);
+            }
 
             glass_color_swatch(ui, &mut self.stroke_color);
             paint_thickness_indicator(ui, self.stroke_width, horizontal);
@@ -693,7 +854,7 @@ impl AnnotateApp {
             toolbar_separator(ui, horizontal);
 
             if glass_icon_button(ui, false, "Undo (Ctrl+Z)", None, TOOL_BTN, paint_icon_undo) {
-                self.undo();
+                self.undo(ui.ctx());
             }
             if glass_icon_button(
                 ui,
@@ -703,7 +864,7 @@ impl AnnotateApp {
                 TOOL_BTN,
                 paint_icon_redo,
             ) {
-                self.redo();
+                self.redo(ui.ctx());
             }
             if glass_icon_button(ui, false, "Clear all marks", None, TOOL_BTN, paint_icon_clear)
             {
@@ -813,13 +974,50 @@ impl AnnotateApp {
             }
         }
 
+        // Crop overlay (preview only).
+        if self.tool == Tool::Crop {
+            if let Some(crop) = self.crop_rect {
+                let screen_crop = Rect::from_min_max(to_screen(crop.min), to_screen(crop.max))
+                    .intersect(image_rect);
+                paint_crop_dim(&painter, image_rect, screen_crop);
+                painter.rect_stroke(
+                    screen_crop,
+                    0.0,
+                    Stroke::new(2.0_f32, PASTEL_PRIMARY),
+                    egui::StrokeKind::Outside,
+                );
+                paint_crop_handles(&painter, screen_crop);
+                let w = crop.width().round().max(1.0) as u32;
+                let h = crop.height().round().max(1.0) as u32;
+                let label_pos = Pos2::new(screen_crop.right() + 8.0, screen_crop.top());
+                paint_resolution_label(&painter, label_pos, w, h, pal);
+                painter.text(
+                    Pos2::new(image_rect.center().x, image_rect.bottom() - 18.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    "Enter to crop  ·  Esc to cancel",
+                    egui::FontId::proportional(13.0),
+                    Color32::from_rgba_unmultiplied(0xF7, 0xF5, 0xFA, 0xE8),
+                );
+            } else {
+                painter.text(
+                    image_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Drag to set crop",
+                    egui::FontId::proportional(14.0),
+                    Color32::from_rgba_unmultiplied(0xF7, 0xF5, 0xFA, 0xE0),
+                );
+            }
+        }
+
         // Text box: place new / click-outside commit (resize+move live in the editor Area).
         let pointer = response.interact_pointer_pos();
         let edit_screen = self.text_edit.as_ref().map(|e| {
             Rect::from_min_max(to_screen(e.rect.min), to_screen(e.rect.max))
         });
 
-        if (self.tool == Tool::Text || self.text_edit.is_some())
+        if self.tool == Tool::Crop {
+            self.handle_crop_pointer(&response, image_rect, &to_image, &to_screen);
+        } else if (self.tool == Tool::Text || self.text_edit.is_some())
             && response.clicked()
             && self.text_drag.is_none()
         {
@@ -843,9 +1041,7 @@ impl AnnotateApp {
                     }
                 }
             }
-        }
-
-        if self.tool == Tool::Step {
+        } else if self.tool == Tool::Step {
             if response.clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     if image_rect.contains(pos) {
@@ -898,6 +1094,93 @@ impl AnnotateApp {
                             self.drag_start = Some(to_image(pos));
                         }
                     }
+                }
+            }
+        }
+    }
+
+    fn handle_crop_pointer(
+        &mut self,
+        response: &egui::Response,
+        image_rect: Rect,
+        to_image: &dyn Fn(Pos2) -> Pos2,
+        to_screen: &dyn Fn(Pos2) -> Pos2,
+    ) {
+        let handle_hit = 8.0_f32;
+        if response.drag_started() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                if !image_rect.contains(pos) {
+                    return;
+                }
+                let img = clamp_to_image(to_image(pos), self.width, self.height);
+                if let Some(crop) = self.crop_rect {
+                    let screen_crop =
+                        Rect::from_min_max(to_screen(crop.min), to_screen(crop.max));
+                    if let Some(handle) = hit_crop_handle(screen_crop, pos, handle_hit) {
+                        self.crop_drag = Some(CropDragKind::Resize(handle));
+                        return;
+                    }
+                    if screen_crop.contains(pos) {
+                        self.crop_drag = Some(CropDragKind::Move);
+                        self.crop_move_grab =
+                            Some(Vec2::new(img.x - crop.min.x, img.y - crop.min.y));
+                        return;
+                    }
+                }
+                self.crop_drag = Some(CropDragKind::Create);
+                self.drag_start = Some(img);
+                self.crop_rect = Some(Rect::from_two_pos(img, img));
+            }
+        }
+        if response.dragged() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let img = clamp_to_image(to_image(pos), self.width, self.height);
+                match self.crop_drag {
+                    Some(CropDragKind::Create) => {
+                        if let Some(start) = self.drag_start {
+                            self.crop_rect = Some(normalize_crop_rect(
+                                Rect::from_two_pos(start, img),
+                                self.width,
+                                self.height,
+                            ));
+                        }
+                    }
+                    Some(CropDragKind::Move) => {
+                        if let (Some(grab), Some(crop)) =
+                            (self.crop_move_grab, self.crop_rect)
+                        {
+                            let size = crop.size();
+                            let mut min = Pos2::new(img.x - grab.x, img.y - grab.y);
+                            min.x = min.x.clamp(0.0, (self.width as f32 - size.x).max(0.0));
+                            min.y = min.y.clamp(0.0, (self.height as f32 - size.y).max(0.0));
+                            self.crop_rect = Some(Rect::from_min_size(min, size));
+                        }
+                    }
+                    Some(CropDragKind::Resize(handle)) => {
+                        if let Some(crop) = self.crop_rect {
+                            self.crop_rect = Some(resize_crop_rect(
+                                crop,
+                                handle,
+                                img,
+                                self.width,
+                                self.height,
+                            ));
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+        if response.drag_stopped() {
+            self.crop_drag = None;
+            self.drag_start = None;
+            self.crop_move_grab = None;
+            if let Some(crop) = self.crop_rect {
+                if crop.width() < 2.0 || crop.height() < 2.0 {
+                    self.crop_rect = None;
+                } else {
+                    self.crop_rect =
+                        Some(normalize_crop_rect(crop, self.width, self.height));
                 }
             }
         }
@@ -1023,6 +1306,9 @@ impl eframe::App for AnnotateApp {
 
         if interactive {
             let esc_to_exit = self.settings.config().esc_to_exit;
+            let mut confirm_crop = false;
+            let mut do_undo = false;
+            let mut do_redo = false;
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::Escape) {
                     if self.show_settings {
@@ -1030,6 +1316,10 @@ impl eframe::App for AnnotateApp {
                     } else if self.text_edit.is_some() {
                         // Approved text UX: Esc commits the box (does not discard).
                         self.commit_text_edit();
+                    } else if self.crop_rect.is_some() || self.crop_drag.is_some() {
+                        self.crop_rect = None;
+                        self.crop_drag = None;
+                        self.crop_move_grab = None;
                     } else if esc_to_exit {
                         self.cancel_draft_or_session();
                     } else if self.draft.is_some() || self.drag_start.is_some() {
@@ -1042,6 +1332,8 @@ impl eframe::App for AnnotateApp {
                     if self.text_edit.is_some() || self.show_text_style_strip() {
                         // Enter = newline in the box, or Font ComboBox selection —
                         // never save+copy while Text / style strip is active.
+                    } else if self.tool == Tool::Crop && self.crop_rect.is_some() {
+                        confirm_crop = true;
                     } else if let Err(err) = self.save_and_copy_close() {
                         // Enter always save+copy (dialog → close). Esc-to-exit affects Esc only.
                         eprintln!("annotate save+copy failed: {err:#}");
@@ -1049,13 +1341,13 @@ impl eframe::App for AnnotateApp {
                 }
                 if i.modifiers.command && i.key_pressed(egui::Key::Z) {
                     if i.modifiers.shift {
-                        self.redo();
+                        do_redo = true;
                     } else {
-                        self.undo();
+                        do_undo = true;
                     }
                 }
                 if i.modifiers.command && i.key_pressed(egui::Key::Y) {
-                    self.redo();
+                    do_redo = true;
                 }
                 // Ctrl + scroll wheel → stroke / marker / text thickness.
                 if i.modifiers.command {
@@ -1066,6 +1358,15 @@ impl eframe::App for AnnotateApp {
                     }
                 }
             });
+            if confirm_crop {
+                let _ = self.confirm_crop(ctx);
+            }
+            if do_undo {
+                self.undo(ctx);
+            }
+            if do_redo {
+                self.redo(ctx);
+            }
         }
 
         if interactive {
@@ -1179,7 +1480,7 @@ pub(crate) fn draft_shape_for_tool(
                 width,
             })
         }
-        Tool::Step | Tool::Text => None,
+        Tool::Step | Tool::Text | Tool::Crop => None,
     }
 }
 
@@ -1250,6 +1551,134 @@ pub(crate) fn paint_resolution_label(
         egui::StrokeKind::Inside,
     );
     painter.galley(rect.min + pad, galley, Color32::PLACEHOLDER);
+}
+
+fn paint_crop_dim(painter: &egui::Painter, outer: Rect, hole: Rect) {
+    let dim = Color32::from_rgba_unmultiplied(0x10, 0x10, 0x12, 0xA8);
+    let hole = hole.intersect(outer);
+    if hole.width() <= 0.0 || hole.height() <= 0.0 {
+        painter.rect_filled(outer, 0.0, dim);
+        return;
+    }
+    painter.rect_filled(
+        Rect::from_min_max(outer.min, Pos2::new(outer.max.x, hole.min.y)),
+        0.0,
+        dim,
+    );
+    painter.rect_filled(
+        Rect::from_min_max(Pos2::new(outer.min.x, hole.max.y), outer.max),
+        0.0,
+        dim,
+    );
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(outer.min.x, hole.min.y),
+            Pos2::new(hole.min.x, hole.max.y),
+        ),
+        0.0,
+        dim,
+    );
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(hole.max.x, hole.min.y),
+            Pos2::new(outer.max.x, hole.max.y),
+        ),
+        0.0,
+        dim,
+    );
+}
+
+fn paint_crop_handles(painter: &egui::Painter, crop: Rect) {
+    let fill = Color32::from_rgb(0xF7, 0xF5, 0xFA);
+    let stroke = Stroke::new(1.0_f32, PASTEL_PRIMARY);
+    for p in crop_handle_points(crop) {
+        let r = Rect::from_center_size(p, Vec2::splat(7.0));
+        painter.rect_filled(r, 2.0, fill);
+        painter.rect_stroke(r, 2.0, stroke, egui::StrokeKind::Outside);
+    }
+}
+
+fn crop_handle_points(crop: Rect) -> [Pos2; 8] {
+    let c = crop.center();
+    [
+        crop.min,
+        Pos2::new(crop.max.x, crop.min.y),
+        Pos2::new(crop.min.x, crop.max.y),
+        crop.max,
+        Pos2::new(c.x, crop.min.y),
+        Pos2::new(c.x, crop.max.y),
+        Pos2::new(crop.max.x, c.y),
+        Pos2::new(crop.min.x, c.y),
+    ]
+}
+
+fn hit_crop_handle(crop: Rect, pos: Pos2, hit: f32) -> Option<CropHandle> {
+    let handles = [
+        (CropHandle::Nw, crop.min),
+        (CropHandle::Ne, Pos2::new(crop.max.x, crop.min.y)),
+        (CropHandle::Sw, Pos2::new(crop.min.x, crop.max.y)),
+        (CropHandle::Se, crop.max),
+        (CropHandle::N, Pos2::new(crop.center().x, crop.min.y)),
+        (CropHandle::S, Pos2::new(crop.center().x, crop.max.y)),
+        (CropHandle::E, Pos2::new(crop.max.x, crop.center().y)),
+        (CropHandle::W, Pos2::new(crop.min.x, crop.center().y)),
+    ];
+    handles
+        .into_iter()
+        .find(|(_, p)| p.distance(pos) <= hit)
+        .map(|(h, _)| h)
+}
+
+fn normalize_crop_rect(rect: Rect, img_w: u32, img_h: u32) -> Rect {
+    let min = Pos2::new(
+        rect.min.x.min(rect.max.x).clamp(0.0, img_w as f32),
+        rect.min.y.min(rect.max.y).clamp(0.0, img_h as f32),
+    );
+    let max = Pos2::new(
+        rect.min.x.max(rect.max.x).clamp(0.0, img_w as f32),
+        rect.min.y.max(rect.max.y).clamp(0.0, img_h as f32),
+    );
+    Rect::from_min_max(min, max)
+}
+
+fn resize_crop_rect(
+    crop: Rect,
+    handle: CropHandle,
+    pointer: Pos2,
+    img_w: u32,
+    img_h: u32,
+) -> Rect {
+    let mut min = crop.min;
+    let mut max = crop.max;
+    match handle {
+        CropHandle::Nw => {
+            min = pointer;
+        }
+        CropHandle::Ne => {
+            max.x = pointer.x;
+            min.y = pointer.y;
+        }
+        CropHandle::Sw => {
+            min.x = pointer.x;
+            max.y = pointer.y;
+        }
+        CropHandle::Se => {
+            max = pointer;
+        }
+        CropHandle::N => {
+            min.y = pointer.y;
+        }
+        CropHandle::S => {
+            max.y = pointer.y;
+        }
+        CropHandle::E => {
+            max.x = pointer.x;
+        }
+        CropHandle::W => {
+            min.x = pointer.x;
+        }
+    }
+    normalize_crop_rect(Rect::from_min_max(min, max), img_w, img_h)
 }
 
 pub(crate) fn shape_is_meaningful(shape: &Shape) -> bool {
@@ -2577,5 +3006,30 @@ mod tests {
         assert!(MAX_STROKE_WIDTH >= 24.0);
         let w = (STROKE_WIDTH + 100.0).clamp(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH);
         assert_eq!(w, MAX_STROKE_WIDTH);
+    }
+
+    #[test]
+    fn normalize_crop_orders_and_clamps() {
+        let r = normalize_crop_rect(
+            Rect::from_two_pos(Pos2::new(80.0, 10.0), Pos2::new(20.0, 90.0)),
+            100,
+            100,
+        );
+        assert!((r.min.x - 20.0).abs() < f32::EPSILON);
+        assert!((r.min.y - 10.0).abs() < f32::EPSILON);
+        assert!((r.max.x - 80.0).abs() < f32::EPSILON);
+        assert!((r.max.y - 90.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn crop_apply_math_rejects_tiny() {
+        let full = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 100.0));
+        let tiny = normalize_crop_rect(
+            Rect::from_two_pos(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+            200,
+            100,
+        );
+        assert!(tiny.width() < 2.0 || tiny.height() < 2.0);
+        assert!(full.width() >= 2.0 && full.height() >= 2.0);
     }
 }

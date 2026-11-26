@@ -94,6 +94,27 @@ impl AnnotateSessionMode {
     }
 }
 
+/// Capture path when Ask Screenshot Type is off (Settings → Capture).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DefaultCaptureMode {
+    #[default]
+    Region,
+    #[serde(alias = "fullscreen", alias = "full")]
+    FullScreen,
+}
+
+impl DefaultCaptureMode {
+    pub const ALL: [Self; 2] = [Self::Region, Self::FullScreen];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Region => "Region",
+            Self::FullScreen => "Full Screen",
+        }
+    }
+}
+
 /// Default image format when saving (Settings → File).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -204,6 +225,12 @@ pub struct Config {
     pub esc_to_exit: bool,
     /// Default annotate surface after capture: on-screen overlay vs preview window.
     pub annotate_session_mode: AnnotateSessionMode,
+    /// When true (default), the screenshot shortcut shows Region / Full Screen chooser.
+    #[serde(default = "default_true")]
+    pub ask_screenshot_type: bool,
+    /// Used when Ask Screenshot Type is off (bypass chooser).
+    #[serde(default)]
+    pub default_capture_mode: DefaultCaptureMode,
     /// Default save file-name pattern (strftime-style tokens; see Settings → File).
     #[serde(default = "default_filename_pattern")]
     pub filename_pattern: String,
@@ -239,10 +266,16 @@ impl Default for Config {
             follow_window_tiling: false,
             esc_to_exit: true,
             annotate_session_mode: AnnotateSessionMode::OnScreen,
+            ask_screenshot_type: true,
+            default_capture_mode: DefaultCaptureMode::Region,
             filename_pattern: default_filename_pattern(),
             default_file_type: SaveFileType::Png,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Default PNG name pattern (`screenshot_250125.png` style with day/month/year).
@@ -350,8 +383,8 @@ pub fn env_save_dir() -> Option<PathBuf> {
 /// Suggested bind using the running binary when possible.
 pub fn default_shortcut_bind_command() -> String {
     match std::env::current_exe() {
-        Ok(exe) => format!("{} region", shell_quote(&exe)),
-        Err(_) => "cargo run --release -- region".to_string(),
+        Ok(exe) => format!("{} capture", shell_quote(&exe)),
+        Err(_) => "cargo run --release -- capture".to_string(),
     }
 }
 
@@ -401,6 +434,8 @@ mod tests {
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
+        assert!(cfg.ask_screenshot_type);
+        assert_eq!(cfg.default_capture_mode, DefaultCaptureMode::Region);
         assert_eq!(cfg.filename_pattern, default_filename_pattern());
         assert_eq!(cfg.default_file_type, SaveFileType::Png);
     }
@@ -438,6 +473,8 @@ mod tests {
         cfg.follow_window_tiling = true;
         cfg.esc_to_exit = false;
         cfg.annotate_session_mode = AnnotateSessionMode::Preview;
+        cfg.ask_screenshot_type = false;
+        cfg.default_capture_mode = DefaultCaptureMode::FullScreen;
         cfg.filename_pattern = "shot_%Y-%m-%d_%H%M%S".into();
         cfg.default_file_type = SaveFileType::Webp;
         let text = toml::to_string_pretty(&cfg).unwrap();
@@ -478,6 +515,8 @@ shortcut_bind_command = "hypershot region"
         assert!(!cfg.follow_window_tiling);
         assert!(cfg.esc_to_exit);
         assert_eq!(cfg.annotate_session_mode, AnnotateSessionMode::OnScreen);
+        assert!(cfg.ask_screenshot_type);
+        assert_eq!(cfg.default_capture_mode, DefaultCaptureMode::Region);
         assert_eq!(cfg.filename_pattern, default_filename_pattern());
         assert_eq!(cfg.default_file_type, SaveFileType::Png);
     }

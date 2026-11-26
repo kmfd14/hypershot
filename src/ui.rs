@@ -817,10 +817,10 @@ pub fn section_title_with_help(
 // --- Icon painters (Iconoir SVGs via `icons`, DPI-aware) ---------------------
 
 pub use crate::icons::{
-    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
-    paint_icon_highlighter, paint_icon_line, paint_icon_magnify, paint_icon_pixelate,
-    paint_icon_preview, paint_icon_redo, paint_icon_save, paint_icon_settings, paint_icon_step,
-    paint_icon_text, paint_icon_undo,
+    paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_crop,
+    paint_icon_exit, paint_icon_highlighter, paint_icon_line, paint_icon_magnify,
+    paint_icon_pixelate, paint_icon_preview, paint_icon_redo, paint_icon_save,
+    paint_icon_settings, paint_icon_step, paint_icon_text, paint_icon_undo,
 };
 
 /// Fit `img` into `area` (letterbox). Allows upscale so small captures stay sharp-ish when window is large.

@@ -176,22 +176,22 @@ cp target/release/hypershot ~/.local/bin/   # or Windows equivalent on PATH
 
 ## Hotkeys
 
-HyperShot does not grab global hotkeys. Bind `hypershot region` / `hypershot full` (or `cargo run --release -- region`) in your desktop keyboard settings.
+HyperShot does not grab global hotkeys. Bind `hypershot capture` (Ask Screenshot Type chooser / Default Mode) or `hypershot region` / `hypershot full` in your desktop keyboard settings.
 
 | Desktop | Where to bind | Sample |
 | --- | --- | --- |
-| Fedora COSMIC | Settings → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
-| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
-| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- region` |
+| Fedora COSMIC | Settings → Keyboard → Custom shortcuts | `cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
+| Hyprland | `hyprland.conf` | `bind = SUPER, Print, exec, cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
+| Sway | config | `bindsym $mod+Print exec cargo run --release --manifest-path /path/to/HyperShot/Cargo.toml -- capture` |
 | GNOME / KDE | Custom shortcut | Same command (does not steal Print Screen by itself) |
 
 Annotate keys:
 
-* **Enter** = save dialog + copy + close (Copied popup)
+* **Enter** = save dialog + copy + close (Copied popup); with Crop active = apply crop
 * **Save** = save dialog + close
 * **Copy** = close immediately + Copied to Clipboard popup
 * **Exit** = cancel; **Esc** = same when Esc-to-exit is on
-* **Ctrl+Z** / **Ctrl+Shift+Z** = undo / redo
+* **Ctrl+Z** / **Ctrl+Shift+Z** = undo / redo (crop is undoable)
 
 ## Settings
 
@@ -204,7 +204,7 @@ Or **Settings** on the annotate bar. Dark two-pane chrome: sidebar sections, con
 Config: `~/.config/hypershot/config.toml` (macOS/Windows use the platform equivalent).
 
 1. **General** — run at startup, replace-default helper, stay in tray, theme.
-2. **Capture** — on-screen vs preview annotate mode.
+2. **Capture** — Ask Screenshot Type, Default Mode, on-screen vs preview annotate.
 3. **Overlay** — toolbar dock, title bar, annotate tiling, Esc-to-exit.
 4. **Annotation Window** — preview window transparency / blur (toolbar stays opaque).
 5. **Saving** — save directory + clipboard default.

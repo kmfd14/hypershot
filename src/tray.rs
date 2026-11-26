@@ -32,7 +32,7 @@ mod linux {
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
                 title: "HyperShot".into(),
-                description: "Region · Full · Settings".into(),
+                description: "Screenshot · Settings".into(),
                 ..Default::default()
             }
         }
@@ -40,6 +40,14 @@ mod linux {
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
             use ksni::menu::*;
             vec![
+                StandardItem {
+                    label: "Screenshot".into(),
+                    activate: Box::new(|_| {
+                        let _ = spawn_self(&["capture"]);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
                 StandardItem {
                     label: "Region".into(),
                     activate: Box::new(|_| {
@@ -49,7 +57,7 @@ mod linux {
                 }
                 .into(),
                 StandardItem {
-                    label: "Full".into(),
+                    label: "Full Screen".into(),
                     activate: Box::new(|_| {
                         let _ = spawn_self(&["full"]);
                     }),
@@ -98,7 +106,7 @@ pub async fn run_tray() -> Result<()> {
     {
         anyhow::bail!(
             "tray is Linux-only (StatusNotifierItem / ksni).\n\
-             On macOS / Windows use: hypershot region | full | settings | annotate <png>"
+             On macOS / Windows use: hypershot capture | region | full | settings | annotate <png>"
         );
     }
 }
