@@ -32,10 +32,10 @@ use crate::output::{
 };
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::text_anno::{
-    aligned_line_x, apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle,
-    default_text_box_at, draw_text_style_strip, hit_text_box_handle, paint_boxed_text,
-    paint_text_box_chrome, text_box_inner, text_edit_layouter_job, text_style_strip_frame,
-    wrap_text_for_export, TextBoxHandle, TextStyle, TEXT_HINT, TEXT_STYLE_STRIP_H,
+    aligned_line_x, clamp_text_rect, default_text_box_at, draw_text_style_strip,
+    hit_text_box_chrome, paint_boxed_text, run_text_box_editor, text_box_inner,
+    text_style_strip_frame, wrap_text_for_export, TextBoxDrag, TextBoxSession, TextStyle,
+    TEXT_STYLE_STRIP_H,
 };
 use crate::ui::{
     self, embedded_top_toolbar_frame, fit_image_rect, glass_color_swatch, glass_icon_button,
@@ -303,11 +303,11 @@ struct AnnotateApp {
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
     /// In-progress text box edit (image-space rect + buffer).
-    text_edit: Option<TextEditDraft>,
+    text_edit: Option<TextBoxSession>,
     /// Live style for the Text tool / active edit (strip under toolbar).
     text_style: TextStyle,
-    /// Active resize handle while dragging the text box.
-    text_resize: Option<TextBoxHandle>,
+    /// Active resize / move drag on the text box.
+    text_drag: Option<TextBoxDrag>,
     path: std::path::PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
@@ -319,12 +319,6 @@ struct AnnotateApp {
     applied_title_bar: bool,
     applied_transparency: bool,
     applied_follow_tiling: bool,
-}
-
-#[derive(Debug, Clone)]
-struct TextEditDraft {
-    rect: Rect,
-    buffer: String,
 }
 
 impl AnnotateApp {
@@ -359,7 +353,7 @@ impl AnnotateApp {
             draft: None,
             text_edit: None,
             text_style: TextStyle::default(),
-            text_resize: None,
+            text_drag: None,
             path,
             outcome,
             finished: false,
@@ -400,7 +394,7 @@ impl AnnotateApp {
             self.draft = None;
             self.drag_start = None;
             self.text_edit = None;
-            self.text_resize = None;
+            self.text_drag = None;
         } else {
             self.set_outcome(AnnotateOutcome::Cancelled);
         }
@@ -429,7 +423,7 @@ impl AnnotateApp {
         let Some(edit) = self.text_edit.take() else {
             return;
         };
-        self.text_resize = None;
+        self.text_drag = None;
         let text = edit.buffer.trim_end().to_string();
         if text.trim().is_empty() {
             return;
@@ -477,7 +471,7 @@ impl AnnotateApp {
         self.draft = None;
         self.drag_start = None;
         self.text_edit = None;
-        self.text_resize = None;
+        self.text_drag = None;
         self.next_step_number = 1;
     }
 
@@ -819,61 +813,33 @@ impl AnnotateApp {
             }
         }
 
-        // Text box: resize handles / place / click-outside commit.
+        // Text box: place new / click-outside commit (resize+move live in the editor Area).
         let pointer = response.interact_pointer_pos();
         let edit_screen = self.text_edit.as_ref().map(|e| {
             Rect::from_min_max(to_screen(e.rect.min), to_screen(e.rect.max))
         });
 
-        if let Some(screen_r) = edit_screen {
-            let hover = pointer.and_then(|p| hit_text_box_handle(screen_r, p)).or_else(|| {
-                ui.ctx()
-                    .pointer_hover_pos()
-                    .and_then(|p| hit_text_box_handle(screen_r, p))
-            });
-            if let Some(h) = hover {
-                ui.ctx().set_cursor_icon(cursor_for_text_handle(h));
-            }
-            paint_text_box_chrome(&painter, screen_r, hover);
-        }
-
-        if self.tool == Tool::Text || self.text_edit.is_some() {
-            if response.drag_started() {
-                if let (Some(pos), Some(screen_r)) = (pointer, edit_screen) {
-                    if let Some(h) = hit_text_box_handle(screen_r, pos) {
-                        self.text_resize = Some(h);
-                    }
-                }
-            }
-            if response.dragged() {
-                if let (Some(h), Some(pos), Some(edit)) =
-                    (self.text_resize, pointer, self.text_edit.as_mut())
-                {
-                    let img = clamp_to_image(to_image(pos), self.width, self.height);
-                    edit.rect = apply_text_handle_drag(edit.rect, h, img, self.width, self.height);
-                }
-            }
-            if response.drag_stopped() {
-                self.text_resize = None;
-            }
-            if response.clicked() && self.text_resize.is_none() {
-                if let Some(pos) = pointer {
-                    if image_rect.contains(pos) {
-                        let inside_box = edit_screen.is_some_and(|r| r.contains(pos));
-                        let on_handle =
-                            edit_screen.is_some_and(|r| hit_text_box_handle(r, pos).is_some());
-                        if inside_box || on_handle {
-                            // Keep editing / focus handled by TextEdit.
-                        } else if self.tool == Tool::Text {
-                            self.commit_text_edit();
-                            let img = clamp_to_image(to_image(pos), self.width, self.height);
-                            self.text_edit = Some(TextEditDraft {
-                                rect: default_text_box_at(img, self.width, self.height),
-                                buffer: String::new(),
-                            });
-                        } else {
-                            self.commit_text_edit();
-                        }
+        if (self.tool == Tool::Text || self.text_edit.is_some())
+            && response.clicked()
+            && self.text_drag.is_none()
+        {
+            if let Some(pos) = pointer {
+                if image_rect.contains(pos) {
+                    let inside_box = edit_screen.is_some_and(|r| r.expand(8.0).contains(pos));
+                    let on_chrome = edit_screen
+                        .is_some_and(|r| hit_text_box_chrome(r, pos).is_some());
+                    if inside_box || on_chrome {
+                        // Keep editing — handled by text box editor Area.
+                    } else if self.tool == Tool::Text {
+                        self.commit_text_edit();
+                        let img = clamp_to_image(to_image(pos), self.width, self.height);
+                        self.text_edit = Some(TextBoxSession::new(default_text_box_at(
+                            img,
+                            self.width,
+                            self.height,
+                        )));
+                    } else {
+                        self.commit_text_edit();
                     }
                 }
             }
@@ -995,69 +961,31 @@ impl AnnotateApp {
         );
         let color = self.stroke_color;
         let style = self.text_style;
-        let font_px = (style.size * scale).clamp(10.0, 72.0);
-        let mut scaled = style;
-        scaled.size = font_px;
-
-        // Visual text (L/C/R + clip). TextEdit below stays left-laid-out for
-        // caret metrics; its glyphs are transparent so alignment isn’t wrong.
-        {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Foreground,
-                egui::Id::new("hypershot_text_edit_paint"),
-            ));
-            if edit.buffer.is_empty() {
-                let mut hint_style = scaled;
-                hint_style.align = crate::text_anno::TextAlignKind::Left;
-                paint_boxed_text(
-                    &painter,
-                    screen_rect,
-                    TEXT_HINT,
-                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 0x88),
-                    hint_style,
-                );
-            } else {
-                paint_boxed_text(&painter, screen_rect, &edit.buffer, color, scaled);
-            }
-        }
-
-        let mut buffer = edit.buffer.clone();
-        let mut commit_esc = false;
-        egui::Area::new(egui::Id::new("hypershot_text_edit"))
-            .fixed_pos(screen_rect.min)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                ui.set_min_size(screen_rect.size());
-                ui.set_max_size(screen_rect.size());
-                ui.set_clip_rect(screen_rect);
-                let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                    let job = text_edit_layouter_job(
-                        text,
-                        Color32::TRANSPARENT,
-                        style,
-                        wrap_width,
-                        font_px,
-                    );
-                    ui.fonts(|f| f.layout_job(job))
-                };
-                let resp = ui.add_sized(
-                    screen_rect.size(),
-                    egui::TextEdit::multiline(&mut buffer)
-                        .text_color(Color32::TRANSPARENT)
-                        .frame(false)
-                        .margin(egui::Margin::symmetric(4, 2))
-                        .layouter(&mut layouter),
-                );
-                resp.request_focus();
-                // Enter = newline (multiline default). Esc commits.
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    commit_esc = true;
-                }
-            });
-        if let Some(edit) = self.text_edit.as_mut() {
-            edit.buffer = buffer;
-        }
-        if commit_esc {
+        let img_w = self.width;
+        let img_h = self.height;
+        let to_image = |p: Pos2| -> Pos2 {
+            clamp_to_image(
+                Pos2::new((p.x - image_rect.min.x) / scale, (p.y - image_rect.min.y) / scale),
+                img_w,
+                img_h,
+            )
+        };
+        let frame = {
+            let edit = self.text_edit.as_mut().unwrap();
+            run_text_box_editor(
+                ctx,
+                edit,
+                &mut self.text_drag,
+                screen_rect,
+                &to_image,
+                img_w,
+                img_h,
+                scale,
+                color,
+                style,
+            )
+        };
+        if frame.commit_esc {
             self.commit_text_edit();
         }
     }

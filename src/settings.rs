@@ -1008,6 +1008,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.17.0",
+        &[
+            "Text caret follows L/C/R inside the box while editing",
+            "Text box auto-sizes with content; edge drag moves, handles still resize",
+        ],
+    ),
+    (
         "1.16.0",
         &[
             "Text Align L/C/R follows the text-box width (Center/Right no longer clip away)",

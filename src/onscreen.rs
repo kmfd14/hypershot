@@ -26,10 +26,9 @@ use crate::output::{
 };
 use crate::settings::{show_settings_window, EmbeddedSettings};
 use crate::text_anno::{
-    apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle, default_text_box_at,
-    draw_text_style_strip, hit_text_box_handle, paint_boxed_text, paint_text_box_chrome,
-    text_edit_layouter_job, text_style_strip_frame, TextAlignKind, TextBoxHandle, TextStyle,
-    TEXT_HINT, TEXT_STYLE_STRIP_H,
+    clamp_text_rect, default_text_box_at, draw_text_style_strip, hit_text_box_chrome,
+    run_text_box_editor, text_style_strip_frame, TextBoxDrag, TextBoxSession, TextStyle,
+    TEXT_STYLE_STRIP_H,
 };
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
@@ -167,21 +166,15 @@ struct OnscreenApp {
     next_step_number: u32,
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
-    text_edit: Option<OnscreenTextEdit>,
+    text_edit: Option<TextBoxSession>,
     text_style: TextStyle,
-    text_resize: Option<TextBoxHandle>,
+    text_drag: Option<TextBoxDrag>,
     path: PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
     thickness_hud_until: Option<Instant>,
     show_settings: bool,
     settings: EmbeddedSettings,
-}
-
-#[derive(Debug, Clone)]
-struct OnscreenTextEdit {
-    rect: Rect,
-    buffer: String,
 }
 
 impl OnscreenApp {
@@ -227,7 +220,7 @@ impl OnscreenApp {
             draft: None,
             text_edit: None,
             text_style: TextStyle::default(),
-            text_resize: None,
+            text_drag: None,
             path,
             outcome,
             finished: false,
@@ -259,7 +252,7 @@ impl OnscreenApp {
         let Some(edit) = self.text_edit.take() else {
             return;
         };
-        self.text_resize = None;
+        self.text_drag = None;
         let text = edit.buffer.trim_end().to_string();
         if text.trim().is_empty() {
             return;
@@ -340,7 +333,7 @@ impl OnscreenApp {
         self.draft = None;
         self.drag_start = None;
         self.text_edit = None;
-        self.text_resize = None;
+        self.text_drag = None;
         self.next_step_number = 1;
     }
 
@@ -796,16 +789,6 @@ impl eframe::App for OnscreenApp {
                 let edit_screen = self.text_edit.as_ref().map(|e| {
                     Rect::from_min_max(to_screen(e.rect.min), to_screen(e.rect.max))
                 });
-                if let Some(screen_r) = edit_screen {
-                    let hover = ui
-                        .ctx()
-                        .pointer_hover_pos()
-                        .and_then(|p| hit_text_box_handle(screen_r, p));
-                    if let Some(h) = hover {
-                        ui.ctx().set_cursor_icon(cursor_for_text_handle(h));
-                    }
-                    paint_text_box_chrome(&painter, screen_r, hover);
-                }
                 if let Some(draft) = self.draft.clone() {
                     if let Some((a, b)) = draft_region_corners(&draft) {
                         let w = (a.x - b.x).abs().round() as u32;
@@ -837,13 +820,16 @@ impl eframe::App for OnscreenApp {
 
                 // Interaction: resize / edge-move / new select / draw inside selection.
                 let pointer = response.interact_pointer_pos();
+                // Text-box resize/move is handled inside `run_text_box_editor`.
+                let text_chrome_hit = pointer.and_then(|pos| {
+                    edit_screen.and_then(|r| hit_text_box_chrome(r, pos))
+                });
+
                 if response.drag_started() {
                     if let Some(pos) = pointer {
-                        let text_handle = edit_screen.and_then(|r| hit_text_box_handle(r, pos));
-                        if let Some(h) = text_handle {
-                            self.text_resize = Some(h);
+                        if text_chrome_hit.is_some() {
+                            // Defer to text box editor Area.
                             self.resize_handle = None;
-                            self.drag_start = Some(to_image(pos));
                             self.draft = None;
                         } else if let Some(sel) = sel_screen {
                             if let Some(h) = self.hit_selection(pos, sel) {
@@ -864,7 +850,7 @@ impl eframe::App for OnscreenApp {
                                 self.shapes.clear();
                                 self.redo_stack.clear();
                                 self.text_edit = None;
-                                self.text_resize = None;
+                                self.text_drag = None;
                                 self.next_step_number = 1;
                             }
                         } else if image_rect.contains(pos) {
@@ -881,6 +867,8 @@ impl eframe::App for OnscreenApp {
                         let img = to_image(pos);
                         if self.selecting {
                             self.sel_b = Some(img);
+                        } else if self.text_drag.is_some() {
+                            // Text box editor owns this drag.
                         } else if let Some(h) = self.resize_handle {
                             if h == Handle::Move {
                                 if let (Some(start), Some(a), Some(b)) =
@@ -911,18 +899,6 @@ impl eframe::App for OnscreenApp {
                             } else {
                                 self.apply_handle_drag(h, img);
                             }
-                        } else if self.text_resize.is_some() {
-                            if let (Some(h), Some(edit)) =
-                                (self.text_resize, self.text_edit.as_mut())
-                            {
-                                edit.rect = apply_text_handle_drag(
-                                    edit.rect,
-                                    h,
-                                    img,
-                                    self.img_w,
-                                    self.img_h,
-                                );
-                            }
                         } else if let Some(start) = self.drag_start {
                             if self.tool == Tool::Step || self.tool == Tool::Text {
                                 // Click tools — ignore drag.
@@ -946,9 +922,8 @@ impl eframe::App for OnscreenApp {
                     } else if self.resize_handle.is_some() {
                         self.resize_handle = None;
                         self.drag_start = None;
-                    } else if self.text_resize.is_some() {
-                        self.text_resize = None;
-                        self.drag_start = None;
+                    } else if self.text_drag.is_some() {
+                        // Cleared by text box editor.
                     } else if self.tool == Tool::Step || self.tool == Tool::Text {
                         // handled on click
                     } else if let Some(shape) = self.draft.take() {
@@ -979,22 +954,21 @@ impl eframe::App for OnscreenApp {
 
                 if (self.tool == Tool::Text || self.text_edit.is_some())
                     && response.clicked()
-                    && self.text_resize.is_none()
+                    && self.text_drag.is_none()
                 {
                     if let (Some(pos), Some(sel)) = (pointer, sel_img) {
                         let img = to_image(pos);
                         if sel.contains(img) {
-                            let inside = edit_screen.is_some_and(|r| r.contains(pos));
-                            let on_handle =
-                                edit_screen.is_some_and(|r| hit_text_box_handle(r, pos).is_some());
-                            if inside || on_handle {
+                            let inside = edit_screen.is_some_and(|r| r.expand(8.0).contains(pos));
+                            let on_chrome =
+                                edit_screen.is_some_and(|r| hit_text_box_chrome(r, pos).is_some());
+                            if inside || on_chrome {
                                 // Keep editing.
                             } else if self.tool == Tool::Text {
                                 self.commit_text_edit();
-                                self.text_edit = Some(OnscreenTextEdit {
-                                    rect: default_text_box_at(img, self.img_w, self.img_h),
-                                    buffer: String::new(),
-                                });
+                                self.text_edit = Some(TextBoxSession::new(default_text_box_at(
+                                    img, self.img_w, self.img_h,
+                                )));
                             } else {
                                 self.commit_text_edit();
                             }
@@ -1076,82 +1050,51 @@ impl eframe::App for OnscreenApp {
             });
 
         // In-place text editor (on-canvas box).
-        if let Some(edit) = self.text_edit.as_ref() {
+        if self.text_edit.is_some() {
             let screen = ctx.screen_rect();
             let (fitted, fitted_scale) =
                 fit_image_rect(screen, self.img_w as f32, self.img_h as f32);
+            let edit_rect = self.text_edit.as_ref().unwrap().rect;
             let screen_rect = Rect::from_min_max(
                 Pos2::new(
-                    fitted.min.x + edit.rect.min.x * fitted_scale,
-                    fitted.min.y + edit.rect.min.y * fitted_scale,
+                    fitted.min.x + edit_rect.min.x * fitted_scale,
+                    fitted.min.y + edit_rect.min.y * fitted_scale,
                 ),
                 Pos2::new(
-                    fitted.min.x + edit.rect.max.x * fitted_scale,
-                    fitted.min.y + edit.rect.max.y * fitted_scale,
+                    fitted.min.x + edit_rect.max.x * fitted_scale,
+                    fitted.min.y + edit_rect.max.y * fitted_scale,
                 ),
             );
             let color = self.stroke_color;
             let style = self.text_style;
-            let font_px = (style.size * fitted_scale).clamp(10.0, 72.0);
-            let mut scaled = style;
-            scaled.size = font_px;
-
-            {
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("hypershot_onscreen_text_edit_paint"),
-                ));
-                if edit.buffer.is_empty() {
-                    let mut hint_style = scaled;
-                    hint_style.align = TextAlignKind::Left;
-                    paint_boxed_text(
-                        &painter,
-                        screen_rect,
-                        TEXT_HINT,
-                        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 0x88),
-                        hint_style,
-                    );
-                } else {
-                    paint_boxed_text(&painter, screen_rect, &edit.buffer, color, scaled);
-                }
-            }
-
-            let mut buffer = edit.buffer.clone();
-            let mut commit_esc = false;
-            egui::Area::new(egui::Id::new("hypershot_onscreen_text_edit"))
-                .fixed_pos(screen_rect.min)
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    ui.set_min_size(screen_rect.size());
-                    ui.set_max_size(screen_rect.size());
-                    ui.set_clip_rect(screen_rect);
-                    let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                        let job = text_edit_layouter_job(
-                            text,
-                            Color32::TRANSPARENT,
-                            style,
-                            wrap_width,
-                            font_px,
-                        );
-                        ui.fonts(|f| f.layout_job(job))
-                    };
-                    let resp = ui.add_sized(
-                        screen_rect.size(),
-                        egui::TextEdit::multiline(&mut buffer)
-                            .text_color(Color32::TRANSPARENT)
-                            .frame(false)
-                            .margin(egui::Margin::symmetric(4, 2))
-                            .layouter(&mut layouter),
-                    );
-                    resp.request_focus();
-                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        commit_esc = true;
-                    }
-                });
-            if let Some(edit) = self.text_edit.as_mut() {
-                edit.buffer = buffer;
-            }
-            if commit_esc {
+            let img_w = self.img_w;
+            let img_h = self.img_h;
+            let to_image = |p: Pos2| -> Pos2 {
+                clamp_to_image(
+                    Pos2::new(
+                        (p.x - fitted.min.x) / fitted_scale,
+                        (p.y - fitted.min.y) / fitted_scale,
+                    ),
+                    img_w,
+                    img_h,
+                )
+            };
+            let frame = {
+                let edit = self.text_edit.as_mut().unwrap();
+                run_text_box_editor(
+                    ctx,
+                    edit,
+                    &mut self.text_drag,
+                    screen_rect,
+                    &to_image,
+                    img_w,
+                    img_h,
+                    fitted_scale,
+                    color,
+                    style,
+                )
+            };
+            if frame.commit_esc {
                 self.commit_text_edit();
             }
         }
@@ -1213,7 +1156,7 @@ impl eframe::App for OnscreenApp {
                     self.drag_start = None;
                     self.selecting = false;
                     self.resize_handle = None;
-                    self.text_resize = None;
+                    self.text_drag = None;
                 } else if esc_exit {
                     self.set_outcome(AnnotateOutcome::Cancelled);
                 }
