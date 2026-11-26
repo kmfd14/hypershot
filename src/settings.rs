@@ -295,7 +295,7 @@ impl SettingsApp {
         self.sync_text_into_cfg();
         match self.cfg.save() {
             Ok(path) => {
-                let mut notes = vec![format!("Saved {}", path.display())];
+                let mut notes = Vec::new();
                 match apply_desktop_integrations(&self.cfg) {
                     Ok(extra) => notes.extend(extra),
                     Err(err) => notes.push(format!("Desktop helpers: {err:#}")),
@@ -303,10 +303,11 @@ impl SettingsApp {
                 if let Err(err) = maybe_spawn_tray(&self.cfg) {
                     notes.push(format!("Tray: {err:#}"));
                 }
-                self.status = notes.join(" · ");
+                // One short line only — a long joined status was wrapping inside the
+                // footer and egui Window auto-expanded height on Apply (embedded).
+                self.status = settings_status_line(&path, &notes);
                 self.baseline = self.cfg.clone();
-                // Apply/OK can nudge some tiling WMs to adopt a resizable dialog —
-                // reassert floating size for a few frames (Settings never tiles).
+                // Standalone only: brief watch for WM stretch after Apply.
                 self.request_floating_reassert();
                 true
             }
@@ -607,12 +608,16 @@ impl SettingsApp {
                 }
             });
         });
-        // Status fits inside the fixed footer; truncate visually via single line.
+        // Paint status inside the already-allocated footer — never `ui.label`,
+        // which wraps and grows `last_content_size` (egui Window then auto-expands).
         if !self.status.is_empty() {
-            ui.label(
-                egui::RichText::new(&self.status)
-                    .color(SETTINGS_SECONDARY_DARK)
-                    .size(11.0),
+            let rect = ui.max_rect();
+            ui.painter().text(
+                egui::pos2(rect.left(), rect.bottom() - 2.0),
+                egui::Align2::LEFT_BOTTOM,
+                truncate_status_for_footer(&self.status, rect.width()),
+                egui::FontId::proportional(11.0),
+                SETTINGS_SECONDARY_DARK,
             );
         }
     }
@@ -1002,6 +1007,13 @@ impl SettingsApp {
 
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
+    (
+        "1.14.0",
+        &[
+            "Apply no longer grows embedded Settings height (content auto-expand)",
+            "Short Apply status; pinned egui Settings size from on-screen annotate",
+        ],
+    ),
     (
         "1.13.0",
         &[
@@ -1431,10 +1443,63 @@ fn draw_settings_title_bar(ui: &mut egui::Ui, native_viewport: bool) -> bool {
     close_resp.on_hover_text("Close").clicked()
 }
 
+/// Stable embedded default — do **not** scale from the fullscreen on-screen
+/// host rect (that inflated the dialog and its max toward the whole display).
+fn settings_embedded_default_size() -> Vec2 {
+    SETTINGS_DESIGN
+}
+
+const SETTINGS_EMBEDDED_ID: &str = "hypershot_settings_embedded";
+
+/// True when the pointer is down on a window edge (user edge-resize).
+fn pointer_resizing_window_edge(ctx: &egui::Context, rect: Option<egui::Rect>) -> bool {
+    let Some(rect) = rect else {
+        return false;
+    };
+    let resizing = ctx.input(|i| {
+        if !i.pointer.any_down() {
+            return false;
+        }
+        let Some(pos) = i.pointer.interact_pos() else {
+            return false;
+        };
+        let grip = 10.0_f32;
+        let near_x = (pos.x - rect.left()).abs() <= grip || (pos.x - rect.right()).abs() <= grip;
+        let near_y = (pos.y - rect.top()).abs() <= grip || (pos.y - rect.bottom()).abs() <= grip;
+        (near_x || near_y) && rect.expand(grip).contains(pos)
+    });
+    resizing
+}
+
+/// Short Apply status — never a multi-paragraph join that wraps the footer.
+fn settings_status_line(path: &std::path::Path, notes: &[String]) -> String {
+    let file = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config");
+    if notes.is_empty() {
+        format!("Saved {file}")
+    } else {
+        format!("Saved {file} · {} note(s)", notes.len())
+    }
+}
+
+fn truncate_status_for_footer(status: &str, width: f32) -> String {
+    // ~7px per character at 11pt; keep one line inside the footer.
+    let max_chars = ((width / 7.0).floor() as usize).clamp(12, 96);
+    if status.chars().count() <= max_chars {
+        status.to_string()
+    } else {
+        let mut out: String = status.chars().take(max_chars.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
 /// Draw the settings form inside an egui window (annotate toolbar gear).
 ///
-/// Uses the same default size, dark chrome, and custom title strip as
-/// [`run_settings_window`] so both entry points look identical.
+/// Uses the same dark chrome and custom title strip as [`run_settings_window`].
+/// Size is pinned against egui's content auto-expand (Apply must not change height).
 pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut EmbeddedSettings) {
     if !*open {
         return;
@@ -1442,23 +1507,32 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
 
     ui::apply_settings_visuals(ctx, UiTheme::Dark);
     let screen = ctx.screen_rect();
-    let size = settings_default_size(screen);
-    let min_size = settings_min_size(size);
+    let default = settings_embedded_default_size();
+    let min_size = settings_min_size(default);
+    let user_max = Vec2::new(
+        screen.width() * 0.92,
+        screen.height() * 0.92,
+    );
+    let area_id = egui::Id::new(SETTINGS_EMBEDDED_ID);
+    let last_rect = ctx.memory(|m| m.area_rect(area_id));
+    let user_resizing = pointer_resizing_window_edge(ctx, last_rect);
+
+    let pinned = *state.window_size.get_or_insert(default);
+    // While the user drags an edge, allow growth up to the host. Otherwise clamp
+    // max to the pinned size so content (status text, etc.) cannot auto-expand
+    // the egui Window — that was the Apply height jump from on-screen annotate.
+    let max_size = if user_resizing { user_max } else { pinned };
     let default_pos = egui::pos2(
-        (screen.width() - size.x) * 0.5,
-        (screen.height() - size.y) * 0.5,
+        (screen.width() - pinned.x) * 0.5,
+        (screen.height() - pinned.y) * 0.5,
     );
-    // Cap growth so a tiled/fullscreen host cannot stretch this dialog full-bleed.
-    let max_size = Vec2::new(
-        (size.x * 1.35).min(screen.width() * 0.92).max(min_size.x),
-        (size.y * 1.35).min(screen.height() * 0.92).max(min_size.y),
-    );
+
     egui::Window::new(settings_window_title())
-        .id(egui::Id::new("hypershot_settings_embedded"))
+        .id(area_id)
         .title_bar(false)
         .resizable(true)
         .collapsible(false)
-        .default_size(size)
+        .default_size(pinned)
         .min_size(min_size)
         .max_size(max_size)
         .default_pos(default_pos)
@@ -1470,12 +1544,23 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
                 .inner_margin(0.0),
         )
         .show(ctx, |ui| {
-            // Clip to the window so content cannot force auto-grow.
             let avail = ui.available_size();
             ui.set_min_size(avail);
             ui.set_max_size(avail);
+            ui.set_clip_rect(ui.max_rect());
             state.inner.draw_shell(ui);
         });
+
+    if user_resizing {
+        if let Some(rect) = ctx.memory(|m| m.area_rect(area_id)) {
+            let sz = rect.size();
+            // Stick at the size the user chose.
+            state.window_size = Some(Vec2::new(
+                sz.x.clamp(min_size.x, user_max.x),
+                sz.y.clamp(min_size.y, user_max.y),
+            ));
+        }
+    }
 
     if state.inner.close_requested {
         *open = false;
@@ -1489,6 +1574,8 @@ pub fn show_settings_window(ctx: &egui::Context, open: &mut bool, state: &mut Em
 /// Embeddable settings state for the annotate overlay.
 pub struct EmbeddedSettings {
     inner: SettingsApp,
+    /// Pinned egui Window size — updated only by user edge-resize, never by content.
+    window_size: Option<Vec2>,
 }
 
 impl EmbeddedSettings {
@@ -1497,6 +1584,7 @@ impl EmbeddedSettings {
         Self {
             // Hosted inside annotate/onscreen — do not StartDrag the capture viewport.
             inner: SettingsApp::new_with_host(cfg, false),
+            window_size: None,
         }
     }
 
@@ -1660,5 +1748,33 @@ mod tests {
         let mut embedded = EmbeddedSettings::load();
         embedded.inner.request_floating_reassert();
         assert_eq!(embedded.inner.reassert_floating_frames, 0);
+    }
+
+    #[test]
+    fn apply_status_stays_one_short_line() {
+        let path = std::path::Path::new("/home/user/.config/hypershot/config.toml");
+        let notes = vec![
+            "Autostart written: /home/user/.config/autostart/hypershot.desktop".into(),
+            "Stay in tray is on: run cargo run -- tray".into(),
+        ];
+        let line = settings_status_line(path, &notes);
+        assert!(line.starts_with("Saved config.toml"));
+        assert!(!line.contains('/'));
+        assert!(line.len() < 80);
+        let long = "x".repeat(200);
+        let truncated = truncate_status_for_footer(&long, 200.0);
+        assert!(truncated.chars().count() <= 96);
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn embedded_default_ignores_fullscreen_host() {
+        assert_eq!(settings_embedded_default_size(), SETTINGS_DESIGN);
+        let fullscreen = settings_default_size(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(3840.0, 2160.0),
+        ));
+        // Embedded must not inherit the large fullscreen-scaled default.
+        assert!(settings_embedded_default_size().y <= fullscreen.y);
     }
 }
