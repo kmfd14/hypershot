@@ -301,9 +301,12 @@ fn annotate_visuals(dark: bool) -> egui::Visuals {
         w.fg_stroke = Stroke::new(1.0_f32, fg);
         w.corner_radius = CornerRadius::same(8);
     }
+    // Quiet secondary labels / disabled chrome use the muted ink.
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, pal.muted);
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(8);
-    visuals.window_stroke = Stroke::new(1.0_f32, pal.toolbar_stroke);
+    // Flatter annotate windows — hairline at most, no heavy outline.
+    visuals.window_stroke = Stroke::new(1.0_f32, with_alpha(pal.toolbar_stroke, 0.35));
     visuals.window_shadow = Shadow {
         offset: [0, 2],
         blur: 8,
@@ -391,7 +394,8 @@ fn settings_visuals(dark: bool) -> egui::Visuals {
     }
     visuals.window_corner_radius = CornerRadius::same(10);
     visuals.menu_corner_radius = CornerRadius::same(6);
-    visuals.window_stroke = Stroke::new(1.0_f32, sep);
+    // Flatter Settings shell — no heavy outer outline.
+    visuals.window_stroke = Stroke::NONE;
     visuals.window_shadow = Shadow {
         offset: [0, 1],
         blur: 6,

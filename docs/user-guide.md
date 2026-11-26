@@ -1,6 +1,6 @@
 # HyperShot: user guide
 
-**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.10.0**
+**Product:** HyperShot · **Crate / binary:** `hypershot` · **v1.11.0**
 
 **Do this now** (from the repo checkout, graphical desktop):
 
