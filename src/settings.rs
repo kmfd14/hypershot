@@ -1008,6 +1008,14 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.15.0",
+        &[
+            "In-place text box (no popup): type on canvas, wrap, resize handles",
+            "Text style strip under toolbar (Font, Size, Align, Bold/Italic/Underline)",
+            "Enter inserts a new line; Esc or click outside commits the box",
+        ],
+    ),
+    (
         "1.14.0",
         &[
             "Apply no longer grows embedded Settings height (content auto-expand)",

@@ -25,6 +25,11 @@ use crate::output::{
     configured_save_file_type, default_capture_filename, ensure_save_extension, save_rgba_image,
 };
 use crate::settings::{show_settings_window, EmbeddedSettings};
+use crate::text_anno::{
+    apply_text_handle_drag, clamp_text_rect, cursor_for_text_handle, default_text_box_at,
+    draw_text_style_strip, hit_text_box_handle, paint_text_box_chrome, text_layout_job,
+    text_style_strip_frame, TextBoxHandle, TextStyle, TEXT_HINT, TEXT_STYLE_STRIP_H,
+};
 use crate::ui::{
     self, fit_image_rect, glass_color_swatch, glass_icon_button, glass_toolbar_frame,
     paint_icon_arrow, paint_icon_box, paint_icon_clear, paint_icon_copy, paint_icon_exit,
@@ -162,6 +167,8 @@ struct OnscreenApp {
     drag_start: Option<Pos2>,
     draft: Option<Shape>,
     text_edit: Option<OnscreenTextEdit>,
+    text_style: TextStyle,
+    text_resize: Option<TextBoxHandle>,
     path: PathBuf,
     outcome: Arc<Mutex<AnnotateOutcome>>,
     finished: bool,
@@ -172,7 +179,7 @@ struct OnscreenApp {
 
 #[derive(Debug, Clone)]
 struct OnscreenTextEdit {
-    pos: Pos2,
+    rect: Rect,
     buffer: String,
 }
 
@@ -218,6 +225,8 @@ impl OnscreenApp {
             drag_start: None,
             draft: None,
             text_edit: None,
+            text_style: TextStyle::default(),
+            text_resize: None,
             path,
             outcome,
             finished: false,
@@ -236,10 +245,6 @@ impl OnscreenApp {
         }
     }
 
-    fn text_size_for_width(&self) -> f32 {
-        (self.stroke_width * 6.0).clamp(10.0, 72.0)
-    }
-
     fn highlighter_color(&self) -> Color32 {
         let c = self.stroke_color;
         if c.a() < 255 {
@@ -253,16 +258,28 @@ impl OnscreenApp {
         let Some(edit) = self.text_edit.take() else {
             return;
         };
-        let text = edit.buffer.trim().to_string();
-        if text.is_empty() {
+        self.text_resize = None;
+        let text = edit.buffer.trim_end().to_string();
+        if text.trim().is_empty() {
             return;
         }
         self.push_shape(Shape::Text {
-            pos: edit.pos,
+            rect: clamp_text_rect(edit.rect, self.img_w, self.img_h),
             text,
             color: self.stroke_color,
-            size: self.text_size_for_width(),
+            style: self.text_style,
         });
+    }
+
+    fn set_tool(&mut self, tool: Tool) {
+        if tool != Tool::Text {
+            self.commit_text_edit();
+        }
+        self.tool = tool;
+    }
+
+    fn show_text_style_strip(&self) -> bool {
+        self.tool == Tool::Text || self.text_edit.is_some()
     }
 
     fn selection_rect(&self) -> Option<Rect> {
@@ -322,6 +339,7 @@ impl OnscreenApp {
         self.draft = None;
         self.drag_start = None;
         self.text_edit = None;
+        self.text_resize = None;
         self.next_step_number = 1;
     }
 
@@ -559,7 +577,7 @@ impl OnscreenApp {
             }
             if glass_icon_button(ui, self.tool == Tool::Arrow, "Arrow", None, TOOL_BTN, paint_icon_arrow)
             {
-                self.tool = Tool::Arrow;
+                self.set_tool(Tool::Arrow);
             }
             if glass_icon_button(
                 ui,
@@ -569,14 +587,14 @@ impl OnscreenApp {
                 TOOL_BTN,
                 paint_icon_highlighter,
             ) {
-                self.tool = Tool::Highlighter;
+                self.set_tool(Tool::Highlighter);
             }
             if glass_icon_button(ui, self.tool == Tool::Line, "Line", None, TOOL_BTN, paint_icon_line)
             {
-                self.tool = Tool::Line;
+                self.set_tool(Tool::Line);
             }
             if glass_icon_button(ui, self.tool == Tool::Rect, "Box", None, TOOL_BTN, paint_icon_box) {
-                self.tool = Tool::Rect;
+                self.set_tool(Tool::Rect);
             }
             if glass_icon_button(
                 ui,
@@ -586,7 +604,7 @@ impl OnscreenApp {
                 TOOL_BTN,
                 paint_icon_pixelate,
             ) {
-                self.tool = Tool::Pixelate;
+                self.set_tool(Tool::Pixelate);
             }
             if glass_icon_button(
                 ui,
@@ -596,11 +614,11 @@ impl OnscreenApp {
                 TOOL_BTN,
                 paint_icon_step,
             ) {
-                self.tool = Tool::Step;
+                self.set_tool(Tool::Step);
             }
             if glass_icon_button(ui, self.tool == Tool::Text, "Text", None, TOOL_BTN, paint_icon_text)
             {
-                self.tool = Tool::Text;
+                self.set_tool(Tool::Text);
             }
             if glass_icon_button(
                 ui,
@@ -610,7 +628,7 @@ impl OnscreenApp {
                 TOOL_BTN,
                 paint_icon_magnify,
             ) {
-                self.tool = Tool::Magnify;
+                self.set_tool(Tool::Magnify);
             }
             glass_color_swatch(ui, &mut self.stroke_color);
             // Thickness readout (Ctrl+scroll) — number + unit on one line.
@@ -774,25 +792,18 @@ impl eframe::App for OnscreenApp {
                         self.img_h,
                     );
                 }
-                if let Some(edit) = &self.text_edit {
-                    paint_shape(
-                        &painter,
-                        &Shape::Text {
-                            pos: edit.pos,
-                            text: if edit.buffer.is_empty() {
-                                "Text".into()
-                            } else {
-                                edit.buffer.clone()
-                            },
-                            color: self.stroke_color,
-                            size: self.text_size_for_width(),
-                        },
-                        to_screen,
-                        scale,
-                        &self.pixels,
-                        self.img_w,
-                        self.img_h,
-                    );
+                let edit_screen = self.text_edit.as_ref().map(|e| {
+                    Rect::from_min_max(to_screen(e.rect.min), to_screen(e.rect.max))
+                });
+                if let Some(screen_r) = edit_screen {
+                    let hover = ui
+                        .ctx()
+                        .pointer_hover_pos()
+                        .and_then(|p| hit_text_box_handle(screen_r, p));
+                    if let Some(h) = hover {
+                        ui.ctx().set_cursor_icon(cursor_for_text_handle(h));
+                    }
+                    paint_text_box_chrome(&painter, screen_r, hover);
                 }
                 if let Some(draft) = self.draft.clone() {
                     if let Some((a, b)) = draft_region_corners(&draft) {
@@ -827,7 +838,13 @@ impl eframe::App for OnscreenApp {
                 let pointer = response.interact_pointer_pos();
                 if response.drag_started() {
                     if let Some(pos) = pointer {
-                        if let Some(sel) = sel_screen {
+                        let text_handle = edit_screen.and_then(|r| hit_text_box_handle(r, pos));
+                        if let Some(h) = text_handle {
+                            self.text_resize = Some(h);
+                            self.resize_handle = None;
+                            self.drag_start = Some(to_image(pos));
+                            self.draft = None;
+                        } else if let Some(sel) = sel_screen {
                             if let Some(h) = self.hit_selection(pos, sel) {
                                 // Edge or handle: move / resize the region.
                                 self.resize_handle = Some(h);
@@ -846,6 +863,7 @@ impl eframe::App for OnscreenApp {
                                 self.shapes.clear();
                                 self.redo_stack.clear();
                                 self.text_edit = None;
+                                self.text_resize = None;
                                 self.next_step_number = 1;
                             }
                         } else if image_rect.contains(pos) {
@@ -883,11 +901,26 @@ impl eframe::App for OnscreenApp {
                                         if let Some(d) = self.draft.as_mut() {
                                             translate_shape(d, applied);
                                         }
+                                        if let Some(edit) = self.text_edit.as_mut() {
+                                            edit.rect = edit.rect.translate(applied);
+                                        }
                                     }
                                     self.drag_start = Some(img);
                                 }
                             } else {
                                 self.apply_handle_drag(h, img);
+                            }
+                        } else if self.text_resize.is_some() {
+                            if let (Some(h), Some(edit)) =
+                                (self.text_resize, self.text_edit.as_mut())
+                            {
+                                edit.rect = apply_text_handle_drag(
+                                    edit.rect,
+                                    h,
+                                    img,
+                                    self.img_w,
+                                    self.img_h,
+                                );
                             }
                         } else if let Some(start) = self.drag_start {
                             if self.tool == Tool::Step || self.tool == Tool::Text {
@@ -912,6 +945,9 @@ impl eframe::App for OnscreenApp {
                     } else if self.resize_handle.is_some() {
                         self.resize_handle = None;
                         self.drag_start = None;
+                    } else if self.text_resize.is_some() {
+                        self.text_resize = None;
+                        self.drag_start = None;
                     } else if self.tool == Tool::Step || self.tool == Tool::Text {
                         // handled on click
                     } else if let Some(shape) = self.draft.take() {
@@ -928,6 +964,7 @@ impl eframe::App for OnscreenApp {
                     if let (Some(pos), Some(sel)) = (pointer, sel_img) {
                         let img = to_image(pos);
                         if sel.contains(img) {
+                            self.commit_text_edit();
                             let number = self.next_step_number;
                             self.push_shape(Shape::Step {
                                 center: img,
@@ -939,15 +976,27 @@ impl eframe::App for OnscreenApp {
                     }
                 }
 
-                if self.tool == Tool::Text && response.clicked() {
+                if (self.tool == Tool::Text || self.text_edit.is_some())
+                    && response.clicked()
+                    && self.text_resize.is_none()
+                {
                     if let (Some(pos), Some(sel)) = (pointer, sel_img) {
                         let img = to_image(pos);
                         if sel.contains(img) {
-                            self.commit_text_edit();
-                            self.text_edit = Some(OnscreenTextEdit {
-                                pos: img,
-                                buffer: String::new(),
-                            });
+                            let inside = edit_screen.is_some_and(|r| r.contains(pos));
+                            let on_handle =
+                                edit_screen.is_some_and(|r| hit_text_box_handle(r, pos).is_some());
+                            if inside || on_handle {
+                                // Keep editing.
+                            } else if self.tool == Tool::Text {
+                                self.commit_text_edit();
+                                self.text_edit = Some(OnscreenTextEdit {
+                                    rect: default_text_box_at(img, self.img_w, self.img_h),
+                                    buffer: String::new(),
+                                });
+                            } else {
+                                self.commit_text_edit();
+                            }
                         }
                     }
                 }
@@ -996,48 +1045,92 @@ impl eframe::App for OnscreenApp {
                                 self.draw_toolbar(ui, horizontal);
                             });
                         });
+                    if self.show_text_style_strip() {
+                        let strip_w = if horizontal {
+                            (bar_w).max(420.0)
+                        } else {
+                            420.0_f32
+                        };
+                        let strip_h = TEXT_STYLE_STRIP_H;
+                        let strip_pos = if horizontal {
+                            Pos2::new(bar_pos.x, bar_pos.y + bar_h + 4.0)
+                        } else {
+                            Pos2::new(
+                                (bar_pos.x + bar_w + 4.0).min(area.right() - strip_w - 8.0),
+                                bar_pos.y,
+                            )
+                        };
+                        egui::Area::new(egui::Id::new("hypershot_onscreen_text_strip"))
+                            .fixed_pos(strip_pos)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                text_style_strip_frame(&pal).show(ui, |ui| {
+                                    ui.set_min_width(strip_w - 12.0);
+                                    ui.set_height(strip_h - 8.0);
+                                    draw_text_style_strip(ui, &mut self.text_style, &pal);
+                                });
+                            });
+                    }
                 }
             });
 
-        // Text editor overlay
+        // In-place text editor (on-canvas box).
         if let Some(edit) = self.text_edit.as_ref() {
-            if let Some(sel) = self.selection_rect() {
-                // Position roughly; full mapping uses last frame geometry via screen rect.
-                let _ = sel;
-                let screen = ctx.screen_rect();
-                let mut buffer = edit.buffer.clone();
-                let font_px = self.text_size_for_width();
-                let color = self.stroke_color;
-                let mut commit = false;
-                let mut cancel = false;
-                egui::Area::new(egui::Id::new("hypershot_onscreen_text_edit"))
-                    .fixed_pos(Pos2::new(screen.center().x - 80.0, screen.center().y))
-                    .order(egui::Order::Foreground)
-                    .show(ctx, |ui| {
-                        ui.set_min_width(160.0);
-                        let resp = ui.add(
-                            egui::TextEdit::singleline(&mut buffer)
-                                .hint_text("Text")
-                                .font(egui::FontId::proportional(font_px.clamp(12.0, 36.0)))
-                                .text_color(color)
-                                .frame(true),
-                        );
-                        resp.request_focus();
-                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            commit = true;
+            let screen = ctx.screen_rect();
+            let scale_x = screen.width() / self.img_w.max(1) as f32;
+            let scale_y = screen.height() / self.img_h.max(1) as f32;
+            // Fullscreen capture maps 1:1 image→screen in paint_canvas; use same.
+            let image_rect = screen; // overwritten below from last layout via fitted math
+            let (fitted, fitted_scale) =
+                fit_image_rect(screen, self.img_w as f32, self.img_h as f32);
+            let _ = (scale_x, scale_y, image_rect);
+            let screen_rect = Rect::from_min_max(
+                Pos2::new(
+                    fitted.min.x + edit.rect.min.x * fitted_scale,
+                    fitted.min.y + edit.rect.min.y * fitted_scale,
+                ),
+                Pos2::new(
+                    fitted.min.x + edit.rect.max.x * fitted_scale,
+                    fitted.min.y + edit.rect.max.y * fitted_scale,
+                ),
+            );
+            let color = self.stroke_color;
+            let style = self.text_style;
+            let font_px = (style.size * fitted_scale).clamp(10.0, 72.0);
+            let mut buffer = edit.buffer.clone();
+            let mut commit_esc = false;
+            egui::Area::new(egui::Id::new("hypershot_onscreen_text_edit"))
+                .fixed_pos(screen_rect.min)
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    ui.set_min_size(screen_rect.size());
+                    ui.set_max_size(screen_rect.size());
+                    let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
+                        let mut job = text_layout_job(text, color, style, wrap_width);
+                        for section in &mut job.sections {
+                            section.format.font_id = style.font_id(font_px);
                         }
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            cancel = true;
-                        }
-                    });
-                if let Some(edit) = self.text_edit.as_mut() {
-                    edit.buffer = buffer;
-                }
-                if cancel {
-                    self.text_edit = None;
-                } else if commit {
-                    self.commit_text_edit();
-                }
+                        ui.fonts(|f| f.layout_job(job))
+                    };
+                    let resp = ui.add_sized(
+                        screen_rect.size(),
+                        egui::TextEdit::multiline(&mut buffer)
+                            .hint_text(TEXT_HINT)
+                            .text_color(color)
+                            .frame(false)
+                            .margin(egui::Margin::symmetric(4, 2))
+                            .layouter(&mut layouter),
+                    );
+                    resp.request_focus();
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        commit_esc = true;
+                    }
+                });
+            if let Some(edit) = self.text_edit.as_mut() {
+                edit.buffer = buffer;
+            }
+            if commit_esc {
+                self.commit_text_edit();
             }
         }
 
@@ -1088,22 +1181,25 @@ impl eframe::App for OnscreenApp {
 
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
-                if self.draft.is_some()
+                if self.text_edit.is_some() {
+                    self.commit_text_edit();
+                } else if self.draft.is_some()
                     || self.drag_start.is_some()
                     || self.selecting
-                    || self.text_edit.is_some()
                 {
                     self.draft = None;
                     self.drag_start = None;
                     self.selecting = false;
                     self.resize_handle = None;
-                    self.text_edit = None;
+                    self.text_resize = None;
                 } else if esc_exit {
                     self.set_outcome(AnnotateOutcome::Cancelled);
                 }
             }
             if i.key_pressed(egui::Key::Enter) {
-                if let Err(err) = self.enter_save_and_copy() {
+                if self.text_edit.is_some() {
+                    // Enter inserts a newline inside the text box.
+                } else if let Err(err) = self.enter_save_and_copy() {
                     eprintln!("enter save/copy failed: {err:#}");
                 }
             }
@@ -1200,8 +1296,8 @@ fn translate_shape(shape: &mut Shape, delta: Vec2) {
         Shape::Step { center, .. } | Shape::Magnify { center, .. } => {
             *center += delta;
         }
-        Shape::Text { pos, .. } => {
-            *pos += delta;
+        Shape::Text { rect, .. } => {
+            *rect = rect.translate(delta);
         }
     }
 }
