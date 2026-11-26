@@ -1008,6 +1008,13 @@ impl SettingsApp {
 /// Recent version notes for Settings → About (Title Case headers; scannable bullets).
 const CHANGELOG_ENTRIES: &[(&str, &[&str])] = &[
     (
+        "1.19.0",
+        &[
+            "Fix region select freeze: text fonts install once per window (not every frame)",
+            "Fontconfig discovery uses correct fc-list format",
+        ],
+    ),
+    (
         "1.18.0",
         &[
             "Text Font picker loads real system Sans/Serif/Mono faces (no unbound-serif panic)",

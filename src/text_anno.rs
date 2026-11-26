@@ -78,17 +78,30 @@ impl TextFontKind {
     }
 }
 
-/// Load system TTF/OTF bytes for annotation text (Sans / Serif / Mono).
+/// Install system Sans/Serif/Mono faces into this egui context (once).
 ///
-/// Walks known font directories and preferred face names, validating with
-/// `ab_glyph` so variable fonts that fail to parse are skipped. Falls back to
-/// the vendored Ubuntu Light face when nothing usable is found.
+/// Safe to call from `apply_annotate_visuals` every frame: a per-context temp
+/// mark skips rediscovery/`set_fonts`. Rebuilding fonts every pass froze the
+/// on-screen overlay so region drag never registered.
 pub(crate) fn install_text_annotation_fonts(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    for kind in TextFontKind::ALL {
-        bind_annotation_family(&mut fonts, kind);
+    let mark = egui::Id::new("hypershot_text_annotation_fonts");
+    if ctx.data(|d| d.get_temp::<bool>(mark).is_some()) {
+        return;
     }
-    ctx.set_fonts(fonts);
+    ctx.set_fonts(annotation_font_definitions());
+    ctx.data_mut(|d| d.insert_temp(mark, true));
+}
+
+fn annotation_font_definitions() -> FontDefinitions {
+    static DEFS: OnceLock<FontDefinitions> = OnceLock::new();
+    DEFS.get_or_init(|| {
+        let mut fonts = FontDefinitions::default();
+        for kind in TextFontKind::ALL {
+            bind_annotation_family(&mut fonts, kind);
+        }
+        fonts
+    })
+    .clone()
 }
 
 fn bind_annotation_family(fonts: &mut FontDefinitions, kind: TextFontKind) {
@@ -139,9 +152,55 @@ pub(crate) fn annotation_font_bytes(kind: TextFontKind) -> &'static [u8] {
 }
 
 fn load_system_font_bytes(kind: TextFontKind) -> Option<Vec<u8>> {
-    for path in discover_font_paths(kind) {
+    // Try candidates in order; return on first parseable face (no full-tree collect).
+    for path in fontconfig_paths(kind) {
         if let Some(bytes) = read_usable_font(&path) {
             return Some(bytes);
+        }
+    }
+    for root in system_font_roots() {
+        for name in preferred_file_names(kind) {
+            let direct = root.join(name);
+            if let Some(bytes) = read_usable_font(&direct) {
+                return Some(bytes);
+            }
+            // Distro layout: /usr/share/fonts/<family-dir>/<file>.ttf
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let sub = entry.path();
+                    if !sub.is_dir() {
+                        continue;
+                    }
+                    let candidate = sub.join(name);
+                    if let Some(bytes) = read_usable_font(&candidate) {
+                        return Some(bytes);
+                    }
+                }
+            }
+        }
+    }
+    // Last resort: one-level name match under system roots.
+    for root in system_font_roots() {
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && face_name_matches(kind, &path) {
+                    if let Some(bytes) = read_usable_font(&path) {
+                        return Some(bytes);
+                    }
+                } else if path.is_dir() {
+                    if let Ok(nested) = std::fs::read_dir(&path) {
+                        for nest in nested.flatten() {
+                            let np = nest.path();
+                            if np.is_file() && face_name_matches(kind, &np) {
+                                if let Some(bytes) = read_usable_font(&np) {
+                                    return Some(bytes);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     None
@@ -152,39 +211,6 @@ fn read_usable_font(path: &Path) -> Option<Vec<u8>> {
     // Skip variable / broken faces that ab_glyph (and egui) cannot parse.
     ab_glyph::FontRef::try_from_slice(&bytes).ok()?;
     Some(bytes)
-}
-
-fn discover_font_paths(kind: TextFontKind) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    // Prefer fontconfig when available (Linux), then probe well-known paths.
-    out.extend(fontconfig_paths(kind));
-    for root in system_font_roots() {
-        for name in preferred_file_names(kind) {
-            let p = root.join(name);
-            if p.is_file() {
-                out.push(p);
-            }
-        }
-        // Shallow + one-level walk for distro layout (…/liberation-serif-fonts/*.ttf).
-        if let Ok(entries) = std::fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && face_name_matches(kind, &path) {
-                    out.push(path);
-                } else if path.is_dir() {
-                    if let Ok(nested) = std::fs::read_dir(&path) {
-                        for nest in nested.flatten() {
-                            let np = nest.path();
-                            if np.is_file() && face_name_matches(kind, &np) {
-                                out.push(np);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    out
 }
 
 fn fontconfig_paths(kind: TextFontKind) -> Vec<PathBuf> {
@@ -226,8 +252,9 @@ fn fontconfig_paths(kind: TextFontKind) -> Vec<PathBuf> {
     };
     let mut paths = Vec::new();
     for family in families {
+        // `fc-list -f '%{file}\n' "Family Name"` — not `:file` as a pattern element.
         let Ok(output) = std::process::Command::new("fc-list")
-            .args([family, ":file", "-f", "%{file}\n"])
+            .args(["-f", "%{file}\n", family])
             .output()
         else {
             break; // no fontconfig
@@ -237,16 +264,19 @@ fn fontconfig_paths(kind: TextFontKind) -> Vec<PathBuf> {
         }
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let p = PathBuf::from(line.trim());
-            if p.is_file() {
-                // Prefer Regular / Roman; skip Italic-only when Regular exists later.
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let lower = name.to_ascii_lowercase();
-                if lower.contains("bold") || lower.contains("italic") || lower.contains("oblique")
-                {
-                    continue;
-                }
-                paths.push(p);
+            if !p.is_file() {
+                continue;
             }
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let lower = name.to_ascii_lowercase();
+            if lower.contains('[')
+                || lower.contains("bold")
+                || lower.contains("italic")
+                || lower.contains("oblique")
+            {
+                continue;
+            }
+            paths.push(p);
         }
         if !paths.is_empty() {
             break;
@@ -1371,20 +1401,24 @@ mod tests {
 
     #[test]
     fn annotation_font_families_are_bound() {
-        let mut fonts = FontDefinitions::default();
+        let fonts = annotation_font_definitions();
         for kind in TextFontKind::ALL {
-            bind_annotation_family(&mut fonts, kind);
             let key = FontFamily::Name(kind.family_key().into());
             let chain = fonts
                 .families
                 .get(&key)
                 .expect("FontFamily::Name must be bound");
-            assert!(
-                !chain.is_empty(),
-                "{:?} family chain empty",
-                kind
-            );
+            assert!(!chain.is_empty(), "{:?} family chain empty", kind);
         }
+    }
+
+    #[test]
+    fn install_fonts_is_idempotent_per_context() {
+        let ctx = egui::Context::default();
+        install_text_annotation_fonts(&ctx);
+        install_text_annotation_fonts(&ctx); // must not rediscover / panic
+        let mark = egui::Id::new("hypershot_text_annotation_fonts");
+        assert!(ctx.data(|d| d.get_temp::<bool>(mark).is_some()));
     }
 
     #[test]

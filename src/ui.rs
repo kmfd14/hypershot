@@ -415,7 +415,7 @@ pub fn apply_annotate_visuals(ctx: &egui::Context, theme: UiTheme) {
     ctx.set_visuals_of(Theme::Light, annotate_visuals(false));
     ctx.set_visuals_of(Theme::Dark, annotate_visuals(true));
     ctx.set_theme(theme_preference(theme));
-    // Bind Sans/Serif/Mono to real system faces (avoids unbound FontFamily panic).
+    // Bind Sans/Serif/Mono once per context (idempotent — safe every frame).
     crate::text_anno::install_text_annotation_fonts(ctx);
     // Low feathering keeps vector icons crisp (less soft/pixelated AA).
     ctx.tessellation_options_mut(|opts| {
